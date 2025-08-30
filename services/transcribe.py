@@ -106,6 +106,7 @@ class TranscriptionService:
         # Create temporary video file
         temp_dir = Path(tempfile.gettempdir())
         video_path = temp_dir / f"video_{clip_id}.mp4"
+        audio_path = None  # Initialize to None to avoid UnboundLocalError
         
         try:
             # Download video
@@ -120,11 +121,14 @@ class TranscriptionService:
             return transcript, video_path, audio_path
             
         except Exception as e:
-            # Clean up on error
+            # Clean up on error - iterate over paths safely
             for path in [video_path, audio_path]:
                 if path and path.exists():
-                    path.unlink()
-            raise e
+                    try:
+                        path.unlink()
+                    except Exception:
+                        pass  # Ignore cleanup errors
+            raise RuntimeError(f"Failed to download and transcribe video: {e}") from e
     
     def _download_video(self, url: str, output_path: Path):
         """Download video from URL using yt-dlp for Twitch clips."""
@@ -135,13 +139,18 @@ class TranscriptionService:
             else:
                 return self._download_with_httpx(url, output_path)
                             
+        except (yt_dlp.DownloadError, httpx.HTTPError, OSError) as e:
+            raise RuntimeError(f"Failed to download video: {e}") from e
         except Exception as e:
-            raise RuntimeError(f"Failed to download video: {e}")
+            raise RuntimeError(f"Unexpected error during download: {e}") from e
     
     def _download_with_ytdlp(self, url: str, output_path: Path):
         """Download video using yt-dlp."""
+        # Get the base path without extension to handle format mismatches
+        base_path = output_path.with_suffix('')
+        
         ydl_opts = {
-            'outtmpl': str(output_path),
+            'outtmpl': str(base_path) + '.%(ext)s',  # Let yt-dlp choose extension
             'format': 'best[ext=mp4]/best',  # Prefer MP4 format
             'quiet': True,
             'no_warnings': True,
@@ -151,17 +160,30 @@ class TranscriptionService:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
             
-            # Verify the file was downloaded
-            if not output_path.exists():
-                raise RuntimeError("yt-dlp download failed - file not found")
+            # Find the actual downloaded file (may have different extension)
+            downloaded_files = list(base_path.parent.glob(f"{base_path.name}.*"))
+            if not downloaded_files:
+                raise RuntimeError("yt-dlp download failed - no files found")
+            
+            # Use the first file found (should be the only one)
+            actual_path = downloaded_files[0]
+            
+            # If the actual file has a different extension than expected, rename it
+            if actual_path.suffix != output_path.suffix:
+                actual_path.rename(output_path)
+            else:
+                # If same extension, just update the reference
+                output_path = actual_path
                 
+        except yt_dlp.DownloadError as e:
+            raise RuntimeError(f"yt-dlp download failed: {e}") from e
         except Exception as e:
-            raise RuntimeError(f"yt-dlp download failed: {e}")
+            raise RuntimeError(f"Unexpected error in yt-dlp download: {e}") from e
     
     def _download_with_httpx(self, url: str, output_path: Path):
         """Download video using httpx (for non-Twitch URLs)."""
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 with client.stream('GET', url) as response:
                     response.raise_for_status()
                     
@@ -169,8 +191,12 @@ class TranscriptionService:
                         for chunk in response.iter_bytes(chunk_size=8192):
                             f.write(chunk)
                             
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"httpx download failed: {e}") from e
+        except OSError as e:
+            raise RuntimeError(f"File system error during download: {e}") from e
         except Exception as e:
-            raise RuntimeError(f"httpx download failed: {e}")
+            raise RuntimeError(f"Unexpected error in httpx download: {e}") from e
     
     def cleanup_temp_files(self, *file_paths: Path):
         """Clean up temporary files."""

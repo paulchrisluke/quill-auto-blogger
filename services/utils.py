@@ -94,6 +94,22 @@ class CacheManager:
         
         return None
     
+    def persist_file(self, temp_path: Path, filename: str, date: Optional[datetime] = None) -> Path:
+        """Move a temporary file to persistent storage and return the new path."""
+        if not temp_path.exists():
+            raise FileNotFoundError(f"Temporary file not found: {temp_path}")
+        
+        data_dir = self.get_data_dir(date)
+        persistent_path = data_dir / filename
+        
+        # Ensure the target directory exists
+        persistent_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Move the file
+        temp_path.rename(persistent_path)
+        
+        return persistent_path
+    
     def clear_cache(self):
         """Clear all cached data and seen IDs."""
         # Clear seen IDs

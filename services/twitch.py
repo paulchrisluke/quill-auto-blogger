@@ -3,6 +3,7 @@ Twitch API service for fetching clips and processing them.
 """
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 import httpx
@@ -48,7 +49,13 @@ class TwitchService:
                     q = dict(params)
                     if cursor:
                         q["after"] = cursor
-                    resp = client.get(f"{self.base_url}/clips", headers=headers, params=q)
+                    # Minimal retry/backoff for 429
+                    for attempt in range(3):
+                        resp = client.get(f"{self.base_url}/clips", headers=headers, params=q)
+                        if resp.status_code != 429:
+                            break
+                        reset = float(resp.headers.get("Ratelimit-Reset", "1"))
+                        time.sleep(min(reset, 5.0))  # cap sleep to 5s
                     resp.raise_for_status()
                     data = resp.json()
 
@@ -98,10 +105,17 @@ class TwitchService:
                 clip.url, clip.id
             )
             
-            # Update clip with paths and transcript
+            # Move temporary files to persistent storage
+            video_filename = f"video_{clip.id}_{sanitize_filename(clip.title)}.mp4"
+            audio_filename = f"audio_{clip.id}_{sanitize_filename(clip.title)}.wav"
+            
+            persistent_video_path = self.cache_manager.persist_file(video_path, video_filename, clip.created_at)
+            persistent_audio_path = self.cache_manager.persist_file(audio_path, audio_filename, clip.created_at)
+            
+            # Update clip with persistent paths and transcript
             clip.transcript = transcript
-            clip.video_path = str(video_path)
-            clip.audio_path = str(audio_path)
+            clip.video_path = str(persistent_video_path)
+            clip.audio_path = str(persistent_audio_path)
             
             # Save clip data
             self._save_clip(clip)
@@ -109,15 +123,12 @@ class TwitchService:
             # Mark as seen
             self.cache_manager.mark_seen(clip.id, "twitch_clip")
             
-            # Clean up temporary files
-            self.transcribe_service.cleanup_temp_files(video_path, audio_path)
-            
             logger.info("Successfully processed clip with transcript: %s", clip.title)
-            return True
-            
-        except Exception as e:
-            logger.error("Error processing clip %s: %s", clip.id, e)
+        except Exception:
+            logger.exception("Error processing clip %s", clip.id)
             return False
+        else:
+            return True
     
     def _save_clip(self, clip: TwitchClip):
         """Save clip data to JSON file."""
@@ -137,7 +148,7 @@ class TwitchService:
         params = {"login": username}
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=10.0), http2=True) as client:
                 response = client.get(f"{self.base_url}/users", headers=headers, params=params)
                 response.raise_for_status()
                 
@@ -148,8 +159,8 @@ class TwitchService:
                     return users[0]["id"]  # This is the broadcaster ID
                 return None
                 
-        except Exception as e:
-            logger.error("Error getting broadcaster ID for %s: %s", username, e)
+        except Exception:
+            logger.exception("Error getting broadcaster ID for %s", username)
             return None
     
     def fetch_clips_by_username(self, username: str, days_back: int = 7) -> List[TwitchClip]:
