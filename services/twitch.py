@@ -90,11 +90,7 @@ class TwitchService:
                     else:
                         # All retries exhausted
                         logger.error("Rate limit exceeded after %d retries", max_attempts)
-                        raise httpx.HTTPStatusError(
-                            f"Rate limit exceeded after {max_attempts} retries",
-                            request=resp.request,
-                            response=resp
-                        )
+                        resp.raise_for_status()
                     
                     resp.raise_for_status()
                     data = resp.json()
@@ -159,17 +155,17 @@ class TwitchService:
                 # Persist audio file
                 persistent_audio_path = self.cache_manager.persist_file(audio_path, audio_filename, clip.created_at)
                 
-            except Exception as e:
+            except Exception:
                 # Clean up any successfully persisted files on failure
                 if persistent_video_path:
                     try:
-                        self.cache_manager.cleanup_temp(str(persistent_video_path))
+                        self.cache_manager.delete_persisted_file(persistent_video_path)
                     except Exception as cleanup_error:
                         logger.warning("Failed to cleanup video file %s: %s", persistent_video_path, cleanup_error)
                 
                 if persistent_audio_path:
                     try:
-                        self.cache_manager.cleanup_temp(str(persistent_audio_path))
+                        self.cache_manager.delete_persisted_file(persistent_audio_path)
                     except Exception as cleanup_error:
                         logger.warning("Failed to cleanup audio file %s: %s", persistent_audio_path, cleanup_error)
                 

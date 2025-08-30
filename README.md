@@ -1,6 +1,6 @@
 # Activity Fetcher
 
-A Python project that fetches and processes Twitch clips and GitHub activity, with automatic transcription using Cloudflare Workers AI Whisper API. Includes a digest builder that generates daily blog posts with structured frontmatter for SEO and social sharing.
+A Python project that fetches and processes Twitch clips and GitHub activity, with automatic transcription using Cloudflare Workers AI Whisper API. It includes a digest builder that generates daily blog posts with structured frontmatter for SEO and social sharing.
 
 ## Features
 
@@ -12,7 +12,7 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 - **CLI Interface**: Easy-to-use command-line interface
 - **Authentication**: Automatic token refresh for Twitch OAuth
 - **Digest Builder**: Generate daily blog posts as structured JSON for AI ingestion
-- **SEO Optimization**: Schema.org metadata for Articles, VideoObjects, and FAQs
+- **SEO**: Schema.org metadata for Articles, VideoObjects, and FAQs
 - **Social Sharing**: Open Graph metadata for social media platforms
 
 ## Prerequisites

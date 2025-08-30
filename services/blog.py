@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 import yaml
 from dotenv import load_dotenv
+from pydantic import ValidationError
 
 from models import TwitchClip, GitHubEvent
 
@@ -29,7 +30,7 @@ class BlogDigestBuilder:
         
         # Blog metadata from environment
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
-        self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com")
+        self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
     
     def build_digest(self, target_date: str) -> Dict[str, Any]:
@@ -51,6 +52,9 @@ class BlogDigestBuilder:
         twitch_clips = self._load_twitch_clips(date_path)
         github_events = self._load_github_events(date_path)
         
+        if not twitch_clips and not github_events:
+            raise FileNotFoundError(f"No data files found in {date_path} for {target_date}")
+        
         # Build digest structure
         digest = {
             "date": target_date,
@@ -69,13 +73,21 @@ class BlogDigestBuilder:
             Dictionary containing digest data and metadata
         """
         # Find the most recent date folder
-        date_folders = [d for d in self.data_dir.iterdir() if d.is_dir() and d.name != "__pycache__"]
-        
-        if not date_folders:
+        if not self.data_dir.exists():
             raise FileNotFoundError("No data folders found")
-        
-        # Sort by date and get the most recent
-        latest_date = sorted(date_folders, key=lambda x: x.name, reverse=True)[0].name
+        date_folders = [d for d in self.data_dir.iterdir() if d.is_dir()]
+
+        candidates = []
+        for d in date_folders:
+            try:
+                candidates.append((datetime.strptime(d.name, "%Y-%m-%d").date(), d.name))
+            except ValueError:
+                logger.debug("Skipping non-date folder: %s", d.name)
+
+        if not candidates:
+            raise FileNotFoundError("No data folders found")
+
+        latest_date = max(candidates)[1]
         return self.build_digest(latest_date)
     
     def generate_markdown(self, digest: Dict[str, Any]) -> str:
@@ -111,6 +123,8 @@ class BlogDigestBuilder:
         
         # Save JSON digest
         json_path = date_dir / f"PRE-CLEANED-{target_date}_digest.json"
+        if json_path.exists():
+            logger.info("Overwriting existing digest: %s", json_path)
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(digest, f, indent=2, default=str)
         
@@ -120,13 +134,13 @@ class BlogDigestBuilder:
         """Load all Twitch clips for a given date."""
         clips = []
         
-        for file_path in date_path.glob("twitch_clip_*.json"):
+        for file_path in sorted(date_path.glob("twitch_clip_*.json")):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     clip = TwitchClip(**data)
                     clips.append(clip)
-            except Exception as e:
+            except (json.JSONDecodeError, OSError, ValidationError) as e:
                 logger.warning(f"Could not load Twitch clip {file_path}: {e}", exc_info=True)
         
         return clips
@@ -135,13 +149,13 @@ class BlogDigestBuilder:
         """Load all GitHub events for a given date."""
         events = []
         
-        for file_path in date_path.glob("github_event_*.json"):
+        for file_path in sorted(date_path.glob("github_event_*.json")):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     event = GitHubEvent(**data)
                     events.append(event)
-            except Exception as e:
+            except (json.JSONDecodeError, OSError, ValidationError) as e:
                 logger.warning(f"Could not load GitHub event {file_path}: {e}", exc_info=True)
         
         return events
@@ -173,7 +187,7 @@ class BlogDigestBuilder:
         return {
             "total_clips": len(clips),
             "total_events": len(events),
-            "keywords": list(keywords),
+            "keywords": sorted(keywords),
             "date_parsed": datetime.strptime(target_date, "%Y-%m-%d").date()
         }
     
@@ -208,12 +222,15 @@ class BlogDigestBuilder:
         # Build VideoObject schemas for Twitch clips
         video_objects = []
         for clip in clips:
+            upload_date = clip.get("created_at")
+            if isinstance(upload_date, (datetime, date)):
+                upload_date = upload_date.isoformat()
             video_schema = {
                 "@type": "VideoObject",
                 "name": clip["title"],
                 "description": clip.get("transcript", "")[:200] + "..." if clip.get("transcript") else "",
                 "url": clip["url"],
-                "uploadDate": clip["created_at"],
+                "uploadDate": upload_date,
                 "duration": f"PT{int(clip.get('duration', 0))}S" if clip.get("duration") else None,
                 "thumbnailUrl": f"https://clips-media-assets2.twitch.tv/{clip['id']}/preview-480x272.jpg"
             }
@@ -276,7 +293,7 @@ class BlogDigestBuilder:
             frontmatter_data["schema"]["faq"] = faq_schema
         
         # Convert to YAML
-        yaml_content = yaml.dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
         
         return f"---\n{yaml_content}---"
     
@@ -322,7 +339,10 @@ class BlogDigestBuilder:
             for event in events:
                 content_parts.append(f"### {event.get('type', 'unknown')} in {event.get('repo', '')}")
                 content_parts.append(f"**Actor:** {event.get('actor', 'Unknown')}")
-                content_parts.append(f"**Time:** {event.get('created_at', 'Unknown')}")
+                created = event.get('created_at', 'Unknown')
+                if isinstance(created, (datetime, date)):
+                    created = created.isoformat()
+                content_parts.append(f"**Time:** {created}")
                 
                 if event.get('url'):
                     content_parts.append(f"**URL:** {event.get('url', '')}")

@@ -23,6 +23,9 @@ class TestCacheManager:
         self.cache_manager.data_dir = self.temp_dir / "data"
         self.cache_manager.cache_dir = self.temp_dir / "cache"
         self.cache_manager.seen_ids_file = self.temp_dir / "seen_ids.json"
+        
+        # Ensure data directory exists
+        self.cache_manager.data_dir.mkdir(parents=True, exist_ok=True)
     
     def teardown_method(self):
         """Clean up test fixtures."""
@@ -280,6 +283,39 @@ class TestCacheManager:
         
         # Check that cache file is removed
         assert not test_file.exists()
+    
+    def test_persist_file_path_traversal_rejected(self):
+        """Test that persist_file rejects path traversal attempts."""
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+            f.write("test content")
+            temp_path = Path(f.name)
+        
+        try:
+            # Test path traversal in filename
+            with pytest.raises(ValueError, match="Path traversal detected"):
+                self.cache_manager.persist_file(temp_path, "../evil.json", overwrite=True)
+            
+            # Verify no file was written outside the intended directory
+            evil_path = self.cache_manager.data_dir.parent / "evil.json"
+            assert not evil_path.exists()
+            
+        finally:
+            # Clean up temp file if it still exists
+            if temp_path.exists():
+                temp_path.unlink()
+    
+    def test_save_json_path_traversal_rejected(self):
+        """Test that save_json rejects path traversal attempts."""
+        test_data = {"x": 1}
+        
+        # Test path traversal in filename
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            self.cache_manager.save_json("../evil.json", test_data, overwrite=True)
+        
+        # Verify no file was written outside the intended directory
+        evil_path = self.cache_manager.data_dir.parent / "evil.json"
+        assert not evil_path.exists()
 
 
 class TestUtilityFunctions:
@@ -295,19 +331,30 @@ class TestUtilityFunctions:
         
         # Should have timestamp in format YYYYMMDD_HHMMSS
         parts = filename.split("_")
-        assert len(parts) >= 3
-        assert len(parts[2].split(".")[0]) == 6  # HHMMSS
+        assert len(parts) >= 4  # prefix, identifier, date, time
+        timestamp_part = f"{parts[2]}_{parts[3]}".split(".")[0]
+        assert len(timestamp_part) == 15  # YYYYMMDD_HHMMSS (8 + 1 + 6)
     
     def test_sanitize_filename(self):
         """Test filename sanitization."""
         # Test invalid characters
-        assert sanitize_filename("file<name>") == "file_name_"
+        assert sanitize_filename("file<name>") == "file_name"
         assert sanitize_filename("file:name") == "file_name"
         assert sanitize_filename("file/name") == "file_name"
         assert sanitize_filename("file\\name") == "file_name"
         assert sanitize_filename("file|name") == "file_name"
         assert sanitize_filename("file?name") == "file_name"
         assert sanitize_filename("file*name") == "file_name"
+        
+        # Test whitespace trimming
+        assert sanitize_filename("  file name  ") == "file name"
+        
+        # Test repeated underscores
+        assert sanitize_filename("file__name") == "file_name"
+        assert sanitize_filename("file___name") == "file_name"
+        
+        # Test leading/trailing dots and underscores
+        assert sanitize_filename("._file_name_.") == "file_name"
         
         # Test length limit
         long_name = "a" * 300

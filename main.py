@@ -208,7 +208,7 @@ def build_digest(date):
         # Save JSON digest
         json_path = builder.save_digest(digest)
         
-        click.echo(f"✅ Digest built successfully!")
+        click.echo("✅ Digest built successfully!")
         click.echo(f"📄 JSON saved to: {json_path}")
         
         # Defensive access to metadata

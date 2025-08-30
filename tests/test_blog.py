@@ -157,8 +157,8 @@ class TestBlogDigestBuilder:
         
         frontmatter = builder._generate_frontmatter(digest)
         
-        # Parse YAML frontmatter
-        yaml_content = frontmatter.strip("---\n")
+        # Parse YAML frontmatter - extract content between delimiters
+        yaml_content = frontmatter.split('---', 2)[1] if '---' in frontmatter else frontmatter
         data = yaml.safe_load(yaml_content)
         
         # Check Article schema
@@ -189,7 +189,7 @@ class TestBlogDigestBuilder:
         }
         
         frontmatter = builder._generate_frontmatter(digest)
-        yaml_content = frontmatter.strip("---\n")
+        yaml_content = frontmatter.split('---', 2)[1] if '---' in frontmatter else frontmatter
         data = yaml.safe_load(yaml_content)
         
         # Check VideoObject schemas
@@ -234,7 +234,7 @@ class TestBlogDigestBuilder:
         }
         
         frontmatter = builder._generate_frontmatter(digest)
-        yaml_content = frontmatter.strip("---\n")
+        yaml_content = frontmatter.split('---', 2)[1] if '---' in frontmatter else frontmatter
         data = yaml.safe_load(yaml_content)
         
         # Check FAQ schema
@@ -265,7 +265,7 @@ class TestBlogDigestBuilder:
         }
         
         frontmatter = builder._generate_frontmatter(digest)
-        yaml_content = frontmatter.strip("---\n")
+        yaml_content = frontmatter.split('---', 2)[1] if '---' in frontmatter else frontmatter
         data = yaml.safe_load(yaml_content)
         
         # Check Open Graph metadata
@@ -365,7 +365,7 @@ class TestBlogDigestBuilder:
         with pytest.raises(FileNotFoundError, match="No data folders found"):
             builder.build_latest_digest()
     
-    def test_build_latest_digest_finds_latest(self, temp_data_dir, sample_twitch_clip, sample_github_event):
+    def test_build_latest_digest_finds_latest(self, temp_data_dir, sample_twitch_clip):
         """Test that build_latest_digest finds the most recent date."""
         builder = BlogDigestBuilder()
         builder.data_dir = temp_data_dir

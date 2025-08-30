@@ -171,22 +171,25 @@ class TranscriptionService:
             # If the actual file has a different extension than expected, rename it
             if actual_path.suffix != output_path.suffix:
                 try:
-                    # Check if output_path already exists and remove it
-                    if output_path.exists():
-                        output_path.unlink()
-                    # Rename the actual file to the expected output path
-                    actual_path.rename(output_path)
+                    # Use atomic replace to overwrite output_path with actual_path
+                    os.replace(actual_path, output_path)
                 except (OSError, PermissionError) as e:
-                    # Clean up the actual file if rename fails
+                    # Clean up the actual file if replace fails
+                    cleanup_error = None
                     try:
                         if actual_path.exists():
                             actual_path.unlink()
-                    except Exception:
-                        pass  # Ignore cleanup errors
-                    raise RuntimeError(f"Failed to rename downloaded file from {actual_path} to {output_path}: {e}") from e
+                    except Exception as cleanup_exc:
+                        cleanup_error = cleanup_exc
+                    
+                    # Re-raise with full context including cleanup errors
+                    if cleanup_error:
+                        raise RuntimeError(f"Failed to rename downloaded file from {actual_path} to {output_path}: {e} (cleanup also failed: {cleanup_error})") from e
+                    else:
+                        raise RuntimeError(f"Failed to rename downloaded file from {actual_path} to {output_path}: {e}") from e
             else:
-                # If same extension, just update the reference
-                output_path = actual_path
+                # Same extension; nothing else to do
+                pass
                 
         except yt_dlp.DownloadError as e:
             raise RuntimeError(f"yt-dlp download failed: {e}") from e

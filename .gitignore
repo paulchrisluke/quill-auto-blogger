@@ -191,6 +191,7 @@ $RECYCLE.BIN/
 data/
 # Generated blog posts (pre-cleaned for AI processing)
 blogs/
+!blogs/.gitkeep
 *.json
 !package.json
 !pytest.ini

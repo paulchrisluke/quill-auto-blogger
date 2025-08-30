@@ -79,9 +79,10 @@ class CacheManager:
         Resolve a secure file path within the data directory.
         
         This method prevents path traversal attacks by:
-        1. Sanitizing the filename
-        2. Resolving the path relative to the data directory
-        3. Ensuring the final path stays within the data directory
+        1. Checking for path traversal attempts before sanitization
+        2. Sanitizing the filename
+        3. Resolving the path relative to the data directory
+        4. Ensuring the final path stays within the data directory
         
         Args:
             filename: The filename to resolve
@@ -93,7 +94,11 @@ class CacheManager:
         Raises:
             ValueError: If the resolved path would escape the data directory
         """
-        # Sanitize the filename first
+        # Check for path traversal attempts before sanitization
+        if '..' in filename or '/' in filename or '\\' in filename:
+            raise ValueError(f"Path traversal detected: {filename} contains path traversal characters")
+        
+        # Sanitize the filename
         sanitized_filename = sanitize_filename(filename)
         
         # Get the base data directory
@@ -108,8 +113,10 @@ class CacheManager:
             # Use resolve() on data_dir to get its absolute path for comparison
             data_dir_abs = data_dir.resolve()
             
-            # Check if the resolved path is within the data directory
-            if not str(resolved_path).startswith(str(data_dir_abs)):
+            # Check if the resolved path is within the data directory using pathlib containment
+            try:
+                resolved_path.relative_to(data_dir_abs)
+            except ValueError:
                 raise ValueError(f"Path traversal detected: {filename} would resolve to {resolved_path} outside of {data_dir_abs}")
             
             return resolved_path
@@ -120,14 +127,14 @@ class CacheManager:
     
     def save_json(self, filename: str, data: Dict[str, Any], date: Optional[datetime] = None, overwrite: bool = False):
         """Save data as JSON file."""
-        data_dir = self.get_data_dir(date)
-        file_path = data_dir / filename
+        # Use _resolve_secure_path to get the safe destination path
+        file_path = self._resolve_secure_path(filename, date)
         
         # Check if file already exists and overwrite is not allowed
         if file_path.exists() and not overwrite:
             raise FileExistsError(f"File already exists: {file_path}. Set overwrite=True to allow replacement.")
         
-        # Ensure parent directory exists (only for parent directories, not the file itself)
+        # Ensure parent directory exists
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(file_path, 'w') as f:
@@ -151,21 +158,42 @@ class CacheManager:
         if not temp_path.exists():
             raise FileNotFoundError(f"Temporary file not found: {temp_path}")
         
-        data_dir = self.get_data_dir(date)
-        persistent_path = data_dir / filename
+        # Use _resolve_secure_path to get the safe destination path
+        persistent_path = self._resolve_secure_path(filename, date)
         
-        # Check if destination already exists and overwrite is not allowed
+        # Ensure the resolved path's parent directories exist
+        persistent_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Check if destination exists and overwrite is not allowed
         if persistent_path.exists() and not overwrite:
             raise FileExistsError(f"Destination file already exists: {persistent_path}. Set overwrite=True to allow replacement.")
         
-        # Ensure the target directory exists (only for parent directories)
-        persistent_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Move the file
-        shutil.move(temp_path, persistent_path)
+        # Perform atomic replace using os.replace
+        try:
+            os.replace(temp_path, persistent_path)
+        except (OSError, PermissionError) as e:
+            raise RuntimeError(f"Failed to persist file from {temp_path} to {persistent_path}: {e}") from e
         
         return persistent_path
     
+    def delete_persisted_file(self, file_path: Path) -> bool:
+        """Delete a persisted file from storage.
+        
+        Args:
+            file_path: Path to the persisted file to delete
+            
+        Returns:
+            True if file was deleted successfully, False if file didn't exist
+        """
+        try:
+            if file_path.exists():
+                file_path.unlink()
+                return True
+            return False
+        except Exception as e:
+            logger.warning("Failed to delete persisted file %s: %s", file_path, e)
+            return False
+
     def clear_cache(self):
         """Clear all cached data and seen IDs."""
         # Clear seen IDs
@@ -189,10 +217,20 @@ def generate_filename(prefix: str, identifier: str, extension: str = "json") -> 
 
 def sanitize_filename(filename: str) -> str:
     """Sanitize a filename for safe filesystem use."""
+    # Trim whitespace
+    filename = filename.strip()
+    
     # Replace invalid characters
     invalid_chars = '<>:"/\\|?*'
     for char in invalid_chars:
         filename = filename.replace(char, '_')
+    
+    # Collapse repeated underscores
+    while '__' in filename:
+        filename = filename.replace('__', '_')
+    
+    # Remove leading/trailing dots and underscores
+    filename = filename.strip('._')
     
     # Limit length
     if len(filename) > 200:
