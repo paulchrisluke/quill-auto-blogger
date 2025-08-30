@@ -74,7 +74,7 @@ class TwitchService:
         )
     
     def process_clip(self, clip: TwitchClip) -> bool:
-        """Process a clip: save metadata without video processing."""
+        """Process a clip: download, transcribe, and save."""
         try:
             # Check if already processed
             if self.cache_manager.is_seen(clip.id, "twitch_clip"):
@@ -83,11 +83,15 @@ class TwitchService:
             
             print(f"Processing clip: {clip.title}")
             
-            # For now, save clip metadata without video processing
-            # Video transcription requires special handling for Twitch clips
-            clip.transcript = None  # Will be added later if needed
-            clip.video_path = None
-            clip.audio_path = None
+            # Download and transcribe using yt-dlp
+            transcript, video_path, audio_path = self.transcribe_service.download_and_transcribe(
+                clip.url, clip.id
+            )
+            
+            # Update clip with paths and transcript
+            clip.transcript = transcript
+            clip.video_path = str(video_path)
+            clip.audio_path = str(audio_path)
             
             # Save clip data
             self._save_clip(clip)
@@ -95,7 +99,10 @@ class TwitchService:
             # Mark as seen
             self.cache_manager.mark_seen(clip.id, "twitch_clip")
             
-            print(f"Successfully saved clip metadata: {clip.title}")
+            # Clean up temporary files
+            self.transcribe_service.cleanup_temp_files(video_path, audio_path)
+            
+            print(f"Successfully processed clip with transcript: {clip.title}")
             return True
             
         except Exception as e:

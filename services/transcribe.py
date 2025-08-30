@@ -1,5 +1,5 @@
 """
-Transcription service using ffmpeg and Cloudflare Workers AI Whisper API.
+Transcription service using ffmpeg, yt-dlp, and Cloudflare Workers AI Whisper API.
 """
 
 import os
@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 import httpx
+import yt_dlp
 
 from services.utils import CacheManager
 
@@ -126,7 +127,39 @@ class TranscriptionService:
             raise e
     
     def _download_video(self, url: str, output_path: Path):
-        """Download video from URL."""
+        """Download video from URL using yt-dlp for Twitch clips."""
+        try:
+            # Use yt-dlp for Twitch clips, regular download for other URLs
+            if 'clips.twitch.tv' in url or 'twitch.tv' in url:
+                return self._download_with_ytdlp(url, output_path)
+            else:
+                return self._download_with_httpx(url, output_path)
+                            
+        except Exception as e:
+            raise RuntimeError(f"Failed to download video: {e}")
+    
+    def _download_with_ytdlp(self, url: str, output_path: Path):
+        """Download video using yt-dlp."""
+        ydl_opts = {
+            'outtmpl': str(output_path),
+            'format': 'best[ext=mp4]/best',  # Prefer MP4 format
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            
+            # Verify the file was downloaded
+            if not output_path.exists():
+                raise RuntimeError("yt-dlp download failed - file not found")
+                
+        except Exception as e:
+            raise RuntimeError(f"yt-dlp download failed: {e}")
+    
+    def _download_with_httpx(self, url: str, output_path: Path):
+        """Download video using httpx (for non-Twitch URLs)."""
         try:
             with httpx.Client() as client:
                 with client.stream('GET', url) as response:
@@ -137,7 +170,7 @@ class TranscriptionService:
                             f.write(chunk)
                             
         except Exception as e:
-            raise RuntimeError(f"Failed to download video: {e}")
+            raise RuntimeError(f"httpx download failed: {e}")
     
     def cleanup_temp_files(self, *file_paths: Path):
         """Clean up temporary files."""
