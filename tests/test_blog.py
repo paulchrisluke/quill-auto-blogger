@@ -103,7 +103,7 @@ class TestBlogDigestBuilder:
         
         # Create a sample clip file
         clip_file = date_dir / "twitch_clip_test_clip_123_Test_Twitch_Clip_20250115_120000.json"
-        with open(clip_file, 'w') as f:
+        with open(clip_file, 'w', encoding='utf-8') as f:
             json.dump(sample_twitch_clip.model_dump(), f, default=str)
         
         builder = BlogDigestBuilder()
@@ -122,7 +122,7 @@ class TestBlogDigestBuilder:
         
         # Create a sample event file
         event_file = date_dir / "github_event_test_event_456_testuser_testrepo_20250115_143000.json"
-        with open(event_file, 'w') as f:
+        with open(event_file, 'w', encoding='utf-8') as f:
             json.dump(sample_github_event.model_dump(), f, default=str)
         
         builder = BlogDigestBuilder()
@@ -348,7 +348,7 @@ class TestBlogDigestBuilder:
         assert date_dir.exists()
         
         # Check JSON content
-        with open(json_path, 'r') as f:
+        with open(json_path, 'r', encoding='utf-8') as f:
             saved_digest = json.load(f)
         assert saved_digest["date"] == "2025-01-15"
         assert len(saved_digest["twitch_clips"]) == 1
@@ -383,7 +383,7 @@ class TestBlogDigestBuilder:
         
         # Add data to the later date
         clip_file = date2_dir / "twitch_clip_test_clip_123_Test_Twitch_Clip_20250116_120000.json"
-        with open(clip_file, 'w') as f:
+        with open(clip_file, 'w', encoding='utf-8') as f:
             json.dump(sample_twitch_clip.model_dump(), f, default=str)
         
         digest = builder.build_latest_digest()

@@ -3,9 +3,13 @@ GitHub API service for fetching user and repository activity.
 """
 
 import os
+import time
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from models import GitHubEvent
 from services.auth import AuthService
@@ -38,6 +42,17 @@ class GitHubService:
                     params={"per_page": 100}
                 )
                 response.raise_for_status()
+                
+                # Preemptive throttling using X-RateLimit-Remaining
+                ratelimit_remaining = response.headers.get("X-RateLimit-Remaining")
+                if ratelimit_remaining is not None:
+                    try:
+                        remaining = int(ratelimit_remaining)
+                        if remaining <= 5:  # Threshold for preemptive throttling
+                            logger.info("Rate limit remaining: %d, throttling preemptively", remaining)
+                            time.sleep(1.0)  # Brief pause to avoid hitting limit
+                    except (ValueError, TypeError):
+                        pass  # Ignore invalid header values
                 
                 data = response.json()
                 
@@ -80,6 +95,17 @@ class GitHubService:
                     params={"per_page": 100}
                 )
                 response.raise_for_status()
+                
+                # Preemptive throttling using X-RateLimit-Remaining
+                ratelimit_remaining = response.headers.get("X-RateLimit-Remaining")
+                if ratelimit_remaining is not None:
+                    try:
+                        remaining = int(ratelimit_remaining)
+                        if remaining <= 5:  # Threshold for preemptive throttling
+                            logger.info("Rate limit remaining: %d, throttling preemptively", remaining)
+                            time.sleep(1.0)  # Brief pause to avoid hitting limit
+                    except (ValueError, TypeError):
+                        pass  # Ignore invalid header values
                 
                 data = response.json()
                 

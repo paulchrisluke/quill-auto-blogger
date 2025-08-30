@@ -60,9 +60,6 @@ class TwitchService:
                         if resp.status_code != 429:
                             break
                         
-                        # Calculate exponential backoff
-                        backoff_delay = min(max_backoff, base_backoff * (2 ** attempt))
-                        
                         # Calculate exponential backoff with jitter
                         backoff_delay = min(max_backoff, base_backoff * (2 ** attempt))
                         jitter = random.uniform(0.9, 1.1)
@@ -100,6 +97,18 @@ class TwitchService:
                         resp.raise_for_status()
                     
                     resp.raise_for_status()
+                    
+                    # Preemptive throttling using Ratelimit-Remaining
+                    ratelimit_remaining = resp.headers.get("Ratelimit-Remaining")
+                    if ratelimit_remaining is not None:
+                        try:
+                            remaining = int(ratelimit_remaining)
+                            if remaining <= 5:  # Threshold for preemptive throttling
+                                logger.info("Rate limit remaining: %d, throttling preemptively", remaining)
+                                time.sleep(1.0)  # Brief pause to avoid hitting limit
+                        except (ValueError, TypeError):
+                            pass  # Ignore invalid header values
+                    
                     data = resp.json()
 
                     for clip_data in data.get("data", []):

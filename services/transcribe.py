@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 import httpx
 import yt_dlp
+from httpx import Timeout
 
 from services.utils import CacheManager
 
@@ -59,10 +60,6 @@ class TranscriptionService:
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
         
-        # Read audio file
-        with open(audio_path, 'rb') as f:
-            audio_data = f.read()
-        
         # Prepare request
         url = f"https://api.cloudflare.com/client/v4/accounts/{self.cloudflare_account_id}/ai/run/@cf/openai/whisper"
         headers = {
@@ -71,8 +68,9 @@ class TranscriptionService:
         }
         
         try:
-            with httpx.Client() as client:
-                response = client.post(url, headers=headers, content=audio_data)
+            with open(audio_path, 'rb') as f:  # keep handle for streaming
+                with httpx.Client(timeout=Timeout(connect=10.0, read=60.0)) as client:
+                    response = client.post(url, headers=headers, content=f)
                 response.raise_for_status()
                 
                 result = response.json()
@@ -161,12 +159,26 @@ class TranscriptionService:
                 ydl.download([url])
             
             # Find the actual downloaded file (may have different extension)
-            downloaded_files = list(base_path.parent.glob(f"{base_path.name}.*"))
-            if not downloaded_files:
-                raise RuntimeError("yt-dlp download failed - no files found")
+            # Filter for likely video/audio file extensions and exclude unwanted files
+            allowed_extensions = {'.mp4', '.mkv', '.webm', '.m4a', '.mp3', '.mov', '.flv', '.avi', '.wmv', '.flac', '.wav', '.aac', '.ogg'}
+            unwanted_suffixes = {'.info.json', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.vtt', '.srt'}
             
-            # Use the first file found (should be the only one)
-            actual_path = downloaded_files[0]
+            candidate_files = []
+            for file_path in base_path.parent.glob(f"{base_path.name}.*"):
+                # Skip files with unwanted suffixes
+                if any(file_path.name.endswith(suffix) for suffix in unwanted_suffixes):
+                    continue
+                
+                # Include files with allowed extensions
+                if file_path.suffix.lower() in allowed_extensions:
+                    candidate_files.append(file_path)
+            
+            if not candidate_files:
+                raise RuntimeError(f"yt-dlp download failed - no valid video/audio files found. Searched for files matching {base_path.name}.*")
+            
+            # Sort by modification time (newest first) and pick the freshest file
+            candidate_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+            actual_path = candidate_files[0]
             
             # If the actual file has a different extension than expected, rename it
             if actual_path.suffix != output_path.suffix:
@@ -199,7 +211,7 @@ class TranscriptionService:
     def _download_with_httpx(self, url: str, output_path: Path):
         """Download video using httpx (for non-Twitch URLs)."""
         try:
-            with httpx.Client(timeout=(10.0, 30.0)) as client:
+            with httpx.Client(timeout=Timeout(10.0, read=30.0)) as client:
                 with client.stream('GET', url) as response:
                     response.raise_for_status()
                     

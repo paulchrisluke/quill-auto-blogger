@@ -7,6 +7,7 @@ import os
 import shutil
 import tempfile
 import logging
+import errno
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -99,7 +100,7 @@ class CacheManager:
             ValueError: If the resolved path would escape the data directory
         """
         # Check for path traversal attempts before sanitization
-        if '..' in filename or '/' in filename or '\\' in filename:
+        if '..' in filename:
             raise ValueError(f"Path traversal detected: {filename} contains path traversal characters")
         
         # Sanitize the filename
@@ -164,7 +165,7 @@ class CacheManager:
         file_path = self._resolve_secure_path(filename, date)
         
         if file_path.exists():
-            with open(file_path, 'r') as f:
+            with open(file_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         
         return None
@@ -188,7 +189,7 @@ class CacheManager:
         try:
             os.replace(temp_path, persistent_path)
         except OSError as e:
-            if e.errno == os.errno.EXDEV:
+            if getattr(e, "errno", None) == errno.EXDEV:
                 # Files are on different filesystems, use copy + replace strategy
                 temp_in_same_dir = None
                 try:
@@ -199,8 +200,9 @@ class CacheManager:
                     # Copy contents to temporary file in same directory
                     shutil.copy2(temp_path, temp_in_same_dir)
                     
-                    # Flush and sync to ensure data is written
-                    temp_in_same_dir.parent.mkdir(parents=True, exist_ok=True)
+                    # Ensure data is flushed to disk before replace
+                    with open(temp_in_same_dir, "rb", buffering=0) as _fh:
+                        os.fsync(_fh.fileno())
                     
                     # Atomic replace within same filesystem
                     os.replace(temp_in_same_dir, persistent_path)

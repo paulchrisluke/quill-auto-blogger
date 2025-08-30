@@ -26,7 +26,7 @@ class BlogDigestBuilder:
     def __init__(self):
         self.data_dir = Path("data")
         self.blogs_dir = Path("blogs")
-        self.blogs_dir.mkdir(exist_ok=True)
+        self.blogs_dir.mkdir(parents=True, exist_ok=True)
         
         # Blog metadata from environment
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
@@ -43,6 +43,11 @@ class BlogDigestBuilder:
         Returns:
             Dictionary containing digest data and metadata
         """
+        # Validate date format early
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError(f"target_date must be YYYY-MM-DD, got: {target_date}") from exc
         date_path = self.data_dir / target_date
         
         if not date_path.exists():
@@ -119,7 +124,7 @@ class BlogDigestBuilder:
         
         # Create date subdirectory
         date_dir = self.blogs_dir / target_date
-        date_dir.mkdir(exist_ok=True)
+        date_dir.mkdir(parents=True, exist_ok=True)
         
         # Save JSON digest
         json_path = date_dir / f"PRE-CLEANED-{target_date}_digest.json"
@@ -280,7 +285,11 @@ class BlogDigestBuilder:
         # Build Open Graph metadata
         og_metadata = {
             "og:title": headline,
-            "og:description": f"Daily development log with {metadata['total_clips']} Twitch clips and {metadata['total_events']} GitHub events",
+            "og:description": (
+                f"Daily development log with {metadata['total_clips']} "
+                f"Twitch {'clip' if metadata['total_clips']==1 else 'clips'} and "
+                f"{metadata['total_events']} GitHub {'event' if metadata['total_events']==1 else 'events'}"
+            ),
             "og:type": "article",
             "og:url": f"{self.blog_base_url}/blog/{target_date}",
             "og:image": self.blog_default_image,
@@ -322,7 +331,11 @@ class BlogDigestBuilder:
         content_parts.append("")
         
         # Add summary
-        content_parts.append(f"Today's development activities include {len(clips)} Twitch clips and {len(events)} GitHub events.")
+        content_parts.append(
+            f"Today's development activities include {len(clips)} Twitch "
+            f"{'clip' if len(clips)==1 else 'clips'} and {len(events)} GitHub "
+            f"{'event' if len(events)==1 else 'events'}."
+        )
         content_parts.append("")
         
         # Add Twitch clips section

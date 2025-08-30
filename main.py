@@ -183,7 +183,8 @@ def clear_cache():
         click.echo(f"Error clearing cache: {e}")
 
 @cli.command()
-@click.option('--date', default=None, help='Date in YYYY-MM-DD format (defaults to latest)')
+@click.option('--date', type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
+              help='Date in YYYY-MM-DD (defaults to latest)')
 def build_digest(date):
     """Build a JSON digest for a specific date or the latest available date."""
     click.echo("Building digest...")
@@ -193,14 +194,9 @@ def build_digest(date):
         builder = BlogDigestBuilder()
         
         if date:
-            # Validate date format
-            try:
-                datetime.strptime(date, '%Y-%m-%d')
-            except ValueError:
-                raise click.BadParameter(f"Invalid date format: {date}. Please use YYYY-MM-DD format (e.g., 2025-01-15)")
-            
-            digest = builder.build_digest(date)
-            click.echo(f"Building digest for {date}")
+            date_str = date.strftime('%Y-%m-%d')
+            digest = builder.build_digest(date_str)
+            click.echo(f"Building digest for {date_str}")
         else:
             digest = builder.build_latest_digest()
             click.echo(f"Building digest for latest date: {digest.get('date', 'unknown')}")
@@ -218,17 +214,13 @@ def build_digest(date):
         click.echo(f"📊 Summary: {total_clips} clips, {total_events} events")
         
     except FileNotFoundError as e:
-        click.echo(f"❌ {e}")
-        sys.exit(1)
+        raise click.ClickException(str(e)) from e
     except ValueError as e:
-        click.echo(f"❌ Invalid input: {e}")
-        sys.exit(1)
+        raise click.ClickException(f"Invalid input: {e}") from e
     except OSError as e:
-        click.echo(f"❌ File system error: {e}")
-        sys.exit(1)
+        raise click.ClickException(f"File system error: {e}") from e
     except RuntimeError as e:
-        click.echo(f"❌ Runtime error: {e}")
-        sys.exit(1)
+        raise click.ClickException(f"Runtime error: {e}") from e
 
 @cli.command()
 @click.argument('date', required=True)
