@@ -199,7 +199,16 @@ def build_digest(date):
             click.echo(f"Building digest for {date_str}")
         else:
             digest = builder.build_latest_digest()
-            click.echo(f"Building digest for latest date: {digest.get('date', 'unknown')}")
+            # Validate that digest contains a valid date
+            if not digest.get('date'):
+                raise click.ClickException("Digest is missing required 'date' field")
+            date_str = digest['date']
+            # Validate date format
+            try:
+                datetime.strptime(date_str, '%Y-%m-%d')
+            except ValueError:
+                raise click.ClickException(f"Invalid date format in digest: {date_str}. Expected YYYY-MM-DD format.")
+            click.echo(f"Building digest for latest date: {date_str}")
         
         # Save JSON digest
         json_path = builder.save_digest(digest)
@@ -258,7 +267,15 @@ def generate_blog(date):
         else:
             # Get the latest digest to determine the date
             digest = builder.build_latest_digest()
-            date_str = digest.get('date', 'unknown')
+            # Validate that digest contains a valid date
+            if not digest.get('date'):
+                raise click.ClickException("Digest is missing required 'date' field")
+            date_str = digest['date']
+            # Validate date format
+            try:
+                datetime.strptime(date_str, '%Y-%m-%d')
+            except ValueError:
+                raise click.ClickException(f"Invalid date format in digest: {date_str}. Expected YYYY-MM-DD format.")
             click.echo(f"Generating blog draft for latest date: {date_str}")
         
         # Generate the AI blog

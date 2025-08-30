@@ -1,13 +1,45 @@
 import { Ai } from '@cloudflare/ai';
 
+// Helper function to validate CORS origin
+function getCorsOrigin(request, env) {
+  const allowedOrigins = env.ALLOWED_ORIGINS;
+  
+  // If no allowed origins configured, allow all (for development)
+  if (!allowedOrigins || allowedOrigins === '*') {
+    return '*';
+  }
+  
+  // Parse allowed origins (comma-separated)
+  const allowedOriginsList = allowedOrigins.split(',').map(origin => origin.trim());
+  
+  // Get the origin from the request
+  const requestOrigin = request.headers.get('Origin');
+  
+  // If no origin in request, return null (will be handled by caller)
+  if (!requestOrigin) {
+    return null;
+  }
+  
+  // Check if the request origin is in the allowed list
+  if (allowedOriginsList.includes(requestOrigin)) {
+    return requestOrigin;
+  }
+  
+  // Origin not allowed
+  return null;
+}
+
 export default {
   async fetch(request, env, ctx) {
-    // Handle CORS
+    // Get CORS origin
+    const corsOrigin = getCorsOrigin(request, env);
+    
+    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 200,
         headers: {
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': corsOrigin || '*',
           'Access-Control-Allow-Methods': 'POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
         },
@@ -19,7 +51,7 @@ export default {
       return new Response('Method not allowed', { 
         status: 405,
         headers: {
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': corsOrigin || '*',
           'Content-Type': 'text/plain',
         }
       });
@@ -33,7 +65,7 @@ export default {
         return new Response('Missing digest data', { 
           status: 400,
           headers: {
-            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Origin': corsOrigin || '*',
             'Content-Type': 'text/plain',
           }
         });
@@ -74,13 +106,34 @@ ${JSON.stringify(requestData.digest, null, 2)}`
       try {
         // Try to extract JSON from the response
         const responseText = response.response;
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          aiResponse = JSON.parse(jsonMatch[0]);
+        
+        // First, look for a fenced JSON code block (```json ... ```)
+        const fencedJsonMatch = responseText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+        let jsonString = null;
+        
+        if (fencedJsonMatch) {
+          // Found a fenced code block, use the non-greedy match inside it
+          jsonString = fencedJsonMatch[1];
+        } else {
+          // Fall back to non-greedy brace match (smallest {...} occurrence)
+          const braceMatch = responseText.match(/\{[\s\S]*?\}/);
+          if (braceMatch) {
+            jsonString = braceMatch[0];
+          }
+        }
+        
+        if (jsonString) {
+          // Trim whitespace and parse
+          aiResponse = JSON.parse(jsonString.trim());
         } else {
           throw new Error('No JSON found in response');
         }
       } catch (parseError) {
+        // Get configuration from environment variables with sensible defaults
+        const authorName = env.BLOG_AUTHOR || "Paul Chris Luke";
+        const siteBaseUrl = env.BLOG_BASE_URL || "https://paulchrisluke.com";
+        const defaultImage = env.BLOG_DEFAULT_IMAGE || `${siteBaseUrl}/default.jpg`;
+        
         // If parsing fails, create a structured response
         aiResponse = {
           date: requestData.digest.date,
@@ -89,7 +142,7 @@ ${JSON.stringify(requestData.digest, null, 2)}`
             "@type": "Article",
             "headline": `Daily Devlog — ${requestData.digest.date}`,
             "datePublished": requestData.digest.date,
-            "author": "Paul Chris Luke",
+            "author": authorName,
             "keywords": requestData.digest.metadata?.keywords || [],
             "video": [],
             "faq": [],
@@ -97,8 +150,8 @@ ${JSON.stringify(requestData.digest, null, 2)}`
               "title": `Daily Devlog — ${requestData.digest.date}`,
               "description": "Daily development log",
               "type": "article",
-              "url": `https://paulchrisluke.com/${requestData.digest.date}`,
-              "image": "https://paulchrisluke.com/default.jpg"
+              "url": `${siteBaseUrl}/${requestData.digest.date}`,
+              "image": defaultImage
             }
           },
           body: response.response
@@ -109,7 +162,7 @@ ${JSON.stringify(requestData.digest, null, 2)}`
       return new Response(JSON.stringify(aiResponse), {
         status: 200,
         headers: {
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': corsOrigin || '*',
           'Content-Type': 'application/json',
         },
       });
@@ -123,7 +176,7 @@ ${JSON.stringify(requestData.digest, null, 2)}`
       }), {
         status: 500,
         headers: {
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': corsOrigin || '*',
           'Content-Type': 'application/json',
         },
       });
@@ -132,13 +185,27 @@ ${JSON.stringify(requestData.digest, null, 2)}`
 };
 
 async function loadVoicePrompt(env) {
-  // Check if a custom prompt path is provided
-  const promptPath = env.BLOG_VOICE_PROMPT_PATH || 'prompts/default_voice.md';
+  const promptKey = env.BLOG_VOICE_PROMPT_PATH || 'prompts/default_voice.md';
   
   try {
-    // For now, return a default prompt
-    // In a real implementation, you might want to store this in KV or R2
-    return `You are a technical blogger writing daily development logs. Your writing style should be:
+    // Try to load from KV store if available
+    if (env.PROMPTS_KV) {
+      const promptContent = await env.PROMPTS_KV.get(promptKey);
+      if (promptContent) {
+        return promptContent + '\n\nIMPORTANT: Your response must be a valid JSON object with exactly two fields:\n1. \'frontmatter\': A JSON object containing metadata (title, date, author, keywords, etc.)\n2. \'body\': A string containing the full blog post content in Markdown format (NOT JSON, just plain Markdown text)\n\nDo not include JSON code blocks or markdown formatting in the body field - just write the blog content directly.';
+      }
+    }
+    
+    // Return default if KV not available or key not found
+    return getDefaultPrompt();
+  } catch (error) {
+    console.error('Error loading voice prompt:', error);
+    return getDefaultPrompt();
+  }
+}
+
+function getDefaultPrompt() {
+  return `You are a technical blogger writing daily development logs. Your writing style should be:
 
 - Professional but approachable: Write in a conversational tone that's easy to follow
 - Technical accuracy: Be precise with technical details and terminology
@@ -152,8 +219,4 @@ IMPORTANT: Your response must be a valid JSON object with exactly two fields:
 2. 'body': A string containing the full blog post content in Markdown format (NOT JSON, just plain Markdown text)
 
 Do not include JSON code blocks or markdown formatting in the body field - just write the blog content directly.`;
-  } catch (error) {
-    console.error('Error loading voice prompt:', error);
-    return 'Write a technical blog post in a professional but approachable tone.';
-  }
 }

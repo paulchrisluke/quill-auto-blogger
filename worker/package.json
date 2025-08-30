@@ -6,7 +6,10 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "setup-kv": "node setup-kv.js",
+    "upload-prompts": "node upload-prompts.js",
+    "upload-prompts:staging": "node upload-prompts.js --env staging",
+    "test": "node test-prompts.js"
   },
   "dependencies": {
     "@cloudflare/ai": "^1.0.0"
