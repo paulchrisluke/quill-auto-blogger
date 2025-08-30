@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import requests
 from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
@@ -37,6 +38,10 @@ class BlogDigestBuilder:
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
+        
+        # AI generation settings
+        self.worker_url = os.getenv("CLOUDFLARE_WORKER_URL")
+        self.voice_prompt_path = os.getenv("BLOG_VOICE_PROMPT_PATH", "prompts/default_voice.md")
     
     def build_digest(self, target_date: str) -> Dict[str, Any]:
         """
@@ -389,3 +394,103 @@ class BlogDigestBuilder:
                 content_parts.append("")
         
         return "\n".join(content_parts)
+    
+    def generate_ai_blog(self, target_date: str) -> Dict[str, Any]:
+        """
+        Generate an AI-written blog draft from a digest.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Dictionary containing the AI-generated blog with frontmatter and body
+        """
+        if not self.worker_url:
+            raise ValueError("CLOUDFLARE_WORKER_URL not configured in environment")
+        
+        # Load the digest
+        digest = self.build_digest(target_date)
+        
+        # Prepare the request payload
+        payload = {
+            "digest": digest
+        }
+        
+        try:
+            # Send request to Cloudflare Worker
+            response = requests.post(
+                f"{self.worker_url}/generate-blog",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=60
+            )
+            response.raise_for_status()
+            
+            # Parse the AI response
+            ai_response = response.json()
+            
+            # Validate the response structure
+            if not isinstance(ai_response, dict):
+                raise ValueError("Invalid response format from AI service")
+            
+            if "frontmatter" not in ai_response or "body" not in ai_response:
+                raise ValueError("AI response missing required 'frontmatter' or 'body' fields")
+            
+            return ai_response
+            
+        except requests.RequestException as e:
+            logger.error(f"Error calling AI service: {e}")
+            raise RuntimeError(f"Failed to generate AI blog: {e}") from e
+        except (ValueError, KeyError) as e:
+            logger.error(f"Error parsing AI response: {e}")
+            raise RuntimeError(f"Invalid response from AI service: {e}") from e
+    
+    def save_ai_draft(self, target_date: str, ai_response: Dict[str, Any]) -> Path:
+        """
+        Save AI-generated blog draft to file.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            ai_response: AI-generated blog response
+            
+        Returns:
+            Path to the saved draft file
+        """
+        # Create drafts directory
+        drafts_dir = Path("drafts")
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save the AI draft
+        draft_path = drafts_dir / f"{target_date}-DRAFT.json"
+        
+        # Use atomic write to ensure file integrity
+        from services.utils import CacheManager
+        cache_manager = CacheManager()
+        cache_manager.atomic_write_json(draft_path, ai_response, overwrite=True)
+        
+        logger.info(f"AI draft saved to: {draft_path}")
+        return draft_path
+    
+    def load_digest_from_file(self, target_date: str) -> Dict[str, Any]:
+        """
+        Load a digest from the digests directory.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Dictionary containing the digest data
+        """
+        # Check if digest exists in digests directory first
+        digests_dir = Path("digests")
+        digest_path = digests_dir / f"{target_date}.json"
+        
+        if digest_path.exists():
+            try:
+                with open(digest_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Could not load digest from {digest_path}: {e}")
+        
+        # Fall back to building digest from data
+        return self.build_digest(target_date)

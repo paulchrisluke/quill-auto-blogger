@@ -1,0 +1,20 @@
+{
+  "name": "blog-ai-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for AI blog generation",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@cloudflare/ai": "^1.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "keywords": ["cloudflare", "worker", "ai", "blog"],
+  "author": "Paul Chris Luke",
+  "license": "MIT"
+}

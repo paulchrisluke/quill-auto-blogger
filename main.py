@@ -241,5 +241,55 @@ def build_latest_digest():
     ctx = click.get_current_context()
     ctx.invoke(build_digest, date=None)
 
+@cli.command(name="generate-blog")
+@click.option('--date', type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
+              help='Date in YYYY-MM-DD (defaults to latest)')
+def generate_blog(date):
+    """Generate an AI-written blog draft from a digest."""
+    click.echo("Generating AI blog draft...")
+    
+    try:
+        from services.blog import BlogDigestBuilder
+        builder = BlogDigestBuilder()
+        
+        if date:
+            date_str = date.strftime('%Y-%m-%d')
+            click.echo(f"Generating blog draft for {date_str}")
+        else:
+            # Get the latest digest to determine the date
+            digest = builder.build_latest_digest()
+            date_str = digest.get('date', 'unknown')
+            click.echo(f"Generating blog draft for latest date: {date_str}")
+        
+        # Generate the AI blog
+        ai_response = builder.generate_ai_blog(date_str)
+        
+        # Save the draft
+        draft_path = builder.save_ai_draft(date_str, ai_response)
+        
+        click.echo("✅ AI blog draft generated successfully!")
+        click.echo(f"📄 Draft saved to: {draft_path}")
+        
+        # Show a preview of the generated content
+        frontmatter = ai_response.get('frontmatter', {})
+        body = ai_response.get('body', '')
+        
+        if frontmatter.get('headline'):
+            click.echo(f"📝 Title: {frontmatter['headline']}")
+        
+        if body:
+            # Show first 200 characters of the body
+            preview = body[:200] + "..." if len(body) > 200 else body
+            click.echo(f"📖 Preview: {preview}")
+        
+    except ValueError as e:
+        raise click.ClickException(f"Configuration error: {e}") from e
+    except RuntimeError as e:
+        raise click.ClickException(f"AI generation error: {e}") from e
+    except FileNotFoundError as e:
+        raise click.ClickException(str(e)) from e
+    except Exception as e:
+        raise click.ClickException(f"Unexpected error: {e}") from e
+
 if __name__ == '__main__':
     cli()
