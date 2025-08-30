@@ -40,7 +40,12 @@ class BlogDigestBuilder:
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
         
         # AI generation settings
-        self.worker_url = os.getenv("CLOUDFLARE_WORKER_URL")
+        worker_url = os.getenv("CLOUDFLARE_WORKER_URL")
+        if worker_url:
+            self.worker_url = worker_url.rstrip("/")
+        else:
+            self.worker_url = None
+        self.worker_bearer_token = os.getenv("WORKER_BEARER_TOKEN")
         self.voice_prompt_path = os.getenv("BLOG_VOICE_PROMPT_PATH", "prompts/default_voice.md")
     
     def build_digest(self, target_date: str) -> Dict[str, Any]:
@@ -408,6 +413,9 @@ class BlogDigestBuilder:
         if not self.worker_url:
             raise ValueError("CLOUDFLARE_WORKER_URL not configured in environment")
         
+        if not self.worker_bearer_token:
+            raise ValueError("WORKER_BEARER_TOKEN not configured in environment")
+        
         # Load the digest
         digest = self.build_digest(target_date)
         
@@ -421,7 +429,10 @@ class BlogDigestBuilder:
             response = requests.post(
                 f"{self.worker_url}/generate-blog",
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.worker_bearer_token}"
+                },
                 timeout=60
             )
             response.raise_for_status()
@@ -529,7 +540,7 @@ class BlogDigestBuilder:
             resolved_path = digest_path.resolve()
             resolved_path.relative_to(digests_dir_resolved)
         except (OSError, RuntimeError, ValueError) as e:
-            logger.warning(f"Path traversal detected or error resolving path for {target_date}: {resolved_path} is outside {digests_dir_resolved}, falling back to build_digest")
+            logger.warning(f"Path traversal detected or error resolving path for {target_date}: {e}, falling back to build_digest")
             return self.build_digest(target_date)
         
         if digest_path.exists():
