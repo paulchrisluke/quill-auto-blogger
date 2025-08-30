@@ -3,6 +3,7 @@ Blog digest builder service for generating daily blog posts with frontmatter.
 """
 
 import json
+import logging
 import os
 from datetime import datetime, date
 from pathlib import Path
@@ -11,6 +12,8 @@ import yaml
 from dotenv import load_dotenv
 
 from models import TwitchClip, GitHubEvent
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -124,7 +127,7 @@ class BlogDigestBuilder:
                     clip = TwitchClip(**data)
                     clips.append(clip)
             except Exception as e:
-                print(f"Warning: Could not load Twitch clip {file_path}: {e}")
+                logger.warning(f"Could not load Twitch clip {file_path}: {e}", exc_info=True)
         
         return clips
     
@@ -139,7 +142,7 @@ class BlogDigestBuilder:
                     event = GitHubEvent(**data)
                     events.append(event)
             except Exception as e:
-                print(f"Warning: Could not load GitHub event {file_path}: {e}")
+                logger.warning(f"Could not load GitHub event {file_path}: {e}", exc_info=True)
         
         return events
     
@@ -150,8 +153,13 @@ class BlogDigestBuilder:
         
         # Add repo names from GitHub events
         for event in events:
-            keywords.add(event.repo.split('/')[0])  # owner
-            keywords.add(event.repo.split('/')[1])  # repo name
+            # Validate repo format before splitting
+            owner, separator, repo_name = event.repo.partition('/')
+            if separator and owner and repo_name:
+                keywords.add(owner)  # owner
+                keywords.add(repo_name)  # repo name
+            else:
+                logger.warning(f"Invalid repo format '{event.repo}' for event {event.id}, skipping repo keywords")
         
         # Add languages from Twitch clips
         for clip in clips:
@@ -219,10 +227,10 @@ class BlogDigestBuilder:
             faq_entries = []
             for event in events:
                 if event.get("title") or event.get("details", {}).get("commit_messages"):
-                    question = event.get("title", f"{event['type']} in {event['repo']}")
+                    question = event.get("title", f"{event.get('type', 'unknown')} in {event.get('repo', '')}")
                     answer = event.get("body", "")
                     if not answer and event.get("details", {}).get("commit_messages"):
-                        answer = "\n".join(event["details"]["commit_messages"])
+                        answer = "\n".join(event.get("details", {}).get("commit_messages", []))
                     
                     if answer:
                         faq_entries.append({
@@ -295,15 +303,15 @@ class BlogDigestBuilder:
             content_parts.append("")
             
             for clip in clips:
-                content_parts.append(f"### {clip['title']}")
+                content_parts.append(f"### {clip.get('title', 'Untitled Clip')}")
                 content_parts.append(f"**Duration:** {clip.get('duration', 'Unknown')} seconds")
                 content_parts.append(f"**Views:** {clip.get('view_count', 'Unknown')}")
-                content_parts.append(f"**URL:** {clip['url']}")
+                content_parts.append(f"**URL:** {clip.get('url', '')}")
                 content_parts.append("")
                 
                 if clip.get('transcript'):
                     content_parts.append("**Transcript:**")
-                    content_parts.append(f"> {clip['transcript']}")
+                    content_parts.append(f"> {clip.get('transcript', '')}")
                     content_parts.append("")
         
         # Add GitHub events section
@@ -312,23 +320,23 @@ class BlogDigestBuilder:
             content_parts.append("")
             
             for event in events:
-                content_parts.append(f"### {event['type']} in {event['repo']}")
-                content_parts.append(f"**Actor:** {event['actor']}")
-                content_parts.append(f"**Time:** {event['created_at']}")
+                content_parts.append(f"### {event.get('type', 'unknown')} in {event.get('repo', '')}")
+                content_parts.append(f"**Actor:** {event.get('actor', 'Unknown')}")
+                content_parts.append(f"**Time:** {event.get('created_at', 'Unknown')}")
                 
                 if event.get('url'):
-                    content_parts.append(f"**URL:** {event['url']}")
+                    content_parts.append(f"**URL:** {event.get('url', '')}")
                 
                 if event.get('title'):
-                    content_parts.append(f"**Title:** {event['title']}")
+                    content_parts.append(f"**Title:** {event.get('title', '')}")
                 
                 if event.get('body'):
-                    content_parts.append(f"**Description:** {event['body']}")
+                    content_parts.append(f"**Description:** {event.get('body', '')}")
                 
                 # Add commit messages if available
                 if event.get('details', {}).get('commit_messages'):
                     content_parts.append("**Commits:**")
-                    for msg in event['details']['commit_messages']:
+                    for msg in event.get('details', {}).get('commit_messages', []):
                         content_parts.append(f"- {msg}")
                 
                 content_parts.append("")

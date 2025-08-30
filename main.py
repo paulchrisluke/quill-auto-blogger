@@ -13,7 +13,6 @@ from services.twitch import TwitchService
 from services.github import GitHubService
 from services.auth import AuthService
 from services.utils import CacheManager
-from services.blog import BlogDigestBuilder
 
 # Load environment variables
 load_dotenv()
@@ -189,21 +188,34 @@ def build_digest(date):
     click.echo("Building digest...")
     
     try:
+        from services.blog import BlogDigestBuilder
         builder = BlogDigestBuilder()
         
         if date:
+            # Validate date format
+            try:
+                datetime.strptime(date, '%Y-%m-%d')
+            except ValueError:
+                click.echo(f"❌ Invalid date format: {date}. Please use YYYY-MM-DD format (e.g., 2025-01-15)")
+                return
+            
             digest = builder.build_digest(date)
             click.echo(f"Building digest for {date}")
         else:
             digest = builder.build_latest_digest()
-            click.echo(f"Building digest for latest date: {digest['date']}")
+            click.echo(f"Building digest for latest date: {digest.get('date', 'unknown')}")
         
         # Save JSON digest
         json_path = builder.save_digest(digest)
         
         click.echo(f"✅ Digest built successfully!")
         click.echo(f"📄 JSON saved to: {json_path}")
-        click.echo(f"📊 Summary: {digest['metadata']['total_clips']} clips, {digest['metadata']['total_events']} events")
+        
+        # Defensive access to metadata
+        metadata = digest.get('metadata', {})
+        total_clips = metadata.get('total_clips', 0)
+        total_events = metadata.get('total_events', 0)
+        click.echo(f"📊 Summary: {total_clips} clips, {total_events} events")
         
     except FileNotFoundError as e:
         click.echo(f"❌ {e}")
@@ -214,6 +226,13 @@ def build_digest(date):
 @click.argument('date', required=True)
 def build_digest_for_date(date):
     """Build a JSON digest for a specific date."""
+    # Validate date format
+    try:
+        datetime.strptime(date, '%Y-%m-%d')
+    except ValueError:
+        click.echo(f"❌ Invalid date format: {date}. Please use YYYY-MM-DD format (e.g., 2025-01-15)")
+        return
+    
     build_digest.callback(date)
 
 @cli.command()

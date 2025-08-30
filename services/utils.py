@@ -4,6 +4,7 @@ Utility functions for caching, deduplication, and file management.
 
 import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -73,10 +74,61 @@ class CacheManager:
         date_dir.mkdir(exist_ok=True)
         return date_dir
     
-    def save_json(self, filename: str, data: Dict[str, Any], date: Optional[datetime] = None):
+    def _resolve_secure_path(self, filename: str, date: Optional[datetime] = None) -> Path:
+        """
+        Resolve a secure file path within the data directory.
+        
+        This method prevents path traversal attacks by:
+        1. Sanitizing the filename
+        2. Resolving the path relative to the data directory
+        3. Ensuring the final path stays within the data directory
+        
+        Args:
+            filename: The filename to resolve
+            date: Optional date for subdirectory organization
+            
+        Returns:
+            A secure Path object within the data directory
+            
+        Raises:
+            ValueError: If the resolved path would escape the data directory
+        """
+        # Sanitize the filename first
+        sanitized_filename = sanitize_filename(filename)
+        
+        # Get the base data directory
+        data_dir = self.get_data_dir(date)
+        
+        # Resolve the path relative to the data directory
+        try:
+            # Use resolve() to handle any path components and get absolute path
+            resolved_path = (data_dir / sanitized_filename).resolve()
+            
+            # Ensure the resolved path is within the data directory
+            # Use resolve() on data_dir to get its absolute path for comparison
+            data_dir_abs = data_dir.resolve()
+            
+            # Check if the resolved path is within the data directory
+            if not str(resolved_path).startswith(str(data_dir_abs)):
+                raise ValueError(f"Path traversal detected: {filename} would resolve to {resolved_path} outside of {data_dir_abs}")
+            
+            return resolved_path
+            
+        except (ValueError, RuntimeError) as e:
+            # Handle any path resolution errors
+            raise ValueError(f"Invalid path: {filename}") from e
+    
+    def save_json(self, filename: str, data: Dict[str, Any], date: Optional[datetime] = None, overwrite: bool = False):
         """Save data as JSON file."""
         data_dir = self.get_data_dir(date)
         file_path = data_dir / filename
+        
+        # Check if file already exists and overwrite is not allowed
+        if file_path.exists() and not overwrite:
+            raise FileExistsError(f"File already exists: {file_path}. Set overwrite=True to allow replacement.")
+        
+        # Ensure parent directory exists (only for parent directories, not the file itself)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(file_path, 'w') as f:
             json.dump(data, f, indent=2, default=str)
@@ -94,7 +146,7 @@ class CacheManager:
         
         return None
     
-    def persist_file(self, temp_path: Path, filename: str, date: Optional[datetime] = None) -> Path:
+    def persist_file(self, temp_path: Path, filename: str, date: Optional[datetime] = None, overwrite: bool = False) -> Path:
         """Move a temporary file to persistent storage and return the new path."""
         if not temp_path.exists():
             raise FileNotFoundError(f"Temporary file not found: {temp_path}")
@@ -102,11 +154,15 @@ class CacheManager:
         data_dir = self.get_data_dir(date)
         persistent_path = data_dir / filename
         
-        # Ensure the target directory exists
+        # Check if destination already exists and overwrite is not allowed
+        if persistent_path.exists() and not overwrite:
+            raise FileExistsError(f"Destination file already exists: {persistent_path}. Set overwrite=True to allow replacement.")
+        
+        # Ensure the target directory exists (only for parent directories)
         persistent_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Move the file
-        temp_path.rename(persistent_path)
+        shutil.move(temp_path, persistent_path)
         
         return persistent_path
     

@@ -129,6 +129,118 @@ class TestCacheManager:
         
         assert loaded_data == test_data
     
+    def test_save_json_overwrite_false(self):
+        """Test that save_json raises FileExistsError when file exists and overwrite=False."""
+        test_data = {"key": "value", "number": 123}
+        filename = "test.json"
+        
+        # Save file first time
+        self.cache_manager.save_json(filename, test_data)
+        
+        # Try to save again without overwrite flag
+        with pytest.raises(FileExistsError):
+            self.cache_manager.save_json(filename, test_data)
+    
+    def test_save_json_overwrite_true(self):
+        """Test that save_json allows overwriting when overwrite=True."""
+        test_data1 = {"key": "value1", "number": 123}
+        test_data2 = {"key": "value2", "number": 456}
+        filename = "test.json"
+        
+        # Save file first time
+        self.cache_manager.save_json(filename, test_data1)
+        
+        # Save again with overwrite flag
+        file_path = self.cache_manager.save_json(filename, test_data2, overwrite=True)
+        
+        # Verify the file was overwritten
+        with open(file_path, 'r') as f:
+            loaded_data = json.load(f)
+        
+        assert loaded_data == test_data2
+    
+    def test_persist_file(self):
+        """Test persisting a temporary file."""
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+            f.write("test content")
+            temp_path = Path(f.name)
+        
+        try:
+            filename = "persisted_test.txt"
+            persistent_path = self.cache_manager.persist_file(temp_path, filename)
+            
+            assert persistent_path.exists()
+            assert persistent_path.read_text() == "test content"
+            assert not temp_path.exists()  # Original temp file should be moved
+        finally:
+            # Clean up temp file if it still exists
+            if temp_path.exists():
+                temp_path.unlink()
+    
+    def test_persist_file_overwrite_false(self):
+        """Test that persist_file raises FileExistsError when destination exists and overwrite=False."""
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+            f.write("test content")
+            temp_path = Path(f.name)
+        
+        try:
+            filename = "persisted_test.txt"
+            
+            # Persist file first time
+            self.cache_manager.persist_file(temp_path, filename)
+            
+            # Create another temp file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as f2:
+                f2.write("different content")
+                temp_path2 = Path(f2.name)
+            
+            try:
+                # Try to persist to same destination without overwrite flag
+                with pytest.raises(FileExistsError):
+                    self.cache_manager.persist_file(temp_path2, filename)
+            finally:
+                if temp_path2.exists():
+                    temp_path2.unlink()
+        finally:
+            # Clean up temp file if it still exists
+            if temp_path.exists():
+                temp_path.unlink()
+    
+    def test_persist_file_overwrite_true(self):
+        """Test that persist_file allows overwriting when overwrite=True."""
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+            f.write("test content")
+            temp_path = Path(f.name)
+        
+        try:
+            filename = "persisted_test.txt"
+            
+            # Persist file first time
+            self.cache_manager.persist_file(temp_path, filename)
+            
+            # Create another temp file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as f2:
+                f2.write("different content")
+                temp_path2 = Path(f2.name)
+            
+            try:
+                # Persist to same destination with overwrite flag
+                persistent_path = self.cache_manager.persist_file(temp_path2, filename, overwrite=True)
+                
+                assert persistent_path.exists()
+                assert persistent_path.read_text() == "different content"
+                assert not temp_path2.exists()  # Original temp file should be moved
+            finally:
+                if temp_path2.exists():
+                    temp_path2.unlink()
+        finally:
+            # Clean up temp file if it still exists
+            if temp_path.exists():
+                temp_path.unlink()
+    
     def test_load_json_existing(self):
         """Test loading JSON data from existing file."""
         test_data = {"key": "value", "number": 123}

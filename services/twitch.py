@@ -3,6 +3,7 @@ Twitch API service for fetching clips and processing them.
 """
 
 import logging
+import random
 import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -49,13 +50,52 @@ class TwitchService:
                     q = dict(params)
                     if cursor:
                         q["after"] = cursor
-                    # Minimal retry/backoff for 429
-                    for attempt in range(3):
+                    # Exponential backoff retry for 429 responses
+                    base_backoff = 1.0  # Base delay in seconds
+                    max_backoff = 30.0  # Maximum delay in seconds
+                    max_attempts = 3
+                    
+                    for attempt in range(max_attempts):
                         resp = client.get(f"{self.base_url}/clips", headers=headers, params=q)
                         if resp.status_code != 429:
                             break
-                        reset = float(resp.headers.get("Ratelimit-Reset", "1"))
-                        time.sleep(min(reset, 5.0))  # cap sleep to 5s
+                        
+                        # Calculate exponential backoff
+                        backoff_delay = min(max_backoff, base_backoff * (2 ** attempt))
+                        
+                        # Parse reset header defensively if present
+                        reset_delay = None
+                        if "Ratelimit-Reset" in resp.headers:
+                            try:
+                                reset_delay = float(resp.headers.get("Ratelimit-Reset", "1"))
+                            except (ValueError, TypeError):
+                                logger.warning("Invalid Ratelimit-Reset header value: %s", resp.headers.get("Ratelimit-Reset"))
+                                reset_delay = None
+                        
+                        # Use the minimum of reset delay (if available) and computed backoff
+                        if reset_delay is not None:
+                            sleep_duration = min(reset_delay, backoff_delay)
+                        else:
+                            sleep_duration = backoff_delay
+                        
+                        # Add jitter (±10% of sleep duration)
+                        jitter = random.uniform(0.9, 1.1)
+                        final_sleep = sleep_duration * jitter
+                        
+                        logger.info("Rate limited (attempt %d/%d), sleeping %.2fs (backoff: %.2fs, reset: %s)", 
+                                  attempt + 1, max_attempts, final_sleep, backoff_delay, 
+                                  reset_delay if reset_delay is not None else "N/A")
+                        
+                        time.sleep(final_sleep)
+                    else:
+                        # All retries exhausted
+                        logger.error("Rate limit exceeded after %d retries", max_attempts)
+                        raise httpx.HTTPStatusError(
+                            f"Rate limit exceeded after {max_attempts} retries",
+                            request=resp.request,
+                            response=resp
+                        )
+                    
                     resp.raise_for_status()
                     data = resp.json()
 
@@ -109,8 +149,32 @@ class TwitchService:
             video_filename = f"video_{clip.id}_{sanitize_filename(clip.title)}.mp4"
             audio_filename = f"audio_{clip.id}_{sanitize_filename(clip.title)}.wav"
             
-            persistent_video_path = self.cache_manager.persist_file(video_path, video_filename, clip.created_at)
-            persistent_audio_path = self.cache_manager.persist_file(audio_path, audio_filename, clip.created_at)
+            persistent_video_path = None
+            persistent_audio_path = None
+            
+            try:
+                # Persist video file first
+                persistent_video_path = self.cache_manager.persist_file(video_path, video_filename, clip.created_at)
+                
+                # Persist audio file
+                persistent_audio_path = self.cache_manager.persist_file(audio_path, audio_filename, clip.created_at)
+                
+            except Exception as e:
+                # Clean up any successfully persisted files on failure
+                if persistent_video_path:
+                    try:
+                        self.cache_manager.cleanup_temp(str(persistent_video_path))
+                    except Exception as cleanup_error:
+                        logger.warning("Failed to cleanup video file %s: %s", persistent_video_path, cleanup_error)
+                
+                if persistent_audio_path:
+                    try:
+                        self.cache_manager.cleanup_temp(str(persistent_audio_path))
+                    except Exception as cleanup_error:
+                        logger.warning("Failed to cleanup audio file %s: %s", persistent_audio_path, cleanup_error)
+                
+                # Re-raise the original exception
+                raise
             
             # Update clip with persistent paths and transcript
             clip.transcript = transcript
