@@ -351,8 +351,8 @@ class TestUtilityFunctions:
         assert sanitize_filename("file?name") == "file_name"
         assert sanitize_filename("file*name") == "file_name"
         
-        # Test whitespace trimming
-        assert sanitize_filename("  file name  ") == "file name"
+        # Test whitespace trimming and replacement
+        assert sanitize_filename("  file name  ") == "file_name"
         
         # Test repeated underscores
         assert sanitize_filename("file__name") == "file_name"

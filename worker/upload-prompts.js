@@ -7,17 +7,51 @@
  *   node upload-prompts.js [--env production|staging]
  */
 
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { execFileSync } from 'child_process';
+import { tmpdir } from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Get environment from command line args
 const args = process.argv.slice(2);
-const env = args.includes('--env') ? args[args.indexOf('--env') + 1] : 'production';
+
+// Validate environment argument
+function getEnvironment() {
+  const envIndex = args.indexOf('--env');
+  
+  // If no --env flag, default to production
+  if (envIndex === -1) {
+    return 'production';
+  }
+  
+  // Check if --env is the last argument (no value provided)
+  if (envIndex === args.length - 1) {
+    console.error('❌ Error: --env flag requires a value');
+    console.error('Usage: node upload-prompts.js [--env production|staging]');
+    process.exit(1);
+  }
+  
+  const envValue = args[envIndex + 1];
+  
+  // Validate the environment value
+  const allowedEnvironments = ['production', 'staging', 'development'];
+  
+  if (!envValue || !allowedEnvironments.includes(envValue)) {
+    console.error(`❌ Error: Invalid environment "${envValue}"`);
+    console.error(`Allowed environments: ${allowedEnvironments.join(', ')}`);
+    console.error('Usage: node upload-prompts.js [--env production|staging]');
+    process.exit(1);
+  }
+  
+  return envValue;
+}
+
+const env = getEnvironment();
 
 // Prompt files to upload
 const prompts = [
@@ -35,12 +69,27 @@ async function uploadPrompts() {
   console.log(`Uploading prompts to ${env} environment...`);
   
   for (const prompt of prompts) {
+    let tempFile = null;
     try {
       const content = readFileSync(prompt.file, 'utf8');
       
-      // Use wrangler to upload to KV
-      const { execSync } = await import('child_process');
-      execSync(`npx wrangler kv:key put --binding=PROMPTS_KV "${prompt.key}" "${content.replace(/"/g, '\\"')}" --env=${env}`, {
+      // Create a temporary file for the content
+      tempFile = join(tmpdir(), `prompt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.md`);
+      writeFileSync(tempFile, content, 'utf8');
+      
+      // Use wrangler to upload to KV with --path flag
+      const wranglerArgs = [
+        'wrangler',
+        'kv:key',
+        'put',
+        '--binding=PROMPTS_KV',
+        prompt.key,
+        '--path',
+        tempFile,
+        `--env=${env}`
+      ];
+      
+      execFileSync('npx', wranglerArgs, {
         stdio: 'inherit',
         cwd: __dirname
       });
@@ -48,6 +97,15 @@ async function uploadPrompts() {
       console.log(`✅ Uploaded ${prompt.key}`);
     } catch (error) {
       console.error(`❌ Failed to upload ${prompt.key}:`, error.message);
+    } finally {
+      // Clean up temporary file
+      if (tempFile) {
+        try {
+          unlinkSync(tempFile);
+        } catch (cleanupError) {
+          console.warn(`⚠️  Warning: Could not clean up temporary file ${tempFile}:`, cleanupError.message);
+        }
+      }
     }
   }
   

@@ -69,7 +69,7 @@ class TranscriptionService:
         
         try:
             with open(audio_path, 'rb') as f:  # keep handle for streaming
-                with httpx.Client(timeout=Timeout(connect=10.0, read=60.0)) as client:
+                with httpx.Client(timeout=(10.0, 60.0)) as client:
                     response = client.post(url, headers=headers, content=f)
                 response.raise_for_status()
                 
@@ -211,7 +211,7 @@ class TranscriptionService:
     def _download_with_httpx(self, url: str, output_path: Path):
         """Download video using httpx (for non-Twitch URLs)."""
         try:
-            with httpx.Client(timeout=Timeout(10.0, read=30.0)) as client:
+            with httpx.Client(timeout=(10.0, 30.0)) as client:
                 with client.stream('GET', url) as response:
                     response.raise_for_status()
                     

@@ -2,6 +2,7 @@
   "name": "blog-ai-worker",
   "version": "1.0.0",
   "description": "Cloudflare Worker for AI blog generation",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "deploy": "wrangler deploy",

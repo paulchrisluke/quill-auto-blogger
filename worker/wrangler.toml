@@ -21,10 +21,14 @@ ALLOWED_ORIGINS = "*"
 
 [env.production]
 name = "blog-ai-worker"
+
+[env.production.vars]
 # Production: restrict to specific origins
 ALLOWED_ORIGINS = "https://paulchrisluke.com,https://www.paulchrisluke.com"
 
 [env.staging]
 name = "blog-ai-worker-staging"
+
+[env.staging.vars]
 # Staging: allow all origins for testing
 ALLOWED_ORIGINS = "*"

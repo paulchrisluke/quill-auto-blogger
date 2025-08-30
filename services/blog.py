@@ -436,6 +436,19 @@ class BlogDigestBuilder:
             if "frontmatter" not in ai_response or "body" not in ai_response:
                 raise ValueError("AI response missing required 'frontmatter' or 'body' fields")
             
+            # Validate types of required fields
+            if not isinstance(ai_response["frontmatter"], dict):
+                raise ValueError("AI response 'frontmatter' field must be a dictionary")
+            
+            # Ensure body is a string, cast if appropriate
+            body = ai_response["body"]
+            if not isinstance(body, str):
+                if isinstance(body, (int, float, bool)):
+                    # Cast simple types to string
+                    ai_response["body"] = str(body)
+                else:
+                    raise ValueError("AI response 'body' field must be a string or castable to string")
+            
             return ai_response
             
         except requests.RequestException as e:
@@ -456,12 +469,31 @@ class BlogDigestBuilder:
         Returns:
             Path to the saved draft file
         """
+        # Validate and sanitize target_date to prevent path traversal
+        try:
+            # Parse date to ensure YYYY-MM-DD format
+            datetime.strptime(target_date, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError(f"target_date must be YYYY-MM-DD format, got: {target_date}") from exc
+        
+        # Block dangerous characters and path traversal attempts
+        dangerous_chars = ['/', '\\', '\x00', '..']
+        for char in dangerous_chars:
+            if char in target_date:
+                raise ValueError(f"target_date contains forbidden character: {repr(char)}")
+        
         # Create drafts directory
         drafts_dir = Path("drafts")
         drafts_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save the AI draft
-        draft_path = drafts_dir / f"{target_date}-DRAFT.json"
+        # Construct safe path
+        safe_date = target_date
+        draft_path = drafts_dir / f"{safe_date}-DRAFT.json"
+        
+        # Ensure the resolved path stays within the drafts directory
+        resolved_path = draft_path.resolve()
+        if resolved_path.parent != drafts_dir.resolve():
+            raise ValueError(f"Path traversal detected: {resolved_path} is outside {drafts_dir}")
         
         # Use atomic write to ensure file integrity
         from services.utils import CacheManager
@@ -481,9 +513,25 @@ class BlogDigestBuilder:
         Returns:
             Dictionary containing the digest data
         """
+        # Validate target_date strictly to prevent path traversal
+        import re
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', target_date):
+            logger.warning(f"Invalid target_date format: {target_date}, falling back to build_digest")
+            return self.build_digest(target_date)
+        
         # Check if digest exists in digests directory first
         digests_dir = Path("digests")
         digest_path = digests_dir / f"{target_date}.json"
+        
+        # Ensure the resolved path stays within the digests directory
+        try:
+            resolved_path = digest_path.resolve()
+            if not str(resolved_path).startswith(str(digests_dir.resolve())):
+                logger.warning(f"Path traversal detected: {resolved_path} is outside {digests_dir}, falling back to build_digest")
+                return self.build_digest(target_date)
+        except (OSError, RuntimeError) as e:
+            logger.warning(f"Error resolving path for {target_date}: {e}, falling back to build_digest")
+            return self.build_digest(target_date)
         
         if digest_path.exists():
             try:

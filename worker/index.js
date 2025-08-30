@@ -29,6 +29,18 @@ function getCorsOrigin(request, env) {
   return null;
 }
 
+// Helper function to create CORS headers
+function createCorsHeaders(corsOrigin) {
+  const headers = {};
+  
+  if (corsOrigin) {
+    headers['Access-Control-Allow-Origin'] = corsOrigin;
+    headers['Vary'] = 'Origin';
+  }
+  
+  return headers;
+}
+
 export default {
   async fetch(request, env, ctx) {
     // Get CORS origin
@@ -36,36 +48,68 @@ export default {
     
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
+      const corsHeaders = createCorsHeaders(corsOrigin);
       return new Response(null, {
         status: 200,
         headers: {
-          'Access-Control-Allow-Origin': corsOrigin || '*',
+          ...corsHeaders,
           'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         },
       });
     }
 
     // Only allow POST requests
     if (request.method !== 'POST') {
+      const corsHeaders = createCorsHeaders(corsOrigin);
       return new Response('Method not allowed', { 
         status: 405,
         headers: {
-          'Access-Control-Allow-Origin': corsOrigin || '*',
+          ...corsHeaders,
           'Content-Type': 'text/plain',
         }
       });
     }
 
     try {
+      // Check authentication if bearer token is configured
+      const bearerToken = env.BEARER_TOKEN;
+      if (bearerToken) {
+        const authHeader = request.headers.get('Authorization');
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+          const corsHeaders = createCorsHeaders(corsOrigin);
+          return new Response('Unauthorized', {
+            status: 401,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'text/plain',
+              'WWW-Authenticate': 'Bearer',
+            }
+          });
+        }
+        
+        const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+        if (token !== bearerToken) {
+          const corsHeaders = createCorsHeaders(corsOrigin);
+          return new Response('Forbidden', {
+            status: 403,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'text/plain',
+            }
+          });
+        }
+      }
+      
       // Parse the request body
       const requestData = await request.json();
       
       if (!requestData.digest) {
+        const corsHeaders = createCorsHeaders(corsOrigin);
         return new Response('Missing digest data', { 
           status: 400,
           headers: {
-            'Access-Control-Allow-Origin': corsOrigin || '*',
+            ...corsHeaders,
             'Content-Type': 'text/plain',
           }
         });
@@ -159,10 +203,11 @@ ${JSON.stringify(requestData.digest, null, 2)}`
       }
 
       // Return the response
+      const corsHeaders = createCorsHeaders(corsOrigin);
       return new Response(JSON.stringify(aiResponse), {
         status: 200,
         headers: {
-          'Access-Control-Allow-Origin': corsOrigin || '*',
+          ...corsHeaders,
           'Content-Type': 'application/json',
         },
       });
@@ -170,13 +215,14 @@ ${JSON.stringify(requestData.digest, null, 2)}`
     } catch (error) {
       console.error('Error processing request:', error);
       
+      const corsHeaders = createCorsHeaders(corsOrigin);
       return new Response(JSON.stringify({
         error: 'Internal server error',
         message: error.message
       }), {
         status: 500,
         headers: {
-          'Access-Control-Allow-Origin': corsOrigin || '*',
+          ...corsHeaders,
           'Content-Type': 'application/json',
         },
       });

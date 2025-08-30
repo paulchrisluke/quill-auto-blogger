@@ -66,12 +66,12 @@ Then paste your prompt text when prompted.
 The worker uses Cloudflare KV to store prompt files. Configure the binding in `wrangler.toml`:
 ```toml
 [[kv_namespaces]]
-binding = "PROMPTS"
+binding = "PROMPTS_KV"
 id = "your-production-namespace-id"
 preview_id = "your-preview-namespace-id"
 ```
 
-At runtime, the worker will fetch prompts from KV using the key `default_voice.md` or `paul_chris_luke.md`.
+At runtime, the worker will fetch prompts from KV using the key `prompts/default_voice.md` or `prompts/paul_chris_luke.md`.
 
 ## KV Storage Setup
 
@@ -113,7 +113,7 @@ npm run upload-prompts:staging  # Upload to staging
 npm test
 ```
 
-The upload script will automatically upload both `prompts/default_voice.md` and `prompts/paul_chris_luke.md` to the KV store.
+The upload script will automatically upload both `prompts/default_voice.md` and `prompts/paul_chris_luke.md` to the KV store using the `PROMPTS_KV` binding.
 
 ### Fallback Behavior
 
