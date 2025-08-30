@@ -11,7 +11,7 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 - **Structured Storage**: All data stored as timestamped JSON files
 - **CLI Interface**: Easy-to-use command-line interface
 - **Authentication**: Automatic token refresh for Twitch OAuth
-- **Digest Builder**: Generate daily blog posts with structured frontmatter
+- **Digest Builder**: Generate daily blog posts as structured JSON for AI ingestion
 - **SEO Optimization**: Schema.org metadata for Articles, VideoObjects, and FAQs
 - **Social Sharing**: Open Graph metadata for social media platforms
 
@@ -160,7 +160,6 @@ data/
 
 blogs/
 ├── YYYY-MM-DD/
-│   ├── PRE-CLEANED-YYYY-MM-DD.md
 │   └── PRE-CLEANED-YYYY-MM-DD_digest.json
 └── ...
 ```
@@ -307,7 +306,7 @@ quill-auto-blogger/
 │   ├── utils.py           # Cache and utility functions
 │   └── blog.py            # Digest builder and frontmatter generator
 ├── data/                  # Stored JSON data
-├── blogs/                 # Generated blog posts (pre-cleaned for AI processing)
+├── blogs/                 # Generated JSON digests (pre-cleaned for AI processing)
 ├── tests/                 # Test suite
 │   ├── __init__.py
 │   ├── test_auth.py

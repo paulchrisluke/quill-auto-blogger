@@ -90,16 +90,15 @@ class BlogDigestBuilder:
         
         return f"{frontmatter}\n\n{content}"
     
-    def save_digest(self, digest: Dict[str, Any], markdown_content: str) -> Path:
+    def save_digest(self, digest: Dict[str, Any]) -> Path:
         """
-        Save digest as JSON and Markdown files.
+        Save digest as JSON file for AI ingestion.
         
         Args:
             digest: Digest data dictionary
-            markdown_content: Generated Markdown content
             
         Returns:
-            Path to the saved Markdown file
+            Path to the saved JSON file
         """
         target_date = digest["date"]
         
@@ -112,12 +111,7 @@ class BlogDigestBuilder:
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(digest, f, indent=2, default=str)
         
-        # Save Markdown file
-        md_path = date_dir / f"PRE-CLEANED-{target_date}.md"
-        with open(md_path, 'w', encoding='utf-8') as f:
-            f.write(markdown_content)
-        
-        return md_path
+        return json_path
     
     def _load_twitch_clips(self, date_path: Path) -> List[TwitchClip]:
         """Load all Twitch clips for a given date."""

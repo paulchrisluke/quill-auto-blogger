@@ -318,7 +318,7 @@ class TestBlogDigestBuilder:
         assert "- fix: bug fix" in content
     
     def test_save_digest_creates_files(self, temp_data_dir, temp_blogs_dir, sample_twitch_clip, sample_github_event):
-        """Test that save_digest creates both JSON and Markdown files."""
+        """Test that save_digest creates JSON file for AI ingestion."""
         builder = BlogDigestBuilder()
         builder.data_dir = temp_data_dir
         builder.blogs_dir = temp_blogs_dir
@@ -334,15 +334,12 @@ class TestBlogDigestBuilder:
             }
         }
         
-        markdown_content = builder.generate_markdown(digest)
-        md_path = builder.save_digest(digest, markdown_content)
+        json_path = builder.save_digest(digest)
         
         # Check that files were created
         date_dir = temp_blogs_dir / "2025-01-15"
-        json_path = date_dir / "PRE-CLEANED-2025-01-15_digest.json"
         assert json_path.exists()
-        assert md_path.exists()
-        assert md_path.name == "PRE-CLEANED-2025-01-15.md"
+        assert json_path.name == "PRE-CLEANED-2025-01-15_digest.json"
         assert date_dir.exists()
         
         # Check JSON content
@@ -351,12 +348,6 @@ class TestBlogDigestBuilder:
         assert saved_digest["date"] == "2025-01-15"
         assert len(saved_digest["twitch_clips"]) == 1
         assert len(saved_digest["github_events"]) == 1
-        
-        # Check Markdown content
-        with open(md_path, 'r') as f:
-            md_content = f.read()
-        assert "---" in md_content  # Frontmatter
-        assert "# Daily Devlog — January 15, 2025" in md_content
     
     def test_build_digest_missing_date(self, temp_data_dir):
         """Test that build_digest raises FileNotFoundError for missing date."""
