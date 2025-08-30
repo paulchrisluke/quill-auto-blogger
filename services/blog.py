@@ -411,9 +411,9 @@ class BlogDigestBuilder:
         # Load the digest
         digest = self.build_digest(target_date)
         
-        # Prepare the request payload
+        # Prepare the request payload with datetime serialization
         payload = {
-            "digest": digest
+            "digest": self._serialize_digest_for_json(digest)
         }
         
         try:
@@ -494,3 +494,25 @@ class BlogDigestBuilder:
         
         # Fall back to building digest from data
         return self.build_digest(target_date)
+    
+    def _serialize_digest_for_json(self, digest: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Serialize digest data for JSON transmission, handling datetime objects.
+        
+        Args:
+            digest: Digest data dictionary
+            
+        Returns:
+            JSON-serializable dictionary
+        """
+        def serialize_value(value):
+            if isinstance(value, (datetime, date)):
+                return value.isoformat()
+            elif isinstance(value, dict):
+                return {k: serialize_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [serialize_value(item) for item in value]
+            else:
+                return value
+        
+        return serialize_value(digest)
