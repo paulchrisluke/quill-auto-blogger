@@ -53,14 +53,16 @@ export default {
       
       const userMessage = {
         role: 'user',
-        content: `Write a blog post based on this structured data. Preserve all activity, format output as JSON with 'frontmatter' and 'body' fields.
+        content: `Write a blog post based on this structured data. The response should be a JSON object with two fields:
+- 'frontmatter': A JSON object containing metadata like title, date, author, keywords, etc.
+- 'body': A string containing the full blog post content in Markdown format (not JSON, just plain Markdown text)
 
 Digest data:
 ${JSON.stringify(requestData.digest, null, 2)}`
       };
 
       // Generate the blog post
-      const response = await ai.run('@cf/openai/gpt-4o-mini', {
+      const response = await ai.run('@cf/google/gemma-3-12b-it', {
         messages: [systemMessage, userMessage],
         stream: false,
         max_tokens: 4000,
@@ -145,7 +147,11 @@ async function loadVoicePrompt(env) {
 - Concise: Get to the point while providing enough context
 - Personal: Write in first person, as if you're sharing your daily development activities
 
-Write a blog post based on the provided digest data. Format your response as JSON with 'frontmatter' and 'body' fields. The frontmatter should include schema.org metadata and the body should be the full blog content in Markdown.`;
+IMPORTANT: Your response must be a valid JSON object with exactly two fields:
+1. 'frontmatter': A JSON object containing metadata (title, date, author, keywords, etc.)
+2. 'body': A string containing the full blog post content in Markdown format (NOT JSON, just plain Markdown text)
+
+Do not include JSON code blocks or markdown formatting in the body field - just write the blog content directly.`;
   } catch (error) {
     console.error('Error loading voice prompt:', error);
     return 'Write a technical blog post in a professional but approachable tone.';
