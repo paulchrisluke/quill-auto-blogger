@@ -516,8 +516,8 @@ class BlogDigestBuilder:
         # Validate target_date strictly to prevent path traversal
         import re
         if not re.match(r'^\d{4}-\d{2}-\d{2}$', target_date):
-            logger.warning(f"Invalid target_date format: {target_date}, falling back to build_digest")
-            return self.build_digest(target_date)
+            logger.warning(f"Invalid target_date format: {target_date}")
+            raise ValueError(f"target_date must be YYYY-MM-DD format, got: {target_date}")
         
         # Check if digest exists in digests directory first
         digests_dir = Path("digests")
@@ -525,12 +525,11 @@ class BlogDigestBuilder:
         
         # Ensure the resolved path stays within the digests directory
         try:
+            digests_dir_resolved = digests_dir.resolve()
             resolved_path = digest_path.resolve()
-            if not str(resolved_path).startswith(str(digests_dir.resolve())):
-                logger.warning(f"Path traversal detected: {resolved_path} is outside {digests_dir}, falling back to build_digest")
-                return self.build_digest(target_date)
-        except (OSError, RuntimeError) as e:
-            logger.warning(f"Error resolving path for {target_date}: {e}, falling back to build_digest")
+            resolved_path.relative_to(digests_dir_resolved)
+        except (OSError, RuntimeError, ValueError) as e:
+            logger.warning(f"Path traversal detected or error resolving path for {target_date}: {resolved_path} is outside {digests_dir_resolved}, falling back to build_digest")
             return self.build_digest(target_date)
         
         if digest_path.exists():

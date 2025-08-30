@@ -102,7 +102,19 @@ export default {
       }
       
       // Parse the request body
-      const requestData = await request.json();
+      let requestData;
+      try {
+        requestData = await request.json();
+      } catch (parseError) {
+        const corsHeaders = createCorsHeaders(corsOrigin);
+        return new Response('Invalid JSON body', { 
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'text/plain',
+          }
+        });
+      }
       
       if (!requestData.digest) {
         const corsHeaders = createCorsHeaders(corsOrigin);

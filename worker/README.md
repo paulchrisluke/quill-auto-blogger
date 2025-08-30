@@ -41,25 +41,19 @@ The worker uses the following environment variables:
 - `BLOG_AUTHOR`: Author name for blog posts (defaults to "Paul Chris Luke")
 - `BLOG_BASE_URL`: Base URL for the blog (defaults to "https://paulchrisluke.com")
 - `BLOG_DEFAULT_IMAGE`: Default image URL for blog posts (defaults to base URL + "/default.jpg")
-- `BLOG_VOICE_PROMPT`: Voice prompt text for AI blog generation (can be set as TOML variable or secret)
+- `BLOG_VOICE_PROMPT_PATH`: Path to voice prompt file in KV storage (e.g., "prompts/default_voice.md")
+- `BEARER_TOKEN`: Token used by index for authorization
 - `ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins (defaults to "*" for development)
 
 ### Voice Prompt Configuration
 
-You have two options for configuring the voice prompt:
+Set the `BLOG_VOICE_PROMPT_PATH` environment variable in your `wrangler.toml` to point to the prompt file in KV storage:
 
-#### Option 1: TOML Variable (for non-sensitive prompts)
-Add the prompt directly to your `wrangler.toml`:
 ```toml
-BLOG_VOICE_PROMPT = "You are a technical blogger writing in a conversational style..."
+BLOG_VOICE_PROMPT_PATH = "prompts/default_voice.md"
 ```
 
-#### Option 2: Secret (for sensitive prompts)
-Store the prompt as a Cloudflare secret:
-```bash
-wrangler secret put BLOG_VOICE_PROMPT
-```
-Then paste your prompt text when prompted.
+The worker fetches the prompt from KV at runtime and falls back to a built-in default if the key is missing. Prompt files must be uploaded to the worker KV namespace using the upload scripts.
 
 ### KV/R2 Binding Configuration
 
