@@ -174,11 +174,12 @@ class TestBlogAIGeneration:
     
     def test_voice_prompt_path_configuration(self):
         """Test voice prompt path configuration."""
-        # Test default path
-        builder = BlogDigestBuilder()
-        assert builder.voice_prompt_path == "prompts/default_voice.md"
-        
-        # Test custom path from environment
-        with patch.dict('os.environ', {'BLOG_VOICE_PROMPT_PATH': 'prompts/custom.md'}):
+        # Test custom path from environment (current setting)
+        with patch.dict('os.environ', {'BLOG_VOICE_PROMPT_PATH': 'prompts/paul_chris_luke.md'}):
             builder = BlogDigestBuilder()
-            assert builder.voice_prompt_path == "prompts/custom.md"
+            assert builder.voice_prompt_path == "prompts/paul_chris_luke.md"
+        
+        # Test default path when no environment variable is set
+        with patch.dict('os.environ', {}, clear=True):
+            builder = BlogDigestBuilder()
+            assert builder.voice_prompt_path == "prompts/default_voice.md"
