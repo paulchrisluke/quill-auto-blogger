@@ -2,8 +2,8 @@
 Twitch API service for fetching clips and processing them.
 """
 
-import os
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 import httpx
 
@@ -11,6 +11,8 @@ from models import TwitchClip
 from services.auth import AuthService
 from services.transcribe import TranscriptionService
 from services.utils import CacheManager, generate_filename, sanitize_filename
+
+logger = logging.getLogger(__name__)
 
 
 class TwitchService:
@@ -27,32 +29,37 @@ class TwitchService:
         headers = self.auth_service.get_twitch_headers()
         
         # Calculate date range
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days_back)
         
         params = {
             "broadcaster_id": broadcaster_id,
-            "started_at": start_date.isoformat() + "Z",
-            "ended_at": end_date.isoformat() + "Z",
+            "started_at": start_date.isoformat().replace("+00:00", "Z"),
+            "ended_at": end_date.isoformat().replace("+00:00", "Z"),
             "first": 100  # Max clips per request
         }
         
         clips = []
         
         try:
-            with httpx.Client() as client:
-                response = client.get(f"{self.base_url}/clips", headers=headers, params=params)
-                response.raise_for_status()
-                
-                data = response.json()
-                
-                for clip_data in data.get("data", []):
-                    clip = self._parse_clip_data(clip_data)
-                    
-                    # Check if we've already processed this clip
-                    if not self.cache_manager.is_seen(clip.id, "twitch_clip"):
-                        clips.append(clip)
-                
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
+                cursor = None
+                while True:
+                    q = dict(params)
+                    if cursor:
+                        q["after"] = cursor
+                    resp = client.get(f"{self.base_url}/clips", headers=headers, params=q)
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    for clip_data in data.get("data", []):
+                        clip = self._parse_clip_data(clip_data)
+                        if not self.cache_manager.is_seen(clip.id, "twitch_clip"):
+                            clips.append(clip)
+
+                    cursor = (data.get("pagination") or {}).get("cursor")
+                    if not cursor:
+                        break
                 return clips
                 
         except httpx.HTTPStatusError as e:
@@ -74,14 +81,17 @@ class TwitchService:
         )
     
     def process_clip(self, clip: TwitchClip) -> bool:
-        """Process a clip: download, transcribe, and save."""
+        """Process a clip: download, transcribe, and save.
+
+        Idempotent: returns True if saved or already seen; False on error.
+        """
         try:
             # Check if already processed
             if self.cache_manager.is_seen(clip.id, "twitch_clip"):
-                print(f"Clip {clip.id} already processed, skipping")
+                logger.info("Clip %s already processed, skipping", clip.id)
                 return True
             
-            print(f"Processing clip: {clip.title}")
+            logger.info("Processing clip: %s", clip.title)
             
             # Download and transcribe using yt-dlp
             transcript, video_path, audio_path = self.transcribe_service.download_and_transcribe(
@@ -102,11 +112,11 @@ class TwitchService:
             # Clean up temporary files
             self.transcribe_service.cleanup_temp_files(video_path, audio_path)
             
-            print(f"Successfully processed clip with transcript: {clip.title}")
+            logger.info("Successfully processed clip with transcript: %s", clip.title)
             return True
             
         except Exception as e:
-            print(f"Error processing clip {clip.id}: {e}")
+            logger.error("Error processing clip %s: %s", clip.id, e)
             return False
     
     def _save_clip(self, clip: TwitchClip):
@@ -115,8 +125,8 @@ class TwitchService:
         safe_title = sanitize_filename(clip.title)
         filename = generate_filename("twitch_clip", f"{clip.id}_{safe_title}")
         
-        # Convert to dict for JSON serialization
-        clip_data = clip.model_dump()
+        # Convert to dict for JSON serialization, excluding None values
+        clip_data = clip.model_dump(exclude_none=True)
         
         # Save to data directory
         self.cache_manager.save_json(filename, clip_data, clip.created_at)
@@ -139,7 +149,7 @@ class TwitchService:
                 return None
                 
         except Exception as e:
-            print(f"Error getting broadcaster ID for {username}: {e}")
+            logger.error("Error getting broadcaster ID for %s: %s", username, e)
             return None
     
     def fetch_clips_by_username(self, username: str, days_back: int = 7) -> List[TwitchClip]:
