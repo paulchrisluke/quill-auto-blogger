@@ -1,6 +1,6 @@
 # Activity Fetcher
 
-A Python project that fetches and processes Twitch clips and GitHub activity, with automatic transcription using Cloudflare Workers AI Whisper API.
+A Python project that fetches and processes Twitch clips and GitHub activity, with automatic transcription using Cloudflare Workers AI Whisper API. Includes a digest builder that generates daily blog posts with structured frontmatter for SEO and social sharing.
 
 ## Features
 
@@ -11,6 +11,9 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 - **Structured Storage**: All data stored as timestamped JSON files
 - **CLI Interface**: Easy-to-use command-line interface
 - **Authentication**: Automatic token refresh for Twitch OAuth
+- **Digest Builder**: Generate daily blog posts with structured frontmatter
+- **SEO Optimization**: Schema.org metadata for Articles, VideoObjects, and FAQs
+- **Social Sharing**: Open Graph metadata for social media platforms
 
 ## Prerequisites
 
@@ -19,6 +22,7 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 - Twitch Developer Account
 - GitHub Personal Access Token
 - Cloudflare Account with Workers AI
+- PyYAML (for frontmatter generation)
 
 ## Installation
 
@@ -103,6 +107,12 @@ python main.py get-broadcaster-id username
 
 # Clear cache and seen IDs
 python main.py clear-cache
+
+# Build digest for a specific date
+python main.py build-digest --date 2025-01-15
+
+# Build digest for the latest available date
+python main.py build-latest-digest
 ```
 
 ### Examples
@@ -128,6 +138,12 @@ python main.py setup-github-token
 
 # Get broadcaster ID from username
 python main.py get-broadcaster-id shroud
+
+# Build digest for latest date
+python main.py build-latest-digest
+
+# Build digest for specific date
+python main.py build-digest --date 2025-01-15
 ```
 
 ## Data Storage
@@ -141,6 +157,12 @@ data/
 │   ├── github_event_event_id_repo_20231201_143045.json
 │   └── ...
 └── seen_ids.json
+
+blogs/
+├── YYYY-MM-DD/
+│   ├── PRE-CLEANED-YYYY-MM-DD.md
+│   └── PRE-CLEANED-YYYY-MM-DD_digest.json
+└── ...
 ```
 
 ### Twitch Clip Data Structure
@@ -181,6 +203,68 @@ data/
 }
 ```
 
+### Blog Digest Structure
+
+```json
+{
+  "date": "2025-01-15",
+  "twitch_clips": [...],
+  "github_events": [...],
+  "metadata": {
+    "total_clips": 3,
+    "total_events": 5,
+    "keywords": ["repo_name", "language", "event_type"],
+    "date_parsed": "2025-01-15"
+  }
+}
+```
+
+### Markdown Frontmatter Structure
+
+```yaml
+---
+title: "Daily Devlog — Jan 15, 2025"
+date: "2025-01-15"
+author: "Your Name"
+schema:
+  article:
+    "@context": "https://schema.org"
+    "@type": "Article"
+    headline: "Daily Devlog — Jan 15, 2025"
+    datePublished: "2025-01-15"
+    author:
+      "@type": "Person"
+      name: "Your Name"
+    keywords: ["repo_name", "language", "event_type"]
+    url: "https://yourblog.com/blog/2025-01-15"
+    image: "https://yourblog.com/default.jpg"
+  videos:
+    - "@type": "VideoObject"
+      name: "Clip Title"
+      description: "Clip description..."
+      url: "https://clips.twitch.tv/clip_id"
+      uploadDate: "2025-01-15T12:00:00+00:00"
+      duration: "PT30S"
+      thumbnailUrl: "https://clips-media-assets2.twitch.tv/clip_id/preview-480x272.jpg"
+  faq:
+    "@context": "https://schema.org"
+    "@type": "FAQPage"
+    mainEntity:
+      - "@type": "Question"
+        name: "Question text"
+        acceptedAnswer:
+          "@type": "Answer"
+          text: "Answer text"
+og:
+  og:title: "Daily Devlog — Jan 15, 2025"
+  og:description: "Daily development log with 3 Twitch clips and 5 GitHub events"
+  og:type: "article"
+  og:url: "https://yourblog.com/blog/2025-01-15"
+  og:image: "https://yourblog.com/default.jpg"
+  og:site_name: "Daily Devlog"
+---
+```
+
 ## Testing
 
 Run the test suite:
@@ -203,6 +287,9 @@ pytest tests/test_utils.py
 
 # Test transcription
 pytest tests/test_transcribe.py
+
+# Test blog digest builder
+pytest tests/test_blog.py
 ```
 
 ## Project Structure
@@ -217,14 +304,17 @@ quill-auto-blogger/
 │   ├── twitch.py          # Twitch API client
 │   ├── github.py          # GitHub API client
 │   ├── transcribe.py      # Audio transcription
-│   └── utils.py           # Cache and utility functions
+│   ├── utils.py           # Cache and utility functions
+│   └── blog.py            # Digest builder and frontmatter generator
 ├── data/                  # Stored JSON data
+├── blogs/                 # Generated blog posts (pre-cleaned for AI processing)
 ├── tests/                 # Test suite
 │   ├── __init__.py
 │   ├── test_auth.py
 │   ├── test_models.py
 │   ├── test_utils.py
-│   └── test_transcribe.py
+│   ├── test_transcribe.py
+│   └── test_blog.py
 ├── requirements.txt
 ├── env.example
 └── README.md

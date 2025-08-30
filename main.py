@@ -13,6 +13,7 @@ from services.twitch import TwitchService
 from services.github import GitHubService
 from services.auth import AuthService
 from services.utils import CacheManager
+from services.blog import BlogDigestBuilder
 
 # Load environment variables
 load_dotenv()
@@ -180,6 +181,48 @@ def clear_cache():
         click.echo("Cache cleared successfully!")
     except Exception as e:
         click.echo(f"Error clearing cache: {e}")
+
+@cli.command()
+@click.option('--date', default=None, help='Date in YYYY-MM-DD format (defaults to latest)')
+def build_digest(date):
+    """Build a digest for a specific date or the latest available date."""
+    click.echo("Building digest...")
+    
+    try:
+        builder = BlogDigestBuilder()
+        
+        if date:
+            digest = builder.build_digest(date)
+            click.echo(f"Building digest for {date}")
+        else:
+            digest = builder.build_latest_digest()
+            click.echo(f"Building digest for latest date: {digest['date']}")
+        
+        # Generate markdown content
+        markdown_content = builder.generate_markdown(digest)
+        
+        # Save files
+        md_path = builder.save_digest(digest, markdown_content)
+        
+        click.echo(f"✅ Digest built successfully!")
+        click.echo(f"📄 Markdown saved to: {md_path}")
+        click.echo(f"📊 Summary: {digest['metadata']['total_clips']} clips, {digest['metadata']['total_events']} events")
+        
+    except FileNotFoundError as e:
+        click.echo(f"❌ {e}")
+    except Exception as e:
+        click.echo(f"Error building digest: {e}")
+
+@cli.command()
+@click.argument('date', required=True)
+def build_digest_for_date(date):
+    """Build a digest for a specific date."""
+    build_digest.callback(date)
+
+@cli.command()
+def build_latest_digest():
+    """Build digest for the most recent date with data."""
+    build_digest.callback(None)
 
 if __name__ == '__main__':
     cli()

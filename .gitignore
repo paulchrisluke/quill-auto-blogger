@@ -189,6 +189,8 @@ $RECYCLE.BIN/
 # Project-specific
 # Data files (contains sensitive information)
 data/
+# Generated blog posts (pre-cleaned for AI processing)
+blogs/
 *.json
 !package.json
 !pytest.ini
