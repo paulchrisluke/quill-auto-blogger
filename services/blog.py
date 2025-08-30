@@ -110,12 +110,13 @@ class BlogDigestBuilder:
         
         return f"{frontmatter}\n\n{content}"
     
-    def save_digest(self, digest: Dict[str, Any]) -> Path:
+    def save_digest(self, digest: Dict[str, Any], *, cache_manager: Optional["CacheManager"] = None) -> Path:
         """
         Save digest as JSON file for AI ingestion.
         
         Args:
             digest: Digest data dictionary
+            cache_manager: Optional cache manager instance (defaults to new instance)
             
         Returns:
             Path to the saved JSON file
@@ -132,9 +133,10 @@ class BlogDigestBuilder:
             logger.info("Overwriting existing digest: %s", json_path)
         
         # Use the cache manager's atomic write method
-        from services.utils import CacheManager
-        temp_cache_manager = CacheManager()
-        temp_cache_manager.atomic_write_json(json_path, digest, overwrite=True)
+        if cache_manager is None:
+            from services.utils import CacheManager
+            cache_manager = CacheManager()
+        cache_manager.atomic_write_json(json_path, digest, overwrite=True)
         
         return json_path
     
@@ -239,7 +241,10 @@ class BlogDigestBuilder:
                 "description": clip.get("transcript", "")[:200] + "..." if clip.get("transcript") else "",
                 "url": clip["url"],
                 "uploadDate": upload_date,
-                "duration": f"PT{int(clip.get('duration', 0))}S" if clip.get("duration") else None,
+                "duration": (
+                    f"PT{int(round(float(clip.get('duration', 0.0))))}S"
+                    if clip.get("duration") is not None else None
+                ),
                 "thumbnailUrl": f"https://clips-media-assets2.twitch.tv/{clip['id']}/preview-480x272.jpg"
             }
             # Remove None values
@@ -307,7 +312,7 @@ class BlogDigestBuilder:
         # Convert to YAML
         yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
         
-        return f"---\n{yaml_content}---"
+        return f"---\n{yaml_content}---\n"
     
     def _generate_content(self, digest: Dict[str, Any]) -> str:
         """Generate the main content of the blog post."""
@@ -337,7 +342,8 @@ class BlogDigestBuilder:
             
             for clip in clips:
                 content_parts.append(f"### {clip.get('title', 'Untitled Clip')}")
-                content_parts.append(f"**Duration:** {clip.get('duration', 'Unknown')} seconds")
+                if clip.get('duration') is not None:
+                    content_parts.append(f"**Duration:** {clip['duration']} seconds")
                 content_parts.append(f"**Views:** {clip.get('view_count', 'Unknown')}")
                 content_parts.append(f"**URL:** {clip.get('url', '')}")
                 content_parts.append("")

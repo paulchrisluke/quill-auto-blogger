@@ -19,10 +19,12 @@ from models import TwitchClip, GitHubEvent
 
 def load_frontmatter_yaml(frontmatter: str) -> dict:
     """Helper function to extract and parse YAML frontmatter."""
-    # assumes frontmatter starts with '---' and ends with '---'
-    parts = frontmatter.split('---', 2)
-    yaml_content = parts[1] if len(parts) > 1 else frontmatter
-    return yaml.safe_load(yaml_content)
+    # strictly extract YAML between the first opening and closing delimiters
+    import re
+    m = re.search(r'^---\s*[\r\n]+(.*?)\s*---\s*$', frontmatter, flags=re.DOTALL)
+    if not m:
+        raise ValueError("Invalid frontmatter: expected leading and trailing '---' delimiters")
+    return yaml.safe_load(m.group(1))
 
 
 class TestBlogDigestBuilder:
@@ -113,6 +115,7 @@ class TestBlogDigestBuilder:
         assert len(clips) == 1
         assert clips[0].id == "test_clip_123"
         assert clips[0].title == "Test Twitch Clip"
+        assert isinstance(clips[0].created_at, datetime)
     
     def test_load_github_events(self, temp_data_dir, sample_github_event):
         """Test loading GitHub events from JSON files."""
@@ -132,6 +135,7 @@ class TestBlogDigestBuilder:
         assert len(events) == 1
         assert events[0].id == "test_event_456"
         assert events[0].type == "PushEvent"
+        assert isinstance(events[0].created_at, datetime)
     
     def test_generate_metadata(self, sample_twitch_clip, sample_github_event):
         """Test metadata generation."""

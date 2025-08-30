@@ -29,7 +29,8 @@ class GitHubService:
         headers = self.auth_service.get_github_headers()
         
         # Calculate date range
-        since_date = (datetime.utcnow() - timedelta(days=days_back)).isoformat() + "Z"
+        since_dt = datetime.utcnow() - timedelta(days=days_back)
+        since_date = since_dt.isoformat() + "Z"
         
         events = []
         
@@ -42,26 +43,42 @@ class GitHubService:
                     params={"per_page": 100}
                 )
                 response.raise_for_status()
+                data = response.json()
+                events_data = data
+                
+                # Follow pagination
+                while 'next' in (response.links or {}):
+                    next_url = response.links['next']['url']
+                    response = client.get(next_url, headers=headers)
+                    response.raise_for_status()
+                    page = response.json()
+                    events_data.extend(page)
                 
                 # Preemptive throttling using X-RateLimit-Remaining
                 ratelimit_remaining = response.headers.get("X-RateLimit-Remaining")
                 if ratelimit_remaining is not None:
                     try:
                         remaining = int(ratelimit_remaining)
-                        if remaining <= 5:  # Threshold for preemptive throttling
-                            logger.info("Rate limit remaining: %d, throttling preemptively", remaining)
-                            time.sleep(1.0)  # Brief pause to avoid hitting limit
+                        if remaining <= 5:
+                            reset = response.headers.get("X-RateLimit-Reset")
+                            delay = 1.0
+                            if reset:
+                                try:
+                                    # GitHub returns epoch seconds
+                                    delay = max(1.0, float(reset) - time.time())
+                                except (ValueError, TypeError):
+                                    pass
+                            logger.info("Rate limit remaining: %d, sleeping %.2fs (preemptive)", remaining, delay)
+                            time.sleep(delay)
                     except (ValueError, TypeError):
                         pass  # Ignore invalid header values
                 
-                data = response.json()
-                
-                for event_data in data:
+                for event_data in events_data:
                     # Filter by date
                     event_date = datetime.fromisoformat(
                         event_data["created_at"].replace("Z", "+00:00")
                     )
-                    if event_date < datetime.fromisoformat(since_date.replace("Z", "+00:00")):
+                    if event_date < since_dt.replace(tzinfo=event_date.tzinfo):
                         continue
                     
                     event = self._parse_event_data(event_data)
@@ -82,7 +99,8 @@ class GitHubService:
         headers = self.auth_service.get_github_headers()
         
         # Calculate date range
-        since_date = (datetime.utcnow() - timedelta(days=days_back)).isoformat() + "Z"
+        since_dt = datetime.utcnow() - timedelta(days=days_back)
+        since_date = since_dt.isoformat() + "Z"
         
         events = []
         
@@ -95,26 +113,42 @@ class GitHubService:
                     params={"per_page": 100}
                 )
                 response.raise_for_status()
+                data = response.json()
+                events_data = data
+                
+                # Follow pagination
+                while 'next' in (response.links or {}):
+                    next_url = response.links['next']['url']
+                    response = client.get(next_url, headers=headers)
+                    response.raise_for_status()
+                    page = response.json()
+                    events_data.extend(page)
                 
                 # Preemptive throttling using X-RateLimit-Remaining
                 ratelimit_remaining = response.headers.get("X-RateLimit-Remaining")
                 if ratelimit_remaining is not None:
                     try:
                         remaining = int(ratelimit_remaining)
-                        if remaining <= 5:  # Threshold for preemptive throttling
-                            logger.info("Rate limit remaining: %d, throttling preemptively", remaining)
-                            time.sleep(1.0)  # Brief pause to avoid hitting limit
+                        if remaining <= 5:
+                            reset = response.headers.get("X-RateLimit-Reset")
+                            delay = 1.0
+                            if reset:
+                                try:
+                                    # GitHub returns epoch seconds
+                                    delay = max(1.0, float(reset) - time.time())
+                                except (ValueError, TypeError):
+                                    pass
+                            logger.info("Rate limit remaining: %d, sleeping %.2fs (preemptive)", remaining, delay)
+                            time.sleep(delay)
                     except (ValueError, TypeError):
                         pass  # Ignore invalid header values
                 
-                data = response.json()
-                
-                for event_data in data:
+                for event_data in events_data:
                     # Filter by date
                     event_date = datetime.fromisoformat(
                         event_data["created_at"].replace("Z", "+00:00")
                     )
-                    if event_date < datetime.fromisoformat(since_date.replace("Z", "+00:00")):
+                    if event_date < since_dt.replace(tzinfo=event_date.tzinfo):
                         continue
                     
                     event = self._parse_event_data(event_data)
@@ -233,7 +267,7 @@ class GitHubService:
             return True
             
         except Exception as e:
-            logger.exception("Error processing event %s: %s", event.id, e)
+            logger.exception("Error processing event %s", event.id)
             return False
     
     def get_user_info(self, username: str) -> Optional[dict]:
@@ -246,7 +280,7 @@ class GitHubService:
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            logger.exception("Error getting user info for %s: %s", username, e)
+            logger.exception("Error getting user info for %s", username)
             return None
     
     def get_repo_info(self, repo: str) -> Optional[dict]:
@@ -259,5 +293,5 @@ class GitHubService:
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            logger.exception("Error getting repo info for %s: %s", repo, e)
+            logger.exception("Error getting repo info for %s", repo)
             return None

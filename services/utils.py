@@ -106,6 +106,10 @@ class CacheManager:
         # Sanitize the filename
         sanitized_filename = sanitize_filename(filename)
         
+        # Check for empty sanitized filename
+        if not sanitized_filename:
+            raise ValueError(f"Empty/invalid filename after sanitization: '{filename}'")
+        
         # Get the base data directory
         data_dir = self.get_data_dir(date)
         
@@ -132,32 +136,8 @@ class CacheManager:
     
     def save_json(self, filename: str, data: Dict[str, Any], date: Optional[datetime] = None, overwrite: bool = False):
         """Save data as JSON file."""
-        # Use _resolve_secure_path to get the safe destination path
         file_path = self._resolve_secure_path(filename, date)
-        
-        # Check if file already exists and overwrite is not allowed
-        if file_path.exists() and not overwrite:
-            raise FileExistsError(f"File already exists: {file_path}. Set overwrite=True to allow replacement.")
-        
-        # Ensure parent directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
-        try:
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, default=str)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, file_path)
-        except Exception:
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
-            raise
-        
-        return file_path
+        return self.atomic_write_json(file_path, data, overwrite=overwrite)
     
     def load_json(self, filename: str, date: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         """Load data from JSON file."""
@@ -215,8 +195,8 @@ class CacheManager:
                     if temp_in_same_dir and temp_in_same_dir.exists():
                         try:
                             temp_in_same_dir.unlink()
-                        except Exception:
-                            pass
+                        except OSError as cleanup_err:
+                            logger.warning("Failed to remove temp file %s: %s", temp_in_same_dir, cleanup_err)
                     raise RuntimeError(f"Failed to copy file across filesystems: {copy_error}") from copy_error
             else:
                 # Re-raise non-EXDEV exceptions as RuntimeError
@@ -256,7 +236,7 @@ class CacheManager:
                 if file.is_file():
                     file.unlink()
         
-        print("Cache cleared successfully")
+        logger.info("Cache cleared successfully")
     
     def atomic_write_json(self, file_path: Path, data: Dict[str, Any], overwrite: bool = False) -> Path:
         """Atomically write JSON data to a file with cross-filesystem support.
@@ -320,9 +300,15 @@ def sanitize_filename(filename: str) -> str:
     # Remove leading/trailing dots and underscores
     filename = filename.strip('._')
     
+    # Replace remaining whitespace with single underscores
+    filename = "_".join(filename.split())
+    
     # Limit length
     if len(filename) > 200:
         filename = filename[:200]
+    
+    if not filename:
+        filename = "untitled"
     
     return filename
 

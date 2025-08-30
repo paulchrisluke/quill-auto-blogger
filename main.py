@@ -182,7 +182,7 @@ def clear_cache():
     except Exception as e:
         click.echo(f"Error clearing cache: {e}")
 
-@cli.command()
+@cli.command(name="build-digest")
 @click.option('--date', type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
               help='Date in YYYY-MM-DD (defaults to latest)')
 def build_digest(date):
@@ -222,7 +222,7 @@ def build_digest(date):
     except RuntimeError as e:
         raise click.ClickException(f"Runtime error: {e}") from e
 
-@cli.command()
+@cli.command(name="build-digest-for-date")
 @click.argument('date', required=True)
 def build_digest_for_date(date):
     """Build a JSON digest for a specific date."""
@@ -235,7 +235,7 @@ def build_digest_for_date(date):
     ctx = click.get_current_context()
     ctx.invoke(build_digest, date=date_dt)
 
-@cli.command()
+@cli.command(name="build-latest-digest")
 def build_latest_digest():
     """Build JSON digest for the most recent date with data."""
     ctx = click.get_current_context()

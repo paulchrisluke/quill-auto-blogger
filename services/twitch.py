@@ -197,6 +197,19 @@ class TwitchService:
                     except Exception as cleanup_error:
                         logger.warning("Failed to cleanup audio file %s: %s", persistent_audio_path, cleanup_error)
                 
+                # Clean up original temp files
+                if video_path and video_path.exists():
+                    try:
+                        video_path.unlink()
+                    except Exception as cleanup_error:
+                        logger.warning("Failed to cleanup temp video file %s: %s", video_path, cleanup_error)
+                
+                if audio_path and audio_path.exists():
+                    try:
+                        audio_path.unlink()
+                    except Exception as cleanup_error:
+                        logger.warning("Failed to cleanup temp audio file %s: %s", audio_path, cleanup_error)
+                
                 # Re-raise the original exception
                 raise
             
