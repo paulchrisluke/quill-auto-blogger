@@ -2,17 +2,22 @@
 Blog digest builder service for generating daily blog posts with frontmatter.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
 from datetime import datetime, date
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 import yaml
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from models import TwitchClip, GitHubEvent
+
+if TYPE_CHECKING:
+    from services.utils import CacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +115,7 @@ class BlogDigestBuilder:
         
         return f"{frontmatter}\n\n{content}"
     
-    def save_digest(self, digest: Dict[str, Any], *, cache_manager: Optional["CacheManager"] = None) -> Path:
+    def save_digest(self, digest: Dict[str, Any], *, cache_manager: Optional[CacheManager] = None) -> Path:
         """
         Save digest as JSON file for AI ingestion.
         
