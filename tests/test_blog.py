@@ -6,9 +6,9 @@ import json
 import tempfile
 import shutil
 import pathlib
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -278,7 +278,7 @@ class TestBlogDigestBuilder:
         og_metadata = data["og"]
         
         assert og_metadata["og:title"] == "Daily Devlog — Jan 15, 2025"
-        assert "1 Twitch clips and 1 GitHub events" in og_metadata["og:description"]
+        assert "1 Twitch clip and 1 GitHub event" in og_metadata["og:description"]
         assert og_metadata["og:type"] == "article"
         assert og_metadata["og:url"] == "https://testblog.com/blog/2025-01-15"
         assert og_metadata["og:image"] == "https://testblog.com/image.jpg"
@@ -302,7 +302,7 @@ class TestBlogDigestBuilder:
         
         # Check basic structure
         assert "# Daily Devlog — January 15, 2025" in content
-        assert "Today's development activities include 1 Twitch clips and 1 GitHub events" in content
+        assert "Today's development activities include 1 Twitch clip and 1 GitHub event" in content
         assert "## Twitch Clips" in content
         assert "## GitHub Activity" in content
         

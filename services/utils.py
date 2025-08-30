@@ -37,7 +37,7 @@ class CacheManager:
         """Load seen IDs from file or create new."""
         if self.seen_ids_file.exists():
             try:
-                with open(self.seen_ids_file, 'r') as f:
+                with open(self.seen_ids_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     return SeenIds(**data)
             except Exception:
@@ -48,7 +48,7 @@ class CacheManager:
     def _save_seen_ids(self):
         """Save seen IDs to file."""
         self.seen_ids.last_updated = datetime.now()
-        with open(self.seen_ids_file, 'w') as f:
+        with open(self.seen_ids_file, 'w', encoding='utf-8') as f:
             f.write(self.seen_ids.model_dump_json(indent=2))
     
     def is_seen(self, item_id: str, item_type: str) -> bool:
@@ -257,6 +257,44 @@ class CacheManager:
                     file.unlink()
         
         print("Cache cleared successfully")
+    
+    def atomic_write_json(self, file_path: Path, data: Dict[str, Any], overwrite: bool = False) -> Path:
+        """Atomically write JSON data to a file with cross-filesystem support.
+        
+        Args:
+            file_path: Path to write the JSON file to
+            data: Data to serialize as JSON
+            overwrite: Whether to overwrite existing files
+            
+        Returns:
+            Path to the written file
+            
+        Raises:
+            FileExistsError: If file exists and overwrite=False
+            RuntimeError: If writing fails
+        """
+        if file_path.exists() and not overwrite:
+            raise FileExistsError(f"File already exists: {file_path}. Set overwrite=True to allow replacement.")
+        
+        # Ensure parent directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, default=str)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, file_path)
+        except Exception:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        
+        return file_path
 
 
 def generate_filename(prefix: str, identifier: str, extension: str = "json") -> str:

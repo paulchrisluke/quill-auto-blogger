@@ -34,7 +34,7 @@ class GitHubService:
         events = []
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
                 # Get user events
                 response = client.get(
                     f"{self.base_url}/users/{username}/events",
@@ -87,7 +87,7 @@ class GitHubService:
         events = []
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
                 # Get repository events
                 response = client.get(
                     f"{self.base_url}/repos/{repo}/events",
@@ -211,10 +211,10 @@ class GitHubService:
         try:
             # Check if already processed
             if self.cache_manager.is_seen(event.id, "github_event"):
-                print(f"Event {event.id} already processed, skipping")
+                logger.info("Event %s already processed, skipping", event.id)
                 return True
             
-            print(f"Processing event: {event.type} in {event.repo}")
+            logger.info("Processing event: %s in %s", event.type, event.repo)
             
             # Generate filename
             safe_repo = sanitize_filename(event.repo)
@@ -229,11 +229,11 @@ class GitHubService:
             # Mark as seen
             self.cache_manager.mark_seen(event.id, "github_event")
             
-            print(f"Successfully processed event: {event.type}")
+            logger.info("Successfully processed event: %s", event.type)
             return True
             
         except Exception as e:
-            print(f"Error processing event {event.id}: {e}")
+            logger.exception("Error processing event %s: %s", event.id, e)
             return False
     
     def get_user_info(self, username: str) -> Optional[dict]:
@@ -241,12 +241,12 @@ class GitHubService:
         headers = self.auth_service.get_github_headers()
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
                 response = client.get(f"{self.base_url}/users/{username}", headers=headers)
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            print(f"Error getting user info for {username}: {e}")
+            logger.exception("Error getting user info for %s: %s", username, e)
             return None
     
     def get_repo_info(self, repo: str) -> Optional[dict]:
@@ -254,10 +254,10 @@ class GitHubService:
         headers = self.auth_service.get_github_headers()
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
                 response = client.get(f"{self.base_url}/repos/{repo}", headers=headers)
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            print(f"Error getting repo info for {repo}: {e}")
+            logger.exception("Error getting repo info for %s: %s", repo, e)
             return None

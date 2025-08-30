@@ -226,14 +226,14 @@ def build_digest(date):
 @click.argument('date', required=True)
 def build_digest_for_date(date):
     """Build a JSON digest for a specific date."""
-    # Validate date format
+    # Validate and convert date format
     try:
-        datetime.strptime(date, '%Y-%m-%d')
+        date_dt = datetime.strptime(date, '%Y-%m-%d')
     except ValueError as exc:
         raise click.BadParameter("Date must be YYYY-MM-DD (e.g., 2025-01-15).") from exc
 
     ctx = click.get_current_context()
-    ctx.invoke(build_digest, date=date)
+    ctx.invoke(build_digest, date=date_dt)
 
 @cli.command()
 def build_latest_digest():

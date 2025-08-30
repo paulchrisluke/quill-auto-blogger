@@ -82,12 +82,24 @@ class TwitchService:
                             except (ValueError, TypeError):
                                 logger.warning("Invalid Ratelimit-Reset header value: %s", resp.headers.get("Ratelimit-Reset"))
                         
-                        # Choose shortest applicable wait time
-                        wait_times = [t for t in [retry_after, reset_delay, backoff_delay] if t is not None]
-                        final_sleep = min(wait_times) if wait_times else backoff_delay
+                        # Honor server timings: retry_after if present, else reset_delay if present, else backoff_delay
+                        if retry_after is not None:
+                            final_sleep = retry_after
+                            source = "Retry-After"
+                        elif reset_delay is not None:
+                            final_sleep = reset_delay
+                            source = "Reset"
+                        else:
+                            final_sleep = backoff_delay
+                            source = "Backoff"
                         
-                        logger.info("Rate limited (attempt %d/%d), sleeping %.2fs (backoff: %.2fs, reset: %s)", 
-                                  attempt + 1, max_attempts, final_sleep, backoff_delay, 
+                        # Ensure final_sleep is never None (fallback to safe default)
+                        if final_sleep is None:
+                            final_sleep = 1.0
+                            source = "Default"
+                        
+                        logger.info("Rate limited (attempt %d/%d), sleeping %.2fs (%s: %.2fs, backoff: %.2fs, reset: %s)", 
+                                  attempt + 1, max_attempts, final_sleep, source, final_sleep, backoff_delay, 
                                   reset_delay if reset_delay is not None else "N/A")
                         
                         time.sleep(final_sleep)

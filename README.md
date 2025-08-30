@@ -22,7 +22,7 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 - Twitch Developer Account
 - GitHub Personal Access Token
 - Cloudflare Account with Workers AI
-- PyYAML (for YAML frontmatter generation)
+- PyYAML (for YAML front matter generation)
 
 ## Installation
 
@@ -224,7 +224,7 @@ blogs/
 }
 ```
 
-### Markdown Frontmatter Structure
+### Markdown Front matter Structure
 
 ```yaml
 ---
@@ -310,7 +310,7 @@ quill-auto-blogger/
 │   ├── github.py          # GitHub API client
 │   ├── transcribe.py      # Audio transcription
 │   ├── utils.py           # Cache and utility functions
-│   └── blog.py            # Digest builder and frontmatter generator
+│   └── blog.py            # Digest builder and front matter generator
 ├── data/                  # Stored JSON data
 ├── blogs/                 # Generated JSON digests (pre-cleaned for AI processing)
 ├── tests/                 # Test suite
