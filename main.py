@@ -5,6 +5,7 @@ Main CLI entrypoint for the activity fetcher.
 
 import click
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -196,8 +197,7 @@ def build_digest(date):
             try:
                 datetime.strptime(date, '%Y-%m-%d')
             except ValueError:
-                click.echo(f"❌ Invalid date format: {date}. Please use YYYY-MM-DD format (e.g., 2025-01-15)")
-                return
+                raise click.BadParameter(f"Invalid date format: {date}. Please use YYYY-MM-DD format (e.g., 2025-01-15)")
             
             digest = builder.build_digest(date)
             click.echo(f"Building digest for {date}")
@@ -219,8 +219,16 @@ def build_digest(date):
         
     except FileNotFoundError as e:
         click.echo(f"❌ {e}")
-    except Exception as e:
-        click.echo(f"Error building digest: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        click.echo(f"❌ Invalid input: {e}")
+        sys.exit(1)
+    except OSError as e:
+        click.echo(f"❌ File system error: {e}")
+        sys.exit(1)
+    except RuntimeError as e:
+        click.echo(f"❌ Runtime error: {e}")
+        sys.exit(1)
 
 @cli.command()
 @click.argument('date', required=True)
@@ -229,16 +237,17 @@ def build_digest_for_date(date):
     # Validate date format
     try:
         datetime.strptime(date, '%Y-%m-%d')
-    except ValueError:
-        click.echo(f"❌ Invalid date format: {date}. Please use YYYY-MM-DD format (e.g., 2025-01-15)")
-        return
-    
-    build_digest.callback(date)
+    except ValueError as exc:
+        raise click.BadParameter("Date must be YYYY-MM-DD (e.g., 2025-01-15).") from exc
+
+    ctx = click.get_current_context()
+    ctx.invoke(build_digest, date=date)
 
 @cli.command()
 def build_latest_digest():
     """Build JSON digest for the most recent date with data."""
-    build_digest.callback(None)
+    ctx = click.get_current_context()
+    ctx.invoke(build_digest, date=None)
 
 if __name__ == '__main__':
     cli()

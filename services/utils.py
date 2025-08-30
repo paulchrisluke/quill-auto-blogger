@@ -5,12 +5,16 @@ Utility functions for caching, deduplication, and file management.
 import json
 import os
 import shutil
+import tempfile
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import hashlib
 
 from models import SeenIds, CacheEntry
+
+logger = logging.getLogger(__name__)
 
 
 class CacheManager:
@@ -137,15 +141,27 @@ class CacheManager:
         # Ensure parent directory exists
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(file_path, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
+        tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, default=str)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, file_path)
+        except Exception:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
         
         return file_path
     
     def load_json(self, filename: str, date: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         """Load data from JSON file."""
-        data_dir = self.get_data_dir(date)
-        file_path = data_dir / filename
+        # Use _resolve_secure_path to get the safe destination path
+        file_path = self._resolve_secure_path(filename, date)
         
         if file_path.exists():
             with open(file_path, 'r') as f:
@@ -171,8 +187,40 @@ class CacheManager:
         # Perform atomic replace using os.replace
         try:
             os.replace(temp_path, persistent_path)
-        except (OSError, PermissionError) as e:
-            raise RuntimeError(f"Failed to persist file from {temp_path} to {persistent_path}: {e}") from e
+        except OSError as e:
+            if e.errno == os.errno.EXDEV:
+                # Files are on different filesystems, use copy + replace strategy
+                temp_in_same_dir = None
+                try:
+                    # Create temporary file in same directory as destination
+                    with tempfile.NamedTemporaryFile(delete=False, dir=persistent_path.parent) as temp_file:
+                        temp_in_same_dir = Path(temp_file.name)
+                    
+                    # Copy contents to temporary file in same directory
+                    shutil.copy2(temp_path, temp_in_same_dir)
+                    
+                    # Flush and sync to ensure data is written
+                    temp_in_same_dir.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Atomic replace within same filesystem
+                    os.replace(temp_in_same_dir, persistent_path)
+                    
+                    # Clean up original temp file
+                    temp_path.unlink()
+                    
+                except Exception as copy_error:
+                    # Clean up temporary files on error
+                    if temp_in_same_dir and temp_in_same_dir.exists():
+                        try:
+                            temp_in_same_dir.unlink()
+                        except Exception:
+                            pass
+                    raise RuntimeError(f"Failed to copy file across filesystems: {copy_error}") from copy_error
+            else:
+                # Re-raise non-EXDEV exceptions as RuntimeError
+                raise RuntimeError(f"Failed to persist file from {temp_path} to {persistent_path}: {e}") from e
+        except PermissionError as e:
+            raise RuntimeError(f"Permission denied persisting file from {temp_path} to {persistent_path}: {e}") from e
         
         return persistent_path
     

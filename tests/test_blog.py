@@ -5,6 +5,7 @@ Tests for the blog digest builder service.
 import json
 import tempfile
 import shutil
+import pathlib
 from datetime import datetime, date
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -14,6 +15,14 @@ import yaml
 
 from services.blog import BlogDigestBuilder
 from models import TwitchClip, GitHubEvent
+
+
+def load_frontmatter_yaml(frontmatter: str) -> dict:
+    """Helper function to extract and parse YAML frontmatter."""
+    # assumes frontmatter starts with '---' and ends with '---'
+    parts = frontmatter.split('---', 2)
+    yaml_content = parts[1] if len(parts) > 1 else frontmatter
+    return yaml.safe_load(yaml_content)
 
 
 class TestBlogDigestBuilder:
@@ -79,11 +88,11 @@ class TestBlogDigestBuilder:
                 elif path_str == "blogs":
                     return temp_blogs_dir
                 else:
-                    return Path(path_str)
+                    return pathlib.Path(path_str)
             
             mock_path.side_effect = mock_path_side_effect
             
-            builder = BlogDigestBuilder()
+            BlogDigestBuilder()
             assert temp_blogs_dir.exists()
     
     def test_load_twitch_clips(self, temp_data_dir, sample_twitch_clip):
@@ -157,9 +166,8 @@ class TestBlogDigestBuilder:
         
         frontmatter = builder._generate_frontmatter(digest)
         
-        # Parse YAML frontmatter - extract content between delimiters
-        yaml_content = frontmatter.split('---', 2)[1] if '---' in frontmatter else frontmatter
-        data = yaml.safe_load(yaml_content)
+        # Parse YAML frontmatter
+        data = load_frontmatter_yaml(frontmatter)
         
         # Check Article schema
         assert "schema" in data
@@ -189,8 +197,7 @@ class TestBlogDigestBuilder:
         }
         
         frontmatter = builder._generate_frontmatter(digest)
-        yaml_content = frontmatter.split('---', 2)[1] if '---' in frontmatter else frontmatter
-        data = yaml.safe_load(yaml_content)
+        data = load_frontmatter_yaml(frontmatter)
         
         # Check VideoObject schemas
         assert "schema" in data
@@ -234,8 +241,7 @@ class TestBlogDigestBuilder:
         }
         
         frontmatter = builder._generate_frontmatter(digest)
-        yaml_content = frontmatter.split('---', 2)[1] if '---' in frontmatter else frontmatter
-        data = yaml.safe_load(yaml_content)
+        data = load_frontmatter_yaml(frontmatter)
         
         # Check FAQ schema
         assert "schema" in data
@@ -265,8 +271,7 @@ class TestBlogDigestBuilder:
         }
         
         frontmatter = builder._generate_frontmatter(digest)
-        yaml_content = frontmatter.split('---', 2)[1] if '---' in frontmatter else frontmatter
-        data = yaml.safe_load(yaml_content)
+        data = load_frontmatter_yaml(frontmatter)
         
         # Check Open Graph metadata
         assert "og" in data

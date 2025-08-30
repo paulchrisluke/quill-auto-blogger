@@ -63,24 +63,31 @@ class TwitchService:
                         # Calculate exponential backoff
                         backoff_delay = min(max_backoff, base_backoff * (2 ** attempt))
                         
-                        # Parse reset header defensively if present
+                        # Calculate exponential backoff with jitter
+                        backoff_delay = min(max_backoff, base_backoff * (2 ** attempt))
+                        jitter = random.uniform(0.9, 1.1)
+                        backoff_delay = backoff_delay * jitter
+                        
+                        # Parse Retry-After header if present (takes priority)
+                        retry_after = None
+                        if "Retry-After" in resp.headers:
+                            try:
+                                retry_after = float(resp.headers.get("Retry-After", "1"))
+                            except (ValueError, TypeError):
+                                logger.warning("Invalid Retry-After header value: %s", resp.headers.get("Retry-After"))
+                        
+                        # Parse Ratelimit-Reset header (UNIX epoch timestamp)
                         reset_delay = None
                         if "Ratelimit-Reset" in resp.headers:
                             try:
-                                reset_delay = float(resp.headers.get("Ratelimit-Reset", "1"))
+                                reset_ts = float(resp.headers.get("Ratelimit-Reset", "1"))
+                                reset_delay = max(0, reset_ts - time.time())
                             except (ValueError, TypeError):
                                 logger.warning("Invalid Ratelimit-Reset header value: %s", resp.headers.get("Ratelimit-Reset"))
-                                reset_delay = None
                         
-                        # Use the minimum of reset delay (if available) and computed backoff
-                        if reset_delay is not None:
-                            sleep_duration = min(reset_delay, backoff_delay)
-                        else:
-                            sleep_duration = backoff_delay
-                        
-                        # Add jitter (±10% of sleep duration)
-                        jitter = random.uniform(0.9, 1.1)
-                        final_sleep = sleep_duration * jitter
+                        # Choose shortest applicable wait time
+                        wait_times = [t for t in [retry_after, reset_delay, backoff_delay] if t is not None]
+                        final_sleep = min(wait_times) if wait_times else backoff_delay
                         
                         logger.info("Rate limited (attempt %d/%d), sleeping %.2fs (backoff: %.2fs, reset: %s)", 
                                   attempt + 1, max_attempts, final_sleep, backoff_delay, 

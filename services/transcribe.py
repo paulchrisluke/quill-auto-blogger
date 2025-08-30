@@ -179,7 +179,7 @@ class TranscriptionService:
                     try:
                         if actual_path.exists():
                             actual_path.unlink()
-                    except Exception as cleanup_exc:
+                    except OSError as cleanup_exc:
                         cleanup_error = cleanup_exc
                     
                     # Re-raise with full context including cleanup errors
@@ -199,13 +199,24 @@ class TranscriptionService:
     def _download_with_httpx(self, url: str, output_path: Path):
         """Download video using httpx (for non-Twitch URLs)."""
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
+            with httpx.Client(timeout=(10.0, 30.0)) as client:
                 with client.stream('GET', url) as response:
                     response.raise_for_status()
                     
-                    with open(output_path, 'wb') as f:
-                        for chunk in response.iter_bytes(chunk_size=8192):
-                            f.write(chunk)
+                    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+                    try:
+                        with open(tmp_path, 'wb') as f:
+                            for chunk in response.iter_bytes(chunk_size=8192):
+                                f.write(chunk)
+                        os.replace(tmp_path, output_path)
+                    except Exception:
+                        # Best-effort cleanup; ignore if it doesn't exist
+                        try:
+                            if tmp_path.exists():
+                                tmp_path.unlink()
+                        except OSError:
+                            pass
+                        raise
                             
         except httpx.HTTPError as e:
             raise RuntimeError(f"httpx download failed: {e}") from e

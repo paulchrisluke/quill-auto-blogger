@@ -22,7 +22,7 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 - Twitch Developer Account
 - GitHub Personal Access Token
 - Cloudflare Account with Workers AI
-- PyYAML (for frontmatter generation)
+- PyYAML (for YAML frontmatter generation)
 
 ## Installation
 
@@ -111,6 +111,9 @@ python main.py clear-cache
 # Build digest for a specific date
 python main.py build-digest --date 2025-01-15
 
+# Build digest for a specific date (alternative command)
+python main.py build-digest-for-date 2025-01-15
+
 # Build digest for the latest available date
 python main.py build-latest-digest
 ```
@@ -144,6 +147,9 @@ python main.py build-latest-digest
 
 # Build digest for specific date
 python main.py build-digest --date 2025-01-15
+
+# Build digest for specific date (alternative command)
+python main.py build-digest-for-date 2025-01-15
 ```
 
 ## Data Storage

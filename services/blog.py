@@ -125,8 +125,19 @@ class BlogDigestBuilder:
         json_path = date_dir / f"PRE-CLEANED-{target_date}_digest.json"
         if json_path.exists():
             logger.info("Overwriting existing digest: %s", json_path)
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(digest, f, indent=2, default=str)
+        tmp_path = json_path.with_suffix(".tmp")
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(digest, f, indent=2, default=str)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, json_path)
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
         
         return json_path
     

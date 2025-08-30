@@ -317,6 +317,11 @@ class TestCacheManager:
         evil_path = self.cache_manager.data_dir.parent / "evil.json"
         assert not evil_path.exists()
 
+    def test_load_json_path_traversal_rejected(self):
+        """Test that load_json rejects path traversal attempts."""
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            self.cache_manager.load_json("../evil.json")
+
 
 class TestUtilityFunctions:
     """Test cases for utility functions."""
