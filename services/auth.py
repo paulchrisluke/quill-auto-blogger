@@ -53,25 +53,23 @@ class AuthService:
         return token.token
     
     def get_r2_credentials(self) -> Optional[CloudflareR2Credentials]:
-        """Get R2 credentials using existing Cloudflare API credentials."""
-        # Use existing Cloudflare credentials for R2 access
-        account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-        api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+        """Get R2 credentials from environment variables."""
+        access_key_id = os.getenv("R2_ACCESS_KEY_ID")
+        secret_access_key = os.getenv("R2_SECRET_ACCESS_KEY")
+        endpoint = os.getenv("R2_S3_ENDPOINT")
         bucket = os.getenv("R2_BUCKET")
+        region = os.getenv("R2_REGION", "auto")
         public_base_url = os.getenv("R2_PUBLIC_BASE_URL")
         
-        if not all([account_id, api_token, bucket]):
+        if not all([access_key_id, secret_access_key, endpoint, bucket]):
             return None
         
-        # Create endpoint URL from account ID
-        endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
-        
         credentials = CloudflareR2Credentials(
-            access_key_id=account_id,  # Use account ID as access key
-            secret_access_key=api_token,  # Use API token as secret
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
             endpoint=endpoint,
             bucket=bucket,
-            region="auto",
+            region=region,
             public_base_url=public_base_url
         )
         
