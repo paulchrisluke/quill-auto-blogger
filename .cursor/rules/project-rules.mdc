@@ -1,0 +1,94 @@
+# Commit Messages — Paul Chris Luke
+
+
+Use this rule whenever you generate a commit message. Keep it specific, factual, and helpful for future readers.
+
+
+## Voice & Scope
+- **Paul's tone:** plain, candid, teaching-oriented; one clear idea per commit.
+- **Scope tightly:** describe only what changed in this diff—no invented work, no broadened scope.
+- **Prefer simple solutions;** do not introduce new patterns/tech unless explicitly requested.
+- **Environment-aware:** call out dev/test/prod impact explicitly when relevant.
+- **No secrets or config churn:** never touch `.env` or unrelated files; no fake/mock data outside tests.
+
+
+## Project Guardrails (respect these)
+- Iterate on existing code/patterns before creating new ones.
+- Avoid duplication—check for existing helpers/flows first.
+- Keep code clean and organized; if a file drifts >500 LOC, note a follow-up refactor (separate commit).
+- Focus only on areas relevant to the task; don't alter unrelated code.
+- Write thorough tests for major functionality.
+- If replacing an implementation, **remove** old logic to avoid duplication.
+
+
+## Format Rules
+- **Conventional Commits** with optional scope: `<type>(<scope>): <subject>`
+- **Subject:** imperative, ≤72 chars, no trailing period.
+- **Body (optional but encouraged):** 1–4 short lines in this order:
+ - **Context:** the problem/artifact triggering the change.
+ - **Why:** the reason/trade-off.
+ - **How/Safety:** key change, tests, migrations, rollback; env impact.
+ - **Links:** 1–2 relevant PRs/docs (avoid link dumps).
+- Wrap lines to ~72 chars; blank line between subject and body.
+- Group related changes; don't dump every tiny change in one commit.
+
+
+## Types
+`feat` | `fix` | `refactor` | `chore` | `docs` | `test` | `perf` | `build` | `ci` | `revert`
+
+
+## Template
+```
+<type>(<scope>): <clear subject>
+
+
+Context: <one line about the problem or artifact>
+Why: <reason/trade-off; concrete and brief>
+How/Safety: <key change, tests, rollback; env impact if any>
+Links: <#PR or doc URL(s), max 2>
+```
+
+
+## Examples (voice + rules)
+
+
+```
+fix(manifest): guard divide-by-zero in metrics collector
+
+
+Context: metrics crashed when total=0 during dry runs
+Why: keep deploy pipeline quiet and observable
+How/Safety: add zero-check + unit test; no prod behavior change
+Links: #43
+```
+
+
+```
+refactor(validation): replace ajv with lightweight validator for Workers
+
+
+Context: ajv struggled in the Workers runtime
+Why: simpler, faster validation with fewer deps
+How/Safety: drop ajv, add custom validator + tests; schema unchanged
+Links: docs/validation-overview.md
+```
+
+
+```
+feat(bloggen): wire Gemma drafting with deterministic params
+
+
+Context: drafts varied between runs
+Why: make reviews reproducible
+How/Safety: temp=0.3, top_p=0.9, seed=42; idempotent prompt hashing; dev/test only
+Links: #42 #43
+```
+
+
+## Self-check before final
+- Is the subject imperative and ≤72 chars?
+- Does the body teach one clear thing (context → why → how/safety)?
+- Are there 0–2 links max, all relevant?
+- Did I avoid unrelated files, new patterns, and mock data outside tests?
+- If I introduced a replacement, did I remove the old path or note it as a follow-up?
+

@@ -137,9 +137,19 @@ class TestAuthService:
         mock_client_instance.get.return_value = mock_response
         mock_client.return_value.__enter__.return_value = mock_client_instance
         
-        with patch.object(self.auth_service, 'get_github_token', return_value="test_token"):
+        with patch.object(self.auth_service, 'get_github_token', return_value="test_token") as mock_get_token:
             result = self.auth_service.validate_github_auth()
             assert result is True
+            
+            # Verify get_github_token was called
+            mock_get_token.assert_called_once()
+            
+            # Verify the HTTP request was made with correct headers
+            mock_client_instance.get.assert_called_once()
+            call_args = mock_client_instance.get.call_args
+            assert call_args[0][0] == "https://api.github.com/user"  # URL
+            assert call_args[1]['headers']['Authorization'] == "token test_token"
+            assert call_args[1]['headers']['Accept'] == "application/vnd.github.v3+json"
     
     @patch('httpx.Client')
     def test_validate_github_auth_failure(self, mock_client):
@@ -156,9 +166,9 @@ class TestAuthService:
     
     def test_validate_github_auth_no_token(self):
         """Test GitHub authentication validation with no token."""
-        self.auth_service.github_token = None
-        result = self.auth_service.validate_github_auth()
-        assert result is False
+        with patch.object(self.auth_service, 'get_github_token', return_value=None):
+            result = self.auth_service.validate_github_auth()
+            assert result is False
     
     def test_get_github_headers(self):
         """Test GitHub headers generation."""

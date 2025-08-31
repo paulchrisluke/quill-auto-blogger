@@ -100,8 +100,32 @@ class CacheManager:
             ValueError: If the resolved path would escape the data directory
         """
         # Check for path traversal attempts before sanitization
-        if '..' in filename:
-            raise ValueError(f"Path traversal detected: {filename} contains path traversal characters")
+        # Parse the filename and check each component for traversal attempts
+        try:
+            # Use pathlib.Path to parse the filename and get its components
+            path_obj = Path(filename)
+            
+            # Reject absolute paths
+            if path_obj.is_absolute():
+                raise ValueError(f"Absolute path not allowed: {filename}")
+            
+            # Check each path component for traversal attempts
+            for component in path_obj.parts:
+                if component == '..':
+                    raise ValueError(f"Path traversal detected: {filename} contains '..' component")
+                elif component == '.':
+                    raise ValueError(f"Path traversal detected: {filename} contains '.' component")
+            
+            # Reject filenames containing path separators (should be a single component)
+            if len(path_obj.parts) > 1:
+                raise ValueError(f"Path separators not allowed in filename: {filename}")
+                
+        except ValueError:
+            # Re-raise ValueError exceptions from our checks
+            raise
+        except Exception as e:
+            # Handle any other path parsing errors
+            raise ValueError(f"Invalid filename format: {filename}") from e
         
         # Sanitize the filename
         sanitized_filename = sanitize_filename(filename)
@@ -122,11 +146,17 @@ class CacheManager:
             # Use resolve() on data_dir to get its absolute path for comparison
             data_dir_abs = data_dir.resolve()
             
-            # Check if the resolved path is within the data directory using pathlib containment
+            # Additional safety check using os.path.commonpath to ensure containment
             try:
-                resolved_path.relative_to(data_dir_abs)
+                common_path = os.path.commonpath([str(resolved_path), str(data_dir_abs)])
+                if os.path.normpath(common_path) != os.path.normpath(str(data_dir_abs)):
+                    raise ValueError(f"Path traversal detected: {filename} would resolve outside of {data_dir_abs}")
             except ValueError:
-                raise ValueError(f"Path traversal detected: {filename} would resolve to {resolved_path} outside of {data_dir_abs}")
+                # If commonpath fails, fall back to pathlib containment check
+                try:
+                    resolved_path.relative_to(data_dir_abs)
+                except ValueError:
+                    raise ValueError(f"Path traversal detected: {filename} would resolve to {resolved_path} outside of {data_dir_abs}")
             
             return resolved_path
             
@@ -284,7 +314,11 @@ def generate_filename(prefix: str, identifier: str, extension: str = "json") -> 
 
 
 def sanitize_filename(filename: str) -> str:
-    """Sanitize a filename for safe filesystem use."""
+    """Sanitize a filename for safe filesystem use.
+    
+    Replaces invalid characters with underscores, collapses whitespace into underscores,
+    and ensures the filename is safe for cross-platform filesystem use.
+    """
     # Trim whitespace
     filename = filename.strip()
     
@@ -300,8 +334,8 @@ def sanitize_filename(filename: str) -> str:
     # Remove leading/trailing dots and underscores
     filename = filename.strip('._')
     
-    # Replace remaining whitespace with single spaces
-    filename = " ".join(filename.split())
+    # Replace remaining whitespace with underscores
+    filename = "_".join(filename.split())
     
     # Limit length
     if len(filename) > 200:
