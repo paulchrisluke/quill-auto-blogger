@@ -9,8 +9,11 @@ Use this rule whenever you generate a commit message. Keep it specific, factual,
 
 
 ## Voice & Scope
-- **Paul's tone:** plain, candid, teaching-oriented; one clear idea per commit.
-- **Scope tightly:** describe only what changed in this diff—no invented work, no broadened scope.
+- **Paul's tone:** candid, human-centered, a little irreverent. Open with vivid, specific scenes that snap into bigger ideas.
+- **Use plain language:** short punchy lines, concrete examples over buzzwords. Mix tech insight with accessible metaphors (burritos, rockets, Pokémon).
+- **Be reflective:** openly values-forward (people > metrics, progress over cynicism), with self-deprecating humor.
+- **Scope comprehensively:** describe ALL changes in the diff, not just the main feature.
+- **Group related changes:** if multiple files/components changed together, explain the broader impact.
 - **Prefer simple solutions;** do not introduce new patterns/tech unless explicitly requested.
 - **Environment-aware:** call out dev/test/prod impact explicitly when relevant.
 - **No secrets or config churn:** never touch `.env` or unrelated files; no fake/mock data outside tests.
@@ -28,13 +31,15 @@ Use this rule whenever you generate a commit message. Keep it specific, factual,
 ## Format Rules
 - **Conventional Commits** with optional scope: `<type>(<scope>): <subject>`
 - **Subject:** imperative, ≤72 chars, no trailing period.
-- **Body (optional but encouraged):** 1–4 short lines in this order:
+- **Body (required for multi-file changes):** structured explanation in this order:
  - **Context:** the problem/artifact triggering the change.
- - **Why:** the reason/trade-off.
- - **How/Safety:** key change, tests, migrations, rollback; env impact.
+ - **Why:** the reason/trade-off; explain the broader impact.
+ - **How/Safety:** key changes across files, tests, migrations, rollback; env impact.
+ - **Teaching section:** explain the reasoning and what future developers should understand.
  - **Links:** 1–2 relevant PRs/docs (avoid link dumps).
 - Wrap lines to ~72 chars; blank line between subject and body.
-- Group related changes; don't dump every tiny change in one commit.
+- For multi-file changes, explain the broader scope and how components work together.
+- **Voice elements:** use dashes and asides—like this—for conversational flow. Ask rhetorical questions. End with a nudge to act or hopeful note.
 
 
 ## Types
@@ -47,8 +52,11 @@ Use this rule whenever you generate a commit message. Keep it specific, factual,
 
 
 Context: <one line about the problem or artifact>
-Why: <reason/trade-off; concrete and brief>
-How/Safety: <key change, tests, rollback; env impact if any>
+Why: <reason/trade-off; explain broader impact>
+How/Safety: <key changes across files, tests, rollback; env impact if any>
+
+<teaching explanation - explain the reasoning and what future developers should understand>
+
 Links: <#PR or doc URL(s), max 2>
 ```
 
@@ -91,7 +99,8 @@ Links: #42 #43
 
 ## Self-check before final
 - Is the subject imperative and ≤72 chars?
-- Does the body teach one clear thing (context → why → how/safety)?
+- Does the body teach the broader scope and reasoning (context → why → how/safety → teaching)?
+- For multi-file changes, did I explain how components work together?
 - Are there 0–2 links max, all relevant?
 - Did I avoid unrelated files, new patterns, and mock data outside tests?
 - If I introduced a replacement, did I remove the old path or note it as a follow-up?
