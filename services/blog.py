@@ -15,6 +15,11 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from models import TwitchClip, GitHubEvent
+from story_schema import (
+    StoryPacket, FrontmatterInfo, DigestV2, 
+    make_story_packet, pair_with_clip, StoryType,
+    _extract_why_and_highlights
+)
 
 if TYPE_CHECKING:
     from services.utils import CacheManager
@@ -40,13 +45,13 @@ class BlogDigestBuilder:
     
     def build_digest(self, target_date: str) -> Dict[str, Any]:
         """
-        Build a digest for a specific date.
+        Build a digest for a specific date with story packets (v2).
         
         Args:
             target_date: Date in YYYY-MM-DD format
             
         Returns:
-            Dictionary containing digest data and metadata
+            Dictionary containing digest data, metadata, and story packets
         """
         # Validate date format early
         try:
@@ -65,12 +70,25 @@ class BlogDigestBuilder:
         if not twitch_clips and not github_events:
             raise FileNotFoundError(f"No data files found in {date_path} for {target_date}")
         
-        # Build digest structure
+        # Convert to dict format for processing
+        clips_data = [clip.model_dump(mode="json") for clip in twitch_clips]
+        events_data = [event.model_dump(mode="json") for event in github_events]
+        
+        # Generate story packets from merged PRs
+        story_packets = self._generate_story_packets(events_data, clips_data)
+        
+        # Generate pre-computed frontmatter
+        frontmatter = self._generate_frontmatter_v2(target_date, clips_data, events_data, story_packets)
+        
+        # Build v2 digest structure
         digest = {
+            "version": "2",
             "date": target_date,
-            "twitch_clips": [clip.model_dump() for clip in twitch_clips],
-            "github_events": [event.model_dump() for event in github_events],
-            "metadata": self._generate_metadata(target_date, twitch_clips, github_events)
+            "twitch_clips": clips_data,
+            "github_events": events_data,
+            "metadata": self._generate_metadata(target_date, twitch_clips, github_events),
+            "frontmatter": frontmatter.model_dump(mode="json", by_alias=True),
+            "story_packets": [packet.model_dump(mode="json") for packet in story_packets]
         }
         
         return digest
@@ -110,7 +128,16 @@ class BlogDigestBuilder:
         Returns:
             Markdown string with frontmatter
         """
-        frontmatter = self._generate_frontmatter(digest)
+        # Check if this is a v2 digest with pre-computed frontmatter
+        if digest.get("version") == "2" and "frontmatter" in digest:
+            # Use pre-computed frontmatter
+            frontmatter_data = digest["frontmatter"]
+            yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            frontmatter = f"---\n{yaml_content}---\n"
+        else:
+            # Fall back to v1 frontmatter generation
+            frontmatter = self._generate_frontmatter(digest)
+        
         content = self._generate_content(digest)
         
         return f"{frontmatter}\n\n{content}"
@@ -324,6 +351,7 @@ class BlogDigestBuilder:
         target_date = digest["date"]
         clips = digest["twitch_clips"]
         events = digest["github_events"]
+        story_packets = digest.get("story_packets", [])
         
         content_parts = []
         
@@ -331,6 +359,11 @@ class BlogDigestBuilder:
         date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
         content_parts.append(f"# Daily Devlog — {date_obj.strftime('%B %d, %Y')}")
         content_parts.append("")
+        
+        # Add lead if available (v2 digest)
+        if digest.get("version") == "2" and digest.get("frontmatter", {}).get("lead"):
+            content_parts.append(digest["frontmatter"]["lead"])
+            content_parts.append("")
         
         # Add summary
         content_parts.append(
@@ -340,8 +373,64 @@ class BlogDigestBuilder:
         )
         content_parts.append("")
         
-        # Add Twitch clips section
-        if clips:
+        # Add story packets section (v2 digest)
+        if story_packets:
+            content_parts.append("## Stories")
+            content_parts.append("")
+            
+            # Group by story type
+            stories_by_type = {}
+            for packet in story_packets:
+                story_type = packet.get("story_type", "other")
+                if story_type not in stories_by_type:
+                    stories_by_type[story_type] = []
+                stories_by_type[story_type].append(packet)
+            
+            # Story type display names
+            type_names = {
+                "feat": "New Features",
+                "fix": "Bug Fixes", 
+                "perf": "Performance",
+                "security": "Security",
+                "infra": "Infrastructure",
+                "docs": "Documentation",
+                "other": "Other"
+            }
+            
+            for story_type, packets in stories_by_type.items():
+                if story_type in type_names:
+                    content_parts.append(f"### {type_names[story_type]}")
+                    content_parts.append("")
+                    
+                    for packet in packets:
+                        content_parts.append(f"#### {packet.get('title_human', packet.get('title_raw', 'Untitled'))}")
+                        content_parts.append("")
+                        
+                        if packet.get('why'):
+                            content_parts.append(f"**Why:** {packet['why']}")
+                            content_parts.append("")
+                        
+                        if packet.get('highlights'):
+                            content_parts.append("**Highlights:**")
+                            for highlight in packet['highlights']:
+                                content_parts.append(f"- {highlight}")
+                            content_parts.append("")
+                        
+                        # Add video link if available
+                        if packet.get('video', {}).get('path'):
+                            content_parts.append(f"**Video:** [Watch Story]({packet['video']['path']})")
+                            content_parts.append("")
+                        
+                        # Add PR link
+                        if packet.get('links', {}).get('pr_url'):
+                            content_parts.append(f"**PR:** [{packet['links']['pr_url']}]({packet['links']['pr_url']})")
+                            content_parts.append("")
+                        
+                        content_parts.append("---")
+                        content_parts.append("")
+        
+        # Add Twitch clips section (if not covered by stories)
+        if clips and not story_packets:
             content_parts.append("## Twitch Clips")
             content_parts.append("")
             
@@ -358,8 +447,8 @@ class BlogDigestBuilder:
                     content_parts.append(f"> {clip.get('transcript', '')}")
                     content_parts.append("")
         
-        # Add GitHub events section
-        if events:
+        # Add GitHub events section (if not covered by stories)
+        if events and not story_packets:
             content_parts.append("## GitHub Activity")
             content_parts.append("")
             
@@ -389,3 +478,171 @@ class BlogDigestBuilder:
                 content_parts.append("")
         
         return "\n".join(content_parts)
+    
+    def _generate_story_packets(
+        self, 
+        events_data: List[Dict[str, Any]], 
+        clips_data: List[Dict[str, Any]]
+    ) -> List[StoryPacket]:
+        """Generate story packets from merged PRs."""
+        story_packets = []
+        
+        # Find merged PRs
+        merged_prs = [
+            event for event in events_data 
+            if (event.get("type") == "PullRequestEvent" and 
+                isinstance(event.get("details"), dict) and
+                event["details"].get("action") == "closed" and 
+                event["details"].get("merged") is True)
+        ]
+        
+        # Deduplicate clips by ID (keep the one with transcript if available)
+        unique_clips = {}
+        for clip in clips_data:
+            clip_id = clip["id"]
+            if clip_id not in unique_clips:
+                unique_clips[clip_id] = clip
+            elif clip.get("transcript") and not unique_clips[clip_id].get("transcript"):
+                # Prefer clips with transcripts
+                unique_clips[clip_id] = clip
+        
+        deduplicated_clips = list(unique_clips.values())
+        
+        # Group PRs by similar titles to handle deduplication
+        pr_groups = {}
+        for pr_event in merged_prs:
+            title = pr_event.get("title", "").lower()
+            # Group by base title (remove PR number, etc.)
+            base_title = title.replace("feature/", "").replace("fix/", "").replace("security/", "").strip()
+            if base_title not in pr_groups:
+                pr_groups[base_title] = []
+            pr_groups[base_title].append(pr_event)
+        
+        # Generate story packets with deduplication
+        for pr_events in pr_groups.values():
+            if len(pr_events) == 1:
+                # Single PR, create normal story packet
+                pr_event = pr_events[0]
+                pairing = pair_with_clip(pr_event, deduplicated_clips)
+                packet = make_story_packet(pr_event, pairing, deduplicated_clips)
+                story_packets.append(packet)
+            else:
+                # Multiple PRs with similar titles - merge into one story
+                # Use the first PR as the base, merge highlights from others
+                base_pr = pr_events[0]
+                pairing = pair_with_clip(base_pr, deduplicated_clips)
+                packet = make_story_packet(base_pr, pairing, deduplicated_clips)
+                
+                # Merge highlights from other PRs
+                all_highlights = packet.highlights.copy()
+                for other_pr in pr_events[1:]:
+                    extractor_result = _extract_why_and_highlights(other_pr)
+                    if not extractor_result:
+                        continue
+                    
+                    other_why, other_highlights = extractor_result
+                    if other_highlights:
+                        all_highlights.extend(other_highlights)
+                
+                # Deduplicate and limit highlights
+                unique_highlights = []
+                for highlight in all_highlights:
+                    if highlight not in unique_highlights and len(highlight) > 5:
+                        unique_highlights.append(highlight)
+                
+                packet.highlights = unique_highlights[:4]  # Max 4 highlights
+                story_packets.append(packet)
+        
+        return story_packets
+    
+    def _generate_frontmatter_v2(
+        self, 
+        target_date: str, 
+        clips_data: List[Dict[str, Any]], 
+        events_data: List[Dict[str, Any]], 
+        story_packets: List[StoryPacket]
+    ) -> FrontmatterInfo:
+        """Generate v2 frontmatter with story packet information."""
+        # Parse date
+        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
+        
+        # Generate title
+        title = f"Daily Devlog — {date_obj.strftime('%b %d, %Y')}"
+        
+        # Extract story types for tags
+        story_types = [packet.story_type.value for packet in story_packets]
+        unique_types = list(set(story_types))
+        
+        # Generate lead based on story packets
+        lead = self._generate_lead(story_packets)
+        
+        # Build Open Graph metadata
+        og_metadata = {
+            "og:title": title,
+            "og:description": (
+                f"Daily development log with {len(story_packets)} "
+                f"{'story' if len(story_packets)==1 else 'stories'} from "
+                f"{len(clips_data)} Twitch {'clip' if len(clips_data)==1 else 'clips'} and "
+                f"{len(events_data)} GitHub {'event' if len(events_data)==1 else 'events'}"
+            ),
+            "og:type": "article",
+            "og:url": f"{self.blog_base_url}/blog/{target_date}",
+            "og:image": self.blog_default_image,
+            "og:site_name": "Daily Devlog"
+        }
+        
+        # Build schema.org metadata
+        schema_metadata = {
+            "article": {
+                "@context": "https://schema.org",
+                "@type": "Article",
+                "headline": title,
+                "datePublished": target_date,
+                "author": {
+                    "@type": "Person",
+                    "name": self.blog_author
+                },
+                "keywords": unique_types,
+                "url": f"{self.blog_base_url}/blog/{target_date}",
+                "image": self.blog_default_image
+            }
+        }
+        
+        return FrontmatterInfo(
+            title=title,
+            date=target_date,
+            author=self.blog_author,
+            og=og_metadata,
+            schema=schema_metadata,
+            tags=unique_types,
+            lead=lead
+        )
+    
+    def _generate_lead(self, story_packets: List[StoryPacket]) -> Optional[str]:
+        """Generate a lead paragraph from story packets."""
+        if not story_packets:
+            return None
+        
+        # Count story types
+        type_counts = {}
+        for packet in story_packets:
+            story_type = packet.story_type.value
+            type_counts[story_type] = type_counts.get(story_type, 0) + 1
+        
+        # Generate lead based on most common types
+        if len(story_packets) == 1:
+            packet = story_packets[0]
+            return f"Today's development work focused on {packet.title_human.lower()}."
+        
+        # Multiple stories
+        total_stories = len(story_packets)
+        if type_counts.get("feat", 0) > 0 and type_counts.get("security", 0) > 0:
+            return f"Shipped {type_counts['feat']} new feature{'s' if type_counts['feat'] > 1 else ''} and enhanced security today."
+        elif type_counts.get("feat", 0) > 0:
+            return f"Shipped {type_counts['feat']} new feature{'s' if type_counts['feat'] > 1 else ''} today."
+        elif type_counts.get("fix", 0) > 0:
+            return f"Fixed {type_counts['fix']} issue{'s' if type_counts['fix'] > 1 else ''} and improved the codebase."
+        elif type_counts.get("security", 0) > 0:
+            return f"Enhanced security with {type_counts['security']} improvement{'s' if type_counts['security'] > 1 else ''}."
+        else:
+            return f"Completed {total_stories} development task{'s' if total_stories > 1 else ''} today."
