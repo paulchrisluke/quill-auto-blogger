@@ -300,8 +300,8 @@ def sanitize_filename(filename: str) -> str:
     # Remove leading/trailing dots and underscores
     filename = filename.strip('._')
     
-    # Replace remaining whitespace with single underscores
-    filename = "_".join(filename.split())
+    # Replace remaining whitespace with single spaces
+    filename = " ".join(filename.split())
     
     # Limit length
     if len(filename) > 200:

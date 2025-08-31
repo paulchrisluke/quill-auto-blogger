@@ -137,8 +137,9 @@ class TestAuthService:
         mock_client_instance.get.return_value = mock_response
         mock_client.return_value.__enter__.return_value = mock_client_instance
         
-        result = self.auth_service.validate_github_auth()
-        assert result is True
+        with patch.object(self.auth_service, 'get_github_token', return_value="test_token"):
+            result = self.auth_service.validate_github_auth()
+            assert result is True
     
     @patch('httpx.Client')
     def test_validate_github_auth_failure(self, mock_client):

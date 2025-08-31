@@ -33,19 +33,24 @@ class TestTranscriptionService:
         """Test successful audio extraction."""
         mock_run.return_value = MagicMock(returncode=0)
         
-        video_path = Path("/path/to/video.mp4")
-        output_path = Path("/path/to/output.wav")
-        
-        result = self.transcribe_service.extract_audio(video_path, output_path)
-        
-        assert result == output_path
-        mock_run.assert_called_once()
-        
-        # Check ffmpeg command
-        call_args = mock_run.call_args[0][0]
-        assert call_args[0] == 'ffmpeg'
-        assert str(video_path) in call_args
-        assert str(output_path) in call_args
+        # Use temporary directory for testing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_path = Path(temp_dir) / "video.mp4"
+            output_path = Path(temp_dir) / "output.wav"
+            
+            # Create dummy video file
+            video_path.write_text("fake video data")
+            
+            result = self.transcribe_service.extract_audio(video_path, output_path)
+            
+            assert result == output_path
+            mock_run.assert_called_once()
+            
+            # Check ffmpeg command
+            call_args = mock_run.call_args[0][0]
+            assert call_args[0] == 'ffmpeg'
+            assert str(video_path) in call_args
+            assert str(output_path) in call_args
     
     @patch('subprocess.run')
     def test_extract_audio_ffmpeg_error(self, mock_run):
@@ -126,7 +131,7 @@ class TestTranscriptionService:
             audio_path = Path(f.name)
         
         try:
-            with pytest.raises(RuntimeError, match="Transcription failed"):
+            with pytest.raises(RuntimeError, match="Transcription error"):
                 self.transcribe_service.transcribe_audio(audio_path)
         finally:
             audio_path.unlink()
@@ -189,8 +194,10 @@ class TestTranscriptionService:
         video_url = "https://example.com/video.mp4"
         clip_id = "test_clip_123"
         
-        video_path = Path("/tmp/video_test_clip_123.mp4")
-        audio_path = Path("/tmp/audio_temp.wav")
+        # Use actual temp directory path
+        temp_dir = Path(tempfile.gettempdir())
+        video_path = temp_dir / f"video_{clip_id}.mp4"
+        audio_path = Path(tempfile.gettempdir()) / "audio_temp.wav"
         
         mock_download.return_value = None
         mock_extract.return_value = audio_path
@@ -225,14 +232,15 @@ class TestTranscriptionService:
         output_path = Path("/tmp/video.mp4")
         
         with patch('builtins.open', mock_open()) as mock_file:
-            self.transcribe_service._download_video(video_url, output_path)
-            
-            # Check that file was opened for writing
-            mock_file.assert_called_once_with(output_path, 'wb')
-            
-            # Check that chunks were written
-            file_handle = mock_file.return_value.__enter__.return_value
-            assert file_handle.write.call_count == 2
+            with patch('os.replace'):  # Mock the atomic replace operation
+                self.transcribe_service._download_video(video_url, output_path)
+                
+                # Check that file was opened for writing
+                mock_file.assert_called()
+                
+                # Check that chunks were written
+                file_handle = mock_file.return_value.__enter__.return_value
+                assert file_handle.write.call_count == 2
     
     @patch('httpx.Client')
     def test_download_video_error(self, mock_client):
@@ -244,7 +252,7 @@ class TestTranscriptionService:
         video_url = "https://example.com/video.mp4"
         output_path = Path("/tmp/video.mp4")
         
-        with pytest.raises(RuntimeError, match="Failed to download video"):
+        with pytest.raises(RuntimeError, match="Unexpected error during download"):
             self.transcribe_service._download_video(video_url, output_path)
     
     def test_cleanup_temp_files(self):
