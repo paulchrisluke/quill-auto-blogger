@@ -388,12 +388,12 @@ def _extract_why_and_highlights(pr_event: Dict[str, Any]) -> tuple[str, List[str
                 if "Summary by CodeRabbit" in line:
                     in_summary = True
                     continue
-                if in_summary and (line.startswith("- New Features") or line.startswith("‑ New Features")):
+                if in_summary and (line.startswith("- New Features") or line.startswith("- New Features")):
                     in_new_features = True
                     continue
-                if in_new_features and (line.startswith("  - ") or line.startswith("  ‑ ") or line.startswith("- ") or line.startswith("‑ ")):
-                    # Remove the prefix (could be "  - ", "  ‑ ", "- ", or "‑ ")
-                    if line.startswith("  - ") or line.startswith("  ‑ "):
+                if in_new_features and (line.startswith("  - ") or line.startswith("  - ") or line.startswith("- ") or line.startswith("- ")):
+                    # Remove the prefix (could be "  - ", "  - ", "- ", or "- ")
+                    if line.startswith("  - ") or line.startswith("  - "):
                         feature = line[4:]
                     else:
                         feature = line[2:]
@@ -429,12 +429,12 @@ def _extract_why_and_highlights(pr_event: Dict[str, Any]) -> tuple[str, List[str
             if "Summary by CodeRabbit" in line:
                 in_summary = True
                 continue
-            if in_summary and (line.startswith("- New Features") or line.startswith("‑ New Features")):
+            if in_summary and (line.startswith("- New Features") or line.startswith("- New Features")):
                 in_new_features = True
                 continue
-            if in_new_features and (line.startswith("  - ") or line.startswith("  ‑ ") or line.startswith("- ") or line.startswith("‑ ")):
-                # Remove the prefix (could be "  - ", "  ‑ ", "- ", or "‑ ")
-                if line.startswith("  - ") or line.startswith("  ‑ "):
+            if in_new_features and (line.startswith("  - ") or line.startswith("  - ") or line.startswith("- ") or line.startswith("- ")):
+                # Remove the prefix (could be "  - ", "  - ", "- ", or "- ")
+                if line.startswith("  - ") or line.startswith("  - "):
                     feature = line[4:]
                 else:
                     feature = line[2:]

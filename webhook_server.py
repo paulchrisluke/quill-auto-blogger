@@ -30,6 +30,7 @@ app = FastAPI(title="Story Pipeline Webhook Server", version="1.0.0")
 
 # Configuration
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
+ALLOW_INSECURE_WEBHOOKS = os.getenv("ALLOW_INSECURE_WEBHOOKS") == "1"
 STORY_DIR = Path("./story_packets")
 STORY_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -45,8 +46,12 @@ class GitHubWebhookPayload(BaseModel):
 async def verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
     """Verify GitHub webhook signature."""
     if not WEBHOOK_SECRET:
-        logger.warning("No webhook secret configured, skipping verification")
-        return True
+        if ALLOW_INSECURE_WEBHOOKS:
+            logger.warning("WEBHOOK_SECRET not configured but ALLOW_INSECURE_WEBHOOKS=1 - skipping verification for development only")
+            return True
+        else:
+            logger.error("WEBHOOK_SECRET not configured and ALLOW_INSECURE_WEBHOOKS not set to '1' - rejecting webhook for security")
+            return False
     
     if not signature:
         logger.error("No signature header found")
