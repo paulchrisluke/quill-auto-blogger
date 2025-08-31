@@ -58,10 +58,16 @@ class TestTranscriptionService:
             output_path_abs = str(output_path.absolute())
             cmd_str = ' '.join(str(arg) for arg in cmd_args)
             
-            # Assert ffmpeg is present and paths appear as substrings
-            assert 'ffmpeg' in cmd_args
+            # Assert ffmpeg executable and important kwargs
+            assert Path(cmd_args[0]).name == "ffmpeg"
             assert video_path_abs in cmd_str
             assert output_path_abs in cmd_str
+            kwargs = call_args[1]
+            assert kwargs.get("check") is True
+            assert kwargs.get("capture_output") is True
+            assert kwargs.get("text") is True
+            # Ensure last argument is the output path
+            assert str(cmd_args[-1]) == output_path_abs
     
     @patch('subprocess.run')
     def test_extract_audio_ffmpeg_error(self, mock_run):
@@ -215,9 +221,10 @@ class TestTranscriptionService:
         
         with patch('pathlib.Path.exists', return_value=True):
             with patch('pathlib.Path.unlink'):
-                transcript, result_video_path, result_audio_path = self.transcribe_service.download_and_transcribe(
-                    video_url, clip_id
-                )
+                with patch('tempfile.gettempdir', return_value=str(tmp_path)):
+                    transcript, result_video_path, result_audio_path = self.transcribe_service.download_and_transcribe(
+                        video_url, clip_id
+                    )
         
         assert transcript == "Test transcript"
         assert result_video_path == video_path
@@ -252,8 +259,13 @@ class TestTranscriptionService:
                 file_handle = mock_file.return_value.__enter__.return_value
                 assert file_handle.write.call_count == 2
                 
-                # Verify that os.replace was called for atomic move
+                # Verify that os.replace was called for atomic move with correct destination
                 mock_replace.assert_called_once()
+                src, dst = mock_replace.call_args[0]
+                assert Path(dst) == output_path
+                # Ensure file was opened in binary write mode
+                open_args, _ = mock_file.call_args
+                assert open_args[1] == "wb"
     
     @patch('httpx.Client')
     def test_download_video_error(self, mock_client):
@@ -265,12 +277,12 @@ class TestTranscriptionService:
         video_url = "https://example.com/video.mp4"
         output_path = Path("/tmp/video.mp4")
         
-        with patch('os.replace') as mock_replace:
+        with patch('builtins.open', mock_open()) as mock_file, patch('os.replace') as mock_replace:
             with pytest.raises(RuntimeError, match="Unexpected error during download"):
                 self.transcribe_service._download_video(video_url, output_path)
-            
-            # Assert that os.replace is not called on failure
+            # Assert that no atomic move and no writes occurred
             mock_replace.assert_not_called()
+            mock_file.assert_not_called()
     
     def test_cleanup_temp_files(self):
         """Test cleanup of temporary files."""

@@ -108,6 +108,9 @@ class CacheManager:
             # Reject absolute paths
             if path_obj.is_absolute():
                 raise ValueError(f"Absolute path not allowed: {filename}")
+            # Reject drive-qualified names (Windows)
+            if getattr(path_obj, "drive", ""):
+                raise ValueError(f"Drive-qualified name not allowed: {filename}")
             
             # Check each path component for traversal attempts
             for component in path_obj.parts:
@@ -160,7 +163,7 @@ class CacheManager:
             
             return resolved_path
             
-        except (ValueError, RuntimeError) as e:
+        except RuntimeError as e:
             # Handle any path resolution errors
             raise ValueError(f"Invalid path: {filename}") from e
     
@@ -336,6 +339,9 @@ def sanitize_filename(filename: str) -> str:
     
     # Replace remaining whitespace with underscores
     filename = "_".join(filename.split())
+    # Collapse repeated underscores (post-whitespace normalization)
+    while '__' in filename:
+        filename = filename.replace('__', '_')
     
     # Limit length
     if len(filename) > 200:

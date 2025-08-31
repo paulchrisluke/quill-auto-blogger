@@ -368,6 +368,8 @@ class TestUtilityFunctions:
         
         # Test normal filename
         assert sanitize_filename("normal_file.txt") == "normal_file.txt"
+        # Mixed spaces and underscores
+        assert sanitize_filename(" file _ name ") == "file_name"
     
     def test_get_file_hash(self):
         """Test file hash generation."""

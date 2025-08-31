@@ -69,7 +69,8 @@ class TranscriptionService:
         
         try:
             with open(audio_path, 'rb') as f:  # keep handle for streaming
-                with httpx.Client(timeout=60.0) as client:
+                timeout = Timeout(connect=10.0, read=60.0, write=None, pool=None)
+                with httpx.Client(timeout=timeout) as client:
                     response = client.post(url, headers=headers, content=f)
                 response.raise_for_status()
                 
@@ -78,7 +79,7 @@ class TranscriptionService:
                 if result.get('success') and 'result' in result:
                     return result['result'].get('text', '')
                 else:
-                    raise RuntimeError(f"Transcription failed: {result}")
+                    raise RuntimeError(f"Transcription error: {result}")
                     
         except httpx.HTTPStatusError as e:
             raise RuntimeError(f"HTTP error during transcription: {e.response.text}")
@@ -211,7 +212,8 @@ class TranscriptionService:
     def _download_with_httpx(self, url: str, output_path: Path):
         """Download video using httpx (for non-Twitch URLs)."""
         try:
-            with httpx.Client(timeout=30.0) as client:
+            timeout = Timeout(connect=10.0, read=30.0, write=None, pool=None)
+            with httpx.Client(timeout=timeout) as client:
                 with client.stream('GET', url) as response:
                     response.raise_for_status()
                     
@@ -220,6 +222,12 @@ class TranscriptionService:
                         with open(tmp_path, 'wb') as f:
                             for chunk in response.iter_bytes(chunk_size=8192):
                                 f.write(chunk)
+                            f.flush()
+                            try:
+                                os.fsync(f.fileno())
+                            except (OSError, TypeError):
+                                # Skip fsync if not supported or in test environment
+                                pass
                         os.replace(tmp_path, output_path)
                     except Exception:
                         # Best-effort cleanup; ignore if it doesn't exist
