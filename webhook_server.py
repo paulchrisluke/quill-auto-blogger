@@ -6,13 +6,14 @@ FastAPI webhook server for GitHub PR merge events.
 import os
 import json
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
 import hmac
 import hashlib
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -237,6 +238,25 @@ async def list_stories(date: str):
             logger.error(f"Error reading {packet_file}: {e}")
     
     return JSONResponse({"stories": stories})
+
+
+@app.post("/control/record/start")
+async def control_record_start(payload: dict, background_tasks: BackgroundTasks):
+    story_id = payload.get("story_id")
+    date = payload.get("date")
+    if not story_id:
+        raise HTTPException(status_code=400, detail="story_id required")
+    background_tasks.add_task(subprocess.call, ["python", "-m", "cli.devlog", "record", "--story", story_id, "--action", "start", "--date", date or datetime.utcnow().strftime("%Y-%m-%d")])
+    return {"ok": True}
+
+@app.post("/control/record/stop")
+async def control_record_stop(payload: dict, background_tasks: BackgroundTasks):
+    story_id = payload.get("story_id")
+    date = payload.get("date")
+    if not story_id:
+        raise HTTPException(status_code=400, detail="story_id required")
+    background_tasks.add_task(subprocess.call, ["python", "-m", "cli.devlog", "record", "--story", story_id, "--action", "stop", "--date", date or datetime.utcnow().strftime("%Y-%m-%d")])
+    return {"ok": True}
 
 
 if __name__ == "__main__":
