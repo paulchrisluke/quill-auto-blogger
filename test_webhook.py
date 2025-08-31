@@ -30,7 +30,20 @@ def test_webhook_endpoints():
             headers={"Content-Type": "application/json"},
             json=payload
         )
-        print(f"Record start: {response.status_code} - {response.json()}")
+        
+        if not (200 <= response.status_code < 300):
+            try:
+                error_body = response.json()
+            except:
+                error_body = response.text
+            print(f"❌ Record start failed with status {response.status_code}: {error_body}")
+            return False
+        
+        try:
+            response_body = response.json()
+        except:
+            response_body = response.text
+        print(f"Record start: {response.status_code} - {response_body}")
     except Exception as e:
         print(f"❌ Record start failed: {e}")
         return False
@@ -42,7 +55,20 @@ def test_webhook_endpoints():
             headers={"Content-Type": "application/json"},
             json=payload
         )
-        print(f"Record stop: {response.status_code} - {response.json()}")
+        
+        if not (200 <= response.status_code < 300):
+            try:
+                error_body = response.json()
+            except:
+                error_body = response.text
+            print(f"❌ Record stop failed with status {response.status_code}: {error_body}")
+            return False
+        
+        try:
+            response_body = response.json()
+        except:
+            response_body = response.text
+        print(f"Record stop: {response.status_code} - {response_body}")
     except Exception as e:
         print(f"❌ Record stop failed: {e}")
         return False

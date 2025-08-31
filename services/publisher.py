@@ -81,7 +81,7 @@ class Publisher:
             self.s3_client = boto3.client(
                 's3',
                 aws_access_key_id=self.r2_credentials.access_key_id,
-                aws_secret_access_key=self.r2_credentials.secret_access_key,
+                aws_secret_access_key=self.r2_credentials.secret_access_key.get_secret_value(),
                 endpoint_url=self.r2_credentials.endpoint,
                 region_name=self.r2_credentials.region
             )

@@ -1,15 +1,17 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from services.story_state import StoryState
 
 def test_state_roundtrip(tmp_path: Path):
     # seed digest
-    date = "2025-08-27"
-    ddir = tmp_path / "data" / date
+    date_str = "2025-08-27"
+    date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    ddir = tmp_path / "data" / date_str
     ddir.mkdir(parents=True)
     p = ddir / "PRE-CLEANED-digest.json"
     p.write_text(json.dumps({
-        "version":"2","date":date,
+        "version":"2","date":date_str,
         "twitch_clips":[], "github_events":[],
         "metadata":{}, "frontmatter":{}, 
         "story_packets":[{"id":"story_1","explainer":{"status":"missing"}}]

@@ -1,10 +1,10 @@
 import click, os
-from datetime import datetime
+from datetime import datetime, timezone
 from services.obs_controller import OBSController
 from services.story_state import StoryState
 
-def _today(date: str | None) -> str:
-    return date or datetime.utcnow().strftime("%Y-%m-%d")
+def _today(date: datetime | None) -> datetime:
+    return date or datetime.now(timezone.utc)
 
 @click.group()
 def devlog():
@@ -14,8 +14,8 @@ def devlog():
 @devlog.command("record")
 @click.option("--story", "story_id", required=True)
 @click.option("--action", type=click.Choice(["start", "stop"]), required=True)
-@click.option("--date", required=False)
-def record(story_id: str, action: str, date: str | None):
+@click.option("--date", type=click.DateTime(formats=["%Y-%m-%d"]), required=False)
+def record(story_id: str, action: str, date: datetime | None):
     """Start/stop OBS recording and persist story state."""
     date = _today(date)
     obs = OBSController()

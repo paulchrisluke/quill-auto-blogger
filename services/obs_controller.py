@@ -9,11 +9,9 @@ from services.auth import AuthService
 load_dotenv()
 
 try:
-    import obswebsocket
-    from obswebsocket import obsws, requests  # type: ignore
+    from obsws_python import ReqClient  # type: ignore
 except Exception:  # pragma: no cover
-    obsws = None
-    requests = None
+    ReqClient = None
 
 @dataclass
 class ObsResult:
@@ -31,7 +29,7 @@ class OBSController:
         
         self.host = self.credentials.host
         self.port = self.credentials.port
-        self.password = self.credentials.password
+        self.password = self.credentials.password.get_secret_value()
         self.target_scene = self.credentials.scene
         self.dry_run = self.credentials.dry_run
         self.ws = None
@@ -39,11 +37,10 @@ class OBSController:
     def _connect(self) -> ObsResult:
         if self.dry_run:
             return ObsResult(ok=True, info={"dry_run": True})
-        if obsws is None:
-            return ObsResult(ok=False, error="obswebsocket library not installed")
+        if ReqClient is None:
+            return ObsResult(ok=False, error="obsws-python library not installed")
         try:
-            self.ws = obsws(self.host, self.port, self.password)
-            self.ws.connect()
+            self.ws = ReqClient(self.host, self.port, self.password)
             return ObsResult(ok=True)
         except Exception as e:
             return ObsResult(ok=False, error=f"OBS connect failed: {e}")
@@ -65,8 +62,9 @@ class OBSController:
             if not self.dry_run:
                 # Try to get recording status, but don't fail if it doesn't work
                 try:
-                    rec_status = self.ws.call(requests.GetRecordingStatus())
-                    if hasattr(rec_status, 'getRecording') and rec_status.getRecording():
+                    rec_status = self.ws.get_record_status()
+                    # Check if recording is already active (v5 API uses outputActive)
+                    if hasattr(rec_status, 'outputActive') and rec_status.outputActive:
                         return ObsResult(ok=True, info={"noop": "already_recording"})
                 except Exception:
                     # Recording status check failed, continue anyway
@@ -75,15 +73,13 @@ class OBSController:
                 # optional scene switch
                 if self.target_scene:
                     try:
-                        self.ws.call(requests.SetCurrentProgramScene(self.target_scene))
+                        self.ws.set_current_program_scene(self.target_scene)
                     except Exception:
                         # scene may not exist; ignore
                         pass
                 
                 # Start recording
-                start_result = self.ws.call(requests.StartRecord())
-                if hasattr(start_result, 'status') and start_result.status == 'error':
-                    return ObsResult(ok=False, error=f"StartRecord failed: {start_result}")
+                self.ws.start_record()
                 return ObsResult(ok=True)
             return ObsResult(ok=True)
         except Exception as e:
@@ -99,17 +95,16 @@ class OBSController:
             if not self.dry_run:
                 # Try to get recording status, but don't fail if it doesn't work
                 try:
-                    rec_status = self.ws.call(requests.GetRecordingStatus())
-                    if hasattr(rec_status, 'getRecording') and not rec_status.getRecording():
+                    rec_status = self.ws.get_record_status()
+                    # Check if recording is not active (v5 API uses outputActive)
+                    if hasattr(rec_status, 'outputActive') and not rec_status.outputActive:
                         return ObsResult(ok=True, info={"noop": "not_recording"})
                 except Exception:
                     # Recording status check failed, continue anyway
                     pass
                 
                 # Stop recording
-                stop_result = self.ws.call(requests.StopRecord())
-                if hasattr(stop_result, 'status') and stop_result.status == 'error':
-                    return ObsResult(ok=False, error=f"StopRecord failed: {stop_result}")
+                self.ws.stop_record()
                 return ObsResult(ok=True)
             return ObsResult(ok=True)
         except Exception as e:

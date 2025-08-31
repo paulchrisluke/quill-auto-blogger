@@ -1,23 +1,35 @@
 from __future__ import annotations
 import os, json
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import schedule, time
 
 DATA_DIR = Path("data")
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
 
 def _post_discord(msg: str) -> None:
-    if not DISCORD_WEBHOOK:
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
         return
     try:
         import requests  # already in reqs
-        requests.post(DISCORD_WEBHOOK, json={"content": msg}, timeout=5)
+        requests.post(
+            webhook_url, 
+            json={
+                "content": msg,
+                "allowed_mentions": {"parse": []}  # Block @everyone/@here
+            }, 
+            timeout=5
+        )
     except Exception:
         pass
 
 def scan_and_notify() -> None:
-    cutoff = datetime.utcnow() - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    
+    # Guard against missing data directory
+    if not DATA_DIR.exists():
+        return
+    
     for day_dir in DATA_DIR.iterdir():
         if not day_dir.is_dir():
             continue
@@ -35,6 +47,11 @@ def scan_and_notify() -> None:
                     continue
                 try:
                     merged_dt = datetime.fromisoformat(merged_at.replace("Z","+00:00"))
+                    # Ensure merged_dt is timezone-aware and in UTC
+                    if merged_dt.tzinfo is None:
+                        merged_dt = merged_dt.replace(tzinfo=timezone.utc)
+                    else:
+                        merged_dt = merged_dt.astimezone(timezone.utc)
                 except Exception:
                     continue
                 if merged_dt < cutoff:

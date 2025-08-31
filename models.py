@@ -4,7 +4,7 @@ Pydantic models for the activity fetcher.
 
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 class TwitchClip(BaseModel):
@@ -37,7 +37,7 @@ class GitHubEvent(BaseModel):
 
 class TwitchToken(BaseModel):
     """Model for Twitch OAuth token."""
-    access_token: str
+    access_token: SecretStr
     expires_in: int
     token_type: str
     expires_at: datetime
@@ -45,7 +45,7 @@ class TwitchToken(BaseModel):
 
 class GitHubToken(BaseModel):
     """Model for GitHub fine-grained token."""
-    token: str
+    token: SecretStr
     expires_at: datetime
     permissions: Dict[str, str] = Field(default_factory=dict)
 
@@ -53,7 +53,7 @@ class GitHubToken(BaseModel):
 class CloudflareR2Credentials(BaseModel):
     """Model for Cloudflare R2 S3 credentials."""
     access_key_id: str
-    secret_access_key: str
+    secret_access_key: SecretStr
     endpoint: str
     bucket: str
     region: str = "auto"
@@ -65,7 +65,7 @@ class DiscordCredentials(BaseModel):
     """Model for Discord bot credentials."""
     application_id: str
     public_key: str
-    token: str
+    token: SecretStr
     guild_id: str
     channel_id: str
     webhook_url: Optional[str] = None
@@ -77,7 +77,7 @@ class OBSCredentials(BaseModel):
     """Model for OBS WebSocket credentials."""
     host: str = "127.0.0.1"
     port: int = 4444
-    password: str = ""
+    password: SecretStr
     scene: str = ""
     dry_run: bool = False
     created_at: datetime = Field(default_factory=datetime.now)

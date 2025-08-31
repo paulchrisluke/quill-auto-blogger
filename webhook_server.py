@@ -7,7 +7,8 @@ import os
 import json
 import logging
 import subprocess
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 import hmac
@@ -15,7 +16,7 @@ import hashlib
 
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from dotenv import load_dotenv
 
 from story_schema import StoryPacket, make_story_packet, pair_with_clip
@@ -36,12 +37,115 @@ STORY_DIR = Path("./story_packets")
 STORY_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _validate_story_id(story_id: str) -> bool:
+    """
+    Validate and sanitize story_id.
+    
+    Args:
+        story_id: The story ID to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    if not story_id or not isinstance(story_id, str):
+        return False
+    
+    # Allow alphanumeric characters, hyphens, and underscores
+    # This pattern allows for UUIDs, numeric IDs, and descriptive IDs
+    pattern = r'^[a-zA-Z0-9_-]+$'
+    return bool(re.match(pattern, story_id))
+
+
+def _run_record_command(story_id: str, action: str, date: Optional[str] = None) -> bool:
+    """
+    Run the record command securely with proper error handling.
+    
+    Args:
+        story_id: The validated story ID (already validated by Pydantic)
+        action: The action to perform ('start' or 'stop')
+        date: Optional date string in YYYY-MM-DD format (already validated by Pydantic)
+        
+    Returns:
+        True if command executed successfully, False otherwise
+    """
+    if action not in ['start', 'stop']:
+        logger.error(f"Invalid action: {action}")
+        return False
+    
+    # Use current date if not provided
+    if not date:
+        date = datetime.now().date().isoformat()
+    
+    # Build command arguments
+    cmd = ["python", "-m", "cli.devlog", "record", "--story", story_id, "--action", action, "--date", date]
+    
+    try:
+        logger.info(f"Executing command: {' '.join(cmd)}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30  # 30 second timeout
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Command failed with return code {result.returncode}")
+            logger.error(f"stdout: {result.stdout}")
+            logger.error(f"stderr: {result.stderr}")
+            return False
+        
+        logger.info(f"Command executed successfully: {result.stdout.strip()}")
+        return True
+        
+    except subprocess.TimeoutExpired:
+        logger.error(f"Command timed out after 30 seconds: {' '.join(cmd)}")
+        return False
+    except Exception as e:
+        logger.error(f"Exception executing command: {e}")
+        return False
+
+
 class GitHubWebhookPayload(BaseModel):
     """GitHub webhook payload model."""
     action: Optional[str] = None
     pull_request: Optional[Dict[str, Any]] = None
     repository: Optional[Dict[str, Any]] = None
     sender: Optional[Dict[str, Any]] = None
+
+
+class RecordControlRequest(BaseModel):
+    """Request model for record control endpoints."""
+    story_id: str
+    date: Optional[str] = None
+    
+    class Config:
+        # Allow extra fields but ignore them
+        extra = "ignore"
+    
+    @validator('story_id')
+    def validate_story_id(cls, v):
+        """Validate story_id format."""
+        if not v or not isinstance(v, str):
+            raise ValueError('story_id must be a non-empty string')
+        
+        # Use the same validation as the helper function
+        pattern = r'^[a-zA-Z0-9_-]+$'
+        if not re.match(pattern, v):
+            raise ValueError('story_id must contain only alphanumeric characters, hyphens, and underscores')
+        
+        return v
+    
+    @validator('date')
+    def validate_date(cls, v):
+        """Validate date format if provided."""
+        if v is None:
+            return v
+        
+        try:
+            datetime.strptime(v, "%Y-%m-%d")
+            return v
+        except ValueError:
+            raise ValueError('date must be in YYYY-MM-DD format')
 
 
 async def verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
@@ -241,22 +345,25 @@ async def list_stories(date: str):
 
 
 @app.post("/control/record/start")
-async def control_record_start(payload: dict, background_tasks: BackgroundTasks):
-    story_id = payload.get("story_id")
-    date = payload.get("date")
-    if not story_id:
-        raise HTTPException(status_code=400, detail="story_id required")
-    background_tasks.add_task(subprocess.call, ["python", "-m", "cli.devlog", "record", "--story", story_id, "--action", "start", "--date", date or datetime.utcnow().strftime("%Y-%m-%d")])
-    return {"ok": True}
+async def control_record_start(payload: RecordControlRequest, background_tasks: BackgroundTasks):
+    """Start recording for a story."""
+    try:
+        background_tasks.add_task(_run_record_command, payload.story_id, "start", payload.date)
+        return {"ok": True, "story_id": payload.story_id, "action": "start"}
+    except Exception as e:
+        logger.error(f"Error starting recording for story {payload.story_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start recording")
+
 
 @app.post("/control/record/stop")
-async def control_record_stop(payload: dict, background_tasks: BackgroundTasks):
-    story_id = payload.get("story_id")
-    date = payload.get("date")
-    if not story_id:
-        raise HTTPException(status_code=400, detail="story_id required")
-    background_tasks.add_task(subprocess.call, ["python", "-m", "cli.devlog", "record", "--story", story_id, "--action", "stop", "--date", date or datetime.utcnow().strftime("%Y-%m-%d")])
-    return {"ok": True}
+async def control_record_stop(payload: RecordControlRequest, background_tasks: BackgroundTasks):
+    """Stop recording for a story."""
+    try:
+        background_tasks.add_task(_run_record_command, payload.story_id, "stop", payload.date)
+        return {"ok": True, "story_id": payload.story_id, "action": "stop"}
+    except Exception as e:
+        logger.error(f"Error stopping recording for story {payload.story_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to stop recording")
 
 
 if __name__ == "__main__":
