@@ -73,6 +73,16 @@ class DiscordCredentials(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
+class OBSCredentials(BaseModel):
+    """Model for OBS WebSocket credentials."""
+    host: str = "127.0.0.1"
+    port: int = 4444
+    password: str = ""
+    scene: str = ""
+    dry_run: bool = False
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
 class CacheEntry(BaseModel):
     """Model for cache entries."""
     id: str

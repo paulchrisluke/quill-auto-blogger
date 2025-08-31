@@ -4,6 +4,7 @@ Tests for authentication service.
 
 import pytest
 import json
+import os
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 from pathlib import Path
@@ -222,3 +223,38 @@ class TestAuthService:
         with patch.object(self.auth_service, 'get_github_token', return_value=None):
             with pytest.raises(ValueError, match="GitHub token not available or expired"):
                 self.auth_service.get_github_headers()
+    
+    def test_get_obs_credentials(self):
+        """Test getting OBS credentials."""
+        # Clear any existing OBS credentials cache
+        auth_service = AuthService()
+        if auth_service.obs_credentials_file.exists():
+            auth_service.obs_credentials_file.unlink()
+        
+        with patch.dict(os.environ, {
+            'OBS_HOST': '127.0.0.1',
+            'OBS_PORT': '4455',
+            'OBS_PASSWORD': 'test_password',
+            'OBS_SCENE': 'test_scene',
+            'OBS_DRY_RUN': 'false'
+        }):
+            auth_service = AuthService()
+            credentials = auth_service.get_obs_credentials()
+            assert credentials is not None
+            assert credentials.host == '127.0.0.1'
+            assert credentials.port == 4455
+            assert credentials.password == 'test_password'
+            assert credentials.scene == 'test_scene'
+            assert not credentials.dry_run
+    
+    def test_validate_obs_auth_dry_run(self):
+        """Test OBS auth validation in dry run mode."""
+        with patch.dict(os.environ, {
+            'OBS_HOST': '127.0.0.1',
+            'OBS_PORT': '4455',
+            'OBS_PASSWORD': 'test_password',
+            'OBS_SCENE': 'test_scene',
+            'OBS_DRY_RUN': 'true'
+        }):
+            auth_service = AuthService()
+            assert auth_service.validate_obs_auth() is True

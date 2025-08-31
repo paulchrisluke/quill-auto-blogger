@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
+from services.auth import AuthService
+
 load_dotenv()
 
 try:
@@ -21,11 +23,17 @@ class ObsResult:
 
 class OBSController:
     def __init__(self) -> None:
-        self.host = os.getenv("OBS_HOST", "127.0.0.1")
-        self.port = int(os.getenv("OBS_PORT", "4455"))
-        self.password = os.getenv("OBS_PASSWORD", "")
-        self.target_scene = os.getenv("OBS_SCENE", "").strip()
-        self.dry_run = os.getenv("OBS_DRY_RUN", "false").lower() == "true"
+        self.auth_service = AuthService()
+        self.credentials = self.auth_service.get_obs_credentials()
+        
+        if self.credentials is None:
+            raise ValueError("OBS credentials not available. Please check your environment configuration.")
+        
+        self.host = self.credentials.host
+        self.port = self.credentials.port
+        self.password = self.credentials.password
+        self.target_scene = self.credentials.scene
+        self.dry_run = self.credentials.dry_run
         self.ws = None
 
     def _connect(self) -> ObsResult:
@@ -55,9 +63,15 @@ class OBSController:
             return conn
         try:
             if not self.dry_run:
-                rec_status = self.ws.call(requests.GetRecordingStatus())
-                if rec_status.getRecording():
-                    return ObsResult(ok=True, info={"noop": "already_recording"})
+                # Try to get recording status, but don't fail if it doesn't work
+                try:
+                    rec_status = self.ws.call(requests.GetRecordingStatus())
+                    if hasattr(rec_status, 'getRecording') and rec_status.getRecording():
+                        return ObsResult(ok=True, info={"noop": "already_recording"})
+                except Exception:
+                    # Recording status check failed, continue anyway
+                    pass
+                
                 # optional scene switch
                 if self.target_scene:
                     try:
@@ -65,7 +79,12 @@ class OBSController:
                     except Exception:
                         # scene may not exist; ignore
                         pass
-                self.ws.call(requests.StartRecord())
+                
+                # Start recording
+                start_result = self.ws.call(requests.StartRecord())
+                if hasattr(start_result, 'status') and start_result.status == 'error':
+                    return ObsResult(ok=False, error=f"StartRecord failed: {start_result}")
+                return ObsResult(ok=True)
             return ObsResult(ok=True)
         except Exception as e:
             return ObsResult(ok=False, error=f"StartRecord failed: {e}")
@@ -78,10 +97,20 @@ class OBSController:
             return conn
         try:
             if not self.dry_run:
-                rec_status = self.ws.call(requests.GetRecordingStatus())
-                if not rec_status.getRecording():
-                    return ObsResult(ok=True, info={"noop": "not_recording"})
-                self.ws.call(requests.StopRecord())
+                # Try to get recording status, but don't fail if it doesn't work
+                try:
+                    rec_status = self.ws.call(requests.GetRecordingStatus())
+                    if hasattr(rec_status, 'getRecording') and not rec_status.getRecording():
+                        return ObsResult(ok=True, info={"noop": "not_recording"})
+                except Exception:
+                    # Recording status check failed, continue anyway
+                    pass
+                
+                # Stop recording
+                stop_result = self.ws.call(requests.StopRecord())
+                if hasattr(stop_result, 'status') and stop_result.status == 'error':
+                    return ObsResult(ok=False, error=f"StopRecord failed: {stop_result}")
+                return ObsResult(ok=True)
             return ObsResult(ok=True)
         except Exception as e:
             return ObsResult(ok=False, error=f"StopRecord failed: {e}")

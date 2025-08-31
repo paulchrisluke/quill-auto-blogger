@@ -10,7 +10,7 @@ from typing import Optional
 import httpx
 from dotenv import load_dotenv
 
-from models import TwitchToken, GitHubToken, CloudflareR2Credentials, DiscordCredentials
+from models import TwitchToken, GitHubToken, CloudflareR2Credentials, DiscordCredentials, OBSCredentials
 
 # Load environment variables
 load_dotenv()
@@ -25,6 +25,7 @@ class AuthService:
         self.twitch_token_file = self.cache_dir / "twitch_token.json"
         self.github_token_file = self.cache_dir / "github_token.json"
         self.discord_credentials_file = self.cache_dir / "discord_credentials.json"
+        self.obs_credentials_file = self.cache_dir / "obs_credentials.json"
         
         # Load environment variables
         self.twitch_client_id = os.getenv('TWITCH_CLIENT_ID')
@@ -82,6 +83,16 @@ class AuthService:
         if credentials is None:
             # Try to initialize from environment variables
             credentials = self._initialize_discord_credentials_from_env()
+        
+        return credentials
+    
+    def get_obs_credentials(self) -> Optional[OBSCredentials]:
+        """Get OBS credentials from cache or environment."""
+        credentials = self._load_obs_credentials()
+        
+        if credentials is None:
+            # Try to initialize from environment variables
+            credentials = self._initialize_obs_credentials_from_env()
         
         return credentials
     
@@ -156,6 +167,29 @@ class AuthService:
         except OSError:
             pass
     
+    def _load_obs_credentials(self) -> Optional[OBSCredentials]:
+        """Load OBS credentials from cache."""
+        if not self.obs_credentials_file.exists():
+            return None
+        
+        try:
+            with open(self.obs_credentials_file, 'r') as f:
+                data = json.load(f)
+                # Convert string back to datetime
+                data['created_at'] = datetime.fromisoformat(data['created_at'])
+                return OBSCredentials(**data)
+        except (json.JSONDecodeError, KeyError, OSError):
+            return None
+    
+    def _save_obs_credentials(self, credentials: OBSCredentials):
+        """Save OBS credentials to cache."""
+        with open(self.obs_credentials_file, 'w') as f:
+            f.write(credentials.model_dump_json(indent=2))
+        try:
+            os.chmod(self.obs_credentials_file, 0o600)
+        except OSError:
+            pass
+    
     def _initialize_discord_credentials_from_env(self) -> Optional[DiscordCredentials]:
         """Initialize Discord credentials from environment variables."""
         application_id = os.getenv("DISCORD_APPLICATION_ID")
@@ -180,6 +214,25 @@ class AuthService:
         )
         
         self._save_discord_credentials(credentials)
+        return credentials
+    
+    def _initialize_obs_credentials_from_env(self) -> Optional[OBSCredentials]:
+        """Initialize OBS credentials from environment variables."""
+        host = os.getenv("OBS_HOST", "127.0.0.1")
+        port = int(os.getenv("OBS_PORT", "4455"))
+        password = os.getenv("OBS_PASSWORD", "")
+        scene = os.getenv("OBS_SCENE", "")
+        dry_run = os.getenv("OBS_DRY_RUN", "false").lower() == "true"
+        
+        credentials = OBSCredentials(
+            host=host,
+            port=port,
+            password=password,
+            scene=scene,
+            dry_run=dry_run
+        )
+        
+        self._save_obs_credentials(credentials)
         return credentials
     
     def cache_github_token(self, token: str, expires_at: datetime, permissions: dict = None):
@@ -346,6 +399,25 @@ class AuthService:
                 response = client.get("https://discord.com/api/v10/users/@me", headers=headers)
                 return response.status_code == 200
                 
+        except Exception:
+            return False
+    
+    def validate_obs_auth(self) -> bool:
+        """Validate OBS authentication by testing WebSocket connection."""
+        credentials = self.get_obs_credentials()
+        if not credentials:
+            return False
+        
+        if credentials.dry_run:
+            return True
+        
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex((credentials.host, credentials.port))
+            sock.close()
+            return result == 0
         except Exception:
             return False
     
