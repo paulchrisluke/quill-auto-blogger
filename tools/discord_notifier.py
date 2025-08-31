@@ -15,7 +15,39 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Compute base directory relative to script location
+base_dir = Path(__file__).resolve().parent.parent
+
 logger = logging.getLogger(__name__)
+
+
+def chunk_message(text: str, limit: int = 2000) -> List[str]:
+    """Split a message into chunks that fit within Discord's character limit."""
+    if len(text) <= limit:
+        return [text]
+    
+    chunks = []
+    current_chunk = ""
+    
+    for line in text.split('\n'):
+        # If adding this line would exceed the limit, start a new chunk
+        if len(current_chunk) + len(line) + 1 > limit:
+            if current_chunk:
+                chunks.append(current_chunk.rstrip())
+                current_chunk = ""
+            
+            # If a single line is too long, truncate it
+            if len(line) > limit:
+                chunks.append(line[:limit-3] + "...")
+                continue
+        
+        current_chunk += line + '\n'
+    
+    # Add the last chunk if it has content
+    if current_chunk.strip():
+        chunks.append(current_chunk.rstrip())
+    
+    return chunks
 
 
 def notify_discord(webhook_url: str, content: str) -> bool:
@@ -28,13 +60,27 @@ def notify_discord(webhook_url: str, content: str) -> bool:
             logger.info("Discord notification sent successfully")
             return True
     except httpx.HTTPStatusError as e:
-        logger.error(f"Discord webhook failed: {e.response.text}")
-        return False
+        if e.response.status_code == 429:
+            # Rate limited - extract retry time
+            retry_after = e.response.headers.get("Retry-After")
+            if not retry_after:
+                # Try to get from JSON response
+                try:
+                    error_data = e.response.json()
+                    retry_after = error_data.get("retry_after")
+                except:
+                    retry_after = "unknown"
+            
+            logger.warning(f"Discord rate limited. Retry after {retry_after} seconds")
+            return False
+        else:
+            logger.exception(f"Discord webhook failed with status {e.response.status_code}")
+            return False
     except httpx.RequestError as e:
-        logger.error(f"Discord webhook request failed: {e}")
+        logger.exception(f"Discord webhook request failed")
         return False
     except Exception as e:
-        logger.error(f"Unexpected error sending Discord notification: {e}")
+        logger.exception(f"Unexpected error sending Discord notification")
         return False
 
 
@@ -45,9 +91,23 @@ def format_story_message(packet: Dict[str, Any]) -> str:
     why = packet.get("why", "")
     highlights = packet.get("highlights", [])
     
+    # Get mention target from environment
+    mention_target = os.getenv("DISCORD_MENTION_TARGET", "")
+    
     lines = [
         f"📹 **Time to record** — {title}",
-        f"<@379607746510848000>",  # Tag @paulchrisluke
+    ]
+    
+    # Add mention if configured
+    if mention_target:
+        # If it's just an ID, wrap it in mention format
+        if mention_target.isdigit():
+            lines.append(f"<@{mention_target}>")
+        else:
+            # Assume it's already a full mention string
+            lines.append(mention_target)
+    
+    lines.extend([
         "",
         f"**Why this matters:** {why}" if why else "",
         "",
@@ -59,7 +119,7 @@ def format_story_message(packet: Dict[str, Any]) -> str:
         f"**PR:** {pr_url}" if pr_url else "",
         "",
         "**Highlights:**" if highlights else "",
-    ]
+    ])
     
     # Add highlights as bullet points
     for highlight in highlights[:3]:  # Max 3 highlights
@@ -72,7 +132,7 @@ def format_story_message(packet: Dict[str, Any]) -> str:
 def notify_from_digest(date: str, webhook_url: str = None, dry_run: bool = False) -> None:
     """Send Discord notifications for all story packets in a digest."""
     # Load digest
-    digest_path = Path(f"blogs/{date}/PRE-CLEANED-{date}_digest.json")
+    digest_path = base_dir / f"blogs/{date}/PRE-CLEANED-{date}_digest.json"
     
     if not digest_path.exists():
         logger.error(f"Digest not found: {digest_path}")
@@ -95,7 +155,7 @@ def notify_from_digest(date: str, webhook_url: str = None, dry_run: bool = False
         webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
     
     if webhook_url:
-        logger.info(f"Using Discord webhook: {webhook_url[:50]}...")
+        logger.info("Discord webhook configured")
     else:
         logger.warning("No Discord webhook URL found, printing to stdout")
     
@@ -105,19 +165,28 @@ def notify_from_digest(date: str, webhook_url: str = None, dry_run: bool = False
     for packet in story_packets:
         message = format_story_message(packet)
         
+        # Chunk the message if it's too long
+        chunks = chunk_message(message)
+        
         if dry_run:
             # Print to stdout for testing
-            print(message)
-            print("---")
+            for chunk in chunks:
+                print(chunk)
+                print("---")
             success_count += 1
         elif webhook_url:
             # Send to Discord
-            if notify_discord(webhook_url, message):
+            chunk_success = True
+            for chunk in chunks:
+                if not notify_discord(webhook_url, chunk):
+                    chunk_success = False
+            if chunk_success:
                 success_count += 1
         else:
             # Print to stdout
-            print(message)
-            print("---")
+            for chunk in chunks:
+                print(chunk)
+                print("---")
             success_count += 1
     
     if dry_run:

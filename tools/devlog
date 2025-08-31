@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 """
-CLI orchestrator for M1.5 digest processing, video rendering, and notifications.
+CLI orchestrator for M1.5 digest processing, video rendering, publishing, and notifications.
 """
 
 import click
 import subprocess
 import sys
 import json
+import os
 from pathlib import Path
 import logging
+from datetime import datetime, timezone
+
+# Compute base directory relative to script location
+base_dir = Path(__file__).resolve().parent.parent
 
 # Add parent directory to Python path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(base_dir))
+
+from services.blog import BlogDigestBuilder
+from services.publisher import publish_video
+from services.notify import notify_story_discord, notify_digest_summary, get_webhook_url
+from services.media import probe_duration, file_exists
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -19,94 +29,206 @@ logger = logging.getLogger(__name__)
 
 
 @click.command()
-@click.option("--date", required=True, help="Date in YYYY-MM-DD format")
-@click.option("--normalize/--no-normalize", default=True, help="Normalize digest data")
+@click.option("--date", help="Date in YYYY-MM-DD format (defaults to today)")
 @click.option("--render/--no-render", default=True, help="Render videos from story packets")
+@click.option("--publish", type=click.Choice(["local", "r2"]), default="local", help="Publish target (local or r2)")
 @click.option("--notify-discord/--no-notify-discord", default=True, help="Send Discord notifications")
 @click.option("--write-blog/--no-write-blog", default=True, help="Generate blog markdown")
 @click.option("--dry-run", is_flag=True, help="Dry run mode (no Discord notifications)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
-def main(date, normalize, render, notify_discord, write_blog, dry_run, verbose):
+def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
     """Process digest data for M1.5 pipeline."""
     
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
+    # Set default date to today if not provided
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
     # Validate date format
     try:
-        from datetime import datetime
         datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
         click.echo("Error: Date must be in YYYY-MM-DD format", err=True)
         sys.exit(1)
     
-    # Check if digest exists (look in blogs directory)
-    digest_path = Path(f"blogs/{date}/PRE-CLEANED-{date}_digest.json")
-    if not digest_path.exists():
-        click.echo(f"Error: Digest not found: {digest_path}", err=True)
+    # Set publish target environment variable
+    os.environ["PUBLISH_TARGET"] = publish
+    
+    click.echo(f"Processing digest for {date} with publish target: {publish}")
+    
+    # Step 1: Build/Load v2 digest
+    click.echo("🔄 Building v2 digest...")
+    try:
+        builder = BlogDigestBuilder()
+        
+        # Check if digest already exists and load it to preserve video paths
+        existing_digest_path = base_dir / f"blogs/{date}/PRE-CLEANED-{date}_digest.json"
+        if existing_digest_path.exists():
+            with open(existing_digest_path, 'r') as f:
+                existing_digest = json.load(f)
+            
+            # Preserve published video paths from existing digest
+            existing_video_paths = {}
+            for packet in existing_digest.get("story_packets", []):
+                story_id = packet.get("id")
+                video_path = packet.get("video", {}).get("path", "")
+                if video_path and (video_path.startswith("/stories/") or video_path.startswith("http")):
+                    existing_video_paths[story_id] = video_path
+        
+        # Build new digest
+        digest = builder.build_digest(date)
+        
+        # Restore published video paths
+        if existing_video_paths:
+            for packet in digest.get("story_packets", []):
+                story_id = packet.get("id")
+                if story_id in existing_video_paths:
+                    if "video" not in packet:
+                        packet["video"] = {}
+                    packet["video"]["path"] = existing_video_paths[story_id]
+                    packet["video"]["status"] = "rendered"
+        
+        # Save digest to blogs directory
+        digest_path = builder.save_digest(digest)
+        click.echo(f"✓ Digest built and saved to {digest_path}")
+        
+    except Exception as e:
+        click.echo(f"✗ Failed to build digest: {e}", err=True)
         sys.exit(1)
     
-    click.echo(f"Processing digest for {date}...")
-    
-    # Step 1: Normalize (already done by existing pipeline)
-    if normalize:
-        click.echo("✓ Normalize: Digest already normalized (v2 format)")
-    
-    # Step 2: Render videos
+    # Step 2: Render and publish videos
     if render:
-        click.echo("🔄 Rendering videos...")
-        try:
-            result = subprocess.run([
-                sys.executable, "tools/renderer_stub.py", date
-            ], capture_output=True, text=True, check=True)
-            click.echo("✓ Render: Videos rendered successfully")
-            if verbose:
-                click.echo(result.stdout)
-        except subprocess.CalledProcessError as e:
-            click.echo(f"✗ Render failed: {e.stderr}", err=True)
-            if not verbose:
-                click.echo("Use --verbose for more details")
-            sys.exit(1)
+        click.echo("🔄 Processing videos...")
+        
+        # Load updated digest
+        with open(digest_path, 'r') as f:
+            digest_data = json.load(f)
+        
+        story_packets = digest_data.get("story_packets", [])
+        changed = False
+        
+        for packet in story_packets:
+            story_id = packet.get("id")
+            video_info = packet.get("video", {})
+            
+            # Check if video needs rendering
+            if video_info.get("status") != "rendered" or not video_info.get("path") or not file_exists(video_info.get("path", "")):
+                click.echo(f"  Rendering video for {story_id}...")
+                try:
+                    # Render video using existing renderer
+                    result = subprocess.run([
+                        sys.executable, str(base_dir / "tools/renderer_stub.py"), date
+                    ], capture_output=True, text=True, check=True)
+                    
+                    # Reload digest to get updated video info
+                    with open(digest_path, 'r') as f:
+                        digest_data = json.load(f)
+                    
+                    # Find the updated packet and preserve published paths
+                    for updated_packet in digest_data.get("story_packets", []):
+                        if updated_packet.get("id") == story_id:
+                            # Preserve published path if it exists
+                            current_path = packet.get("video", {}).get("path", "")
+                            if current_path and (current_path.startswith("/stories/") or current_path.startswith("http")):
+                                updated_packet["video"]["path"] = current_path
+                            packet.update(updated_packet)
+                            break
+                    
+                    click.echo(f"  ✓ Rendered video for {story_id}")
+                    changed = True
+                    
+                except subprocess.CalledProcessError as e:
+                    click.echo(f"  ✗ Render failed for {story_id}: {e.stderr}", err=True)
+                    # Mark as failed
+                    if "video" not in packet:
+                        packet["video"] = {}
+                    packet["video"]["status"] = "failed"
+                    packet["video"]["error"] = str(e)
+                    changed = True
+            else:
+                click.echo(f"  ✓ Video already rendered for {story_id}")
+            
+            # Publish video if rendered
+            if packet.get("video", {}).get("status") == "rendered" and packet.get("video", {}).get("path"):
+                local_path = packet["video"]["path"]
+                # Only publish if it's a local path, not already published
+                if local_path.startswith("out/videos/") and file_exists(local_path):
+                    click.echo(f"  Publishing video for {story_id}...")
+                    try:
+                        public_path = publish_video(local_path, date, story_id)
+                        packet["video"]["path"] = public_path
+                        changed = True
+                        click.echo(f"  ✓ Published video for {story_id}: {public_path}")
+                    except Exception as e:
+                        click.echo(f"  ✗ Publish failed for {story_id}: {e}", err=True)
+                        # Don't fail the whole pipeline for publish errors
+                elif local_path.startswith("/stories/") or local_path.startswith("http"):
+                    click.echo(f"  ✓ Video already published for {story_id}: {local_path}")
+                else:
+                    click.echo(f"  ⚠️ Local video not found for {story_id}: {local_path}")
+            
+            # Probe duration if missing
+            if packet.get("video", {}).get("status") == "rendered" and not packet.get("video", {}).get("duration_s"):
+                video_path = packet["video"].get("path", "")
+                if video_path and file_exists(video_path):
+                    duration = probe_duration(video_path)
+                    if duration:
+                        packet["video"]["duration_s"] = round(duration, 2)
+                        changed = True
+                        click.echo(f"  ✓ Probed duration for {story_id}: {duration}s")
+        
+        # Save updated digest if changed
+        if changed:
+            try:
+                with open(digest_path, 'w') as f:
+                    json.dump(digest_data, f, indent=2, default=str)
+                click.echo("✓ Updated digest with video information")
+            except Exception as e:
+                click.echo(f"✗ Failed to save updated digest: {e}", err=True)
+        else:
+            click.echo("✓ No video changes needed")
     
     # Step 3: Send Discord notifications
     if notify_discord:
-        if dry_run:
-            click.echo("🔄 Sending Discord notifications (DRY RUN)...")
-            try:
-                result = subprocess.run([
-                    sys.executable, "tools/discord_notifier.py", date, "--dry-run"
-                ], capture_output=True, text=True, check=True)
-                click.echo("✓ Discord: Notifications previewed (dry run)")
-                if verbose:
-                    click.echo(result.stdout)
-            except subprocess.CalledProcessError as e:
-                click.echo(f"✗ Discord notifications failed: {e.stderr}", err=True)
-                if not verbose:
-                    click.echo("Use --verbose for more details")
+        webhook_url = get_webhook_url()
+        if not webhook_url:
+            click.echo("⚠️ No Discord webhook URL configured, skipping notifications")
         else:
             click.echo("🔄 Sending Discord notifications...")
-            try:
-                result = subprocess.run([
-                    sys.executable, "tools/discord_notifier.py", date
-                ], capture_output=True, text=True, check=True)
-                click.echo("✓ Discord: Notifications sent successfully")
-                if verbose:
-                    click.echo(result.stdout)
-            except subprocess.CalledProcessError as e:
-                click.echo(f"✗ Discord notifications failed: {e.stderr}", err=True)
-                if not verbose:
-                    click.echo("Use --verbose for more details")
-                # Don't exit on Discord failure - it's not critical
+            
+            # Load digest data
+            with open(digest_path, 'r') as f:
+                digest_data = json.load(f)
+            
+            story_packets = digest_data.get("story_packets", [])
+            success_count = 0
+            
+            for packet in story_packets:
+                if not dry_run:
+                    if notify_story_discord(packet, date, webhook_url):
+                        success_count += 1
+                else:
+                    # Dry run - just print what would be sent
+                    title = packet.get("title_human") or packet.get("title_raw", "Untitled")
+                    click.echo(f"  Would notify: {title}")
+                    success_count += 1
+            
+            # Send summary notification
+            if story_packets:
+                blog_url = f"{os.getenv('BLOG_BASE_URL', 'https://example.com')}/blog/{date}"
+                if not dry_run:
+                    notify_digest_summary(date, len(story_packets), blog_url, webhook_url)
+                else:
+                    click.echo(f"  Would send summary: {len(story_packets)} stories for {date}")
+            
+            click.echo(f"✓ Discord: {success_count}/{len(story_packets)} notifications sent")
     
     # Step 4: Write blog markdown
     if write_blog:
         click.echo("🔄 Generating blog markdown...")
         try:
-            # Import and use existing BlogDigestBuilder
-            from services.blog import BlogDigestBuilder
-            
-            builder = BlogDigestBuilder()
-            
             # Load digest data
             with open(digest_path, 'r') as f:
                 data = json.load(f)
@@ -115,7 +237,7 @@ def main(date, normalize, render, notify_discord, write_blog, dry_run, verbose):
             md_content = builder.generate_markdown(data)
             
             # Write to drafts directory
-            out_path = Path(f"drafts/{date}.md")
+            out_path = base_dir / f"drafts/{date}.md"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             
             with open(out_path, 'w') as f:
@@ -130,6 +252,13 @@ def main(date, normalize, render, notify_discord, write_blog, dry_run, verbose):
             sys.exit(1)
     
     click.echo(f"✅ M1.5 pipeline completed for {date}")
+    click.echo(f"📊 Summary:")
+    click.echo(f"  - Digest: {digest_path}")
+    click.echo(f"  - Blog: {base_dir / f'drafts/{date}.md'}")
+    if story_packets:
+        click.echo(f"  - Stories: {len(story_packets)}")
+        rendered_count = sum(1 for p in story_packets if p.get("video", {}).get("status") == "rendered")
+        click.echo(f"  - Videos rendered: {rendered_count}")
 
 
 if __name__ == "__main__":

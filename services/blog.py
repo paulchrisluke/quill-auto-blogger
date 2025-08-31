@@ -416,10 +416,17 @@ class BlogDigestBuilder:
                                 content_parts.append(f"- {highlight}")
                             content_parts.append("")
                         
-                        # Add video link if available
+                        # Add video embed and link if available
                         if packet.get('video', {}).get('path'):
-                            content_parts.append(f"**Video:** [Watch Story]({packet['video']['path']})")
-                            content_parts.append("")
+                            video_path = packet['video']['path']
+                            # Check if it's a URL or /stories/ path
+                            if video_path.startswith(('http://', 'https://', '/stories/')):
+                                # Add video embed for website preview
+                                content_parts.append(f'<video controls src="{video_path}"></video>')
+                                content_parts.append("")
+                                # Add link for feed readers
+                                content_parts.append(f"**Video:** [Watch Story]({video_path})")
+                                content_parts.append("")
                         
                         # Add PR link
                         if packet.get('links', {}).get('pr_url'):

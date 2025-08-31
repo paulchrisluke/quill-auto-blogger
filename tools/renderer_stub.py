@@ -10,8 +10,40 @@ import textwrap
 from pathlib import Path
 from typing import List, Dict, Any
 import logging
+import sys
+
+# Add parent directory to Python path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from services.media import probe_duration, file_exists
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_story_id(story_id: str) -> str:
+    """Sanitize story ID for safe use in filenames."""
+    if not story_id:
+        return "unknown"
+    
+    # Replace invalid characters with underscores
+    import re
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', story_id)
+    
+    # Remove consecutive underscores
+    sanitized = re.sub(r'_+', '_', sanitized)
+    
+    # Remove leading/trailing underscores
+    sanitized = sanitized.strip('_')
+    
+    # Truncate to reasonable length
+    if len(sanitized) > 50:
+        sanitized = sanitized[:50]
+    
+    # Fallback if result is empty
+    if not sanitized:
+        return "unknown"
+    
+    return sanitized
 
 
 def make_card(text: str, out_png: Path, w: int = 1080, h: int = 1920, pad: int = 60) -> None:
@@ -88,7 +120,7 @@ def render_for_packet(packet: Dict[str, Any], out_dir: Path) -> str:
     title = packet.get("title_human") or packet.get("title_raw", "Untitled")
     why = packet.get("why", "")
     highlights = packet.get("highlights", [])
-    story_id = packet.get("id", "unknown")
+    story_id = sanitize_story_id(packet.get("id", "unknown"))
     
     # Generate image sequence
     images = []
@@ -128,21 +160,8 @@ def render_for_packet(packet: Dict[str, Any], out_dir: Path) -> str:
 
 def get_video_duration(video_path: Path) -> float:
     """Get video duration using ffprobe."""
-    cmd = [
-        "ffprobe",
-        "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(video_path)
-    ]
-    
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        duration = float(result.stdout.strip())
-        return round(duration, 2)
-    except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
-        logger.warning(f"Could not determine duration for {video_path}")
-        return 0.0
+    duration = probe_duration(str(video_path))
+    return round(duration, 2) if duration else 0.0
 
 
 def render_from_digest(digest_path: Path, out_dir: Path) -> bool:
@@ -162,12 +181,18 @@ def render_from_digest(digest_path: Path, out_dir: Path) -> bool:
     changed = False
     
     for packet in story_packets:
-        # Check if already rendered
+        # Check if already rendered and file exists
         video_info = packet.get("video", {}) or {}
         if video_info.get("status") == "rendered":
             dst_path = video_info.get("path")
-            if dst_path and Path(dst_path).exists():
+            if dst_path and file_exists(dst_path):
                 logger.info(f"Skipping {packet.get('id')} - already rendered")
+                # Probe duration if missing
+                if not video_info.get("duration_s"):
+                    duration = probe_duration(dst_path)
+                    if duration:
+                        video_info["duration_s"] = round(duration, 2)
+                        changed = True
                 continue
         
         # Render video
