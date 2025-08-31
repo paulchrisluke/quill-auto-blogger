@@ -225,6 +225,10 @@ logs/
 *.mov
 *.mkv
 
+# Generated output files
+out/
+drafts/
+
 # Database files
 *.db
 *.sqlite
