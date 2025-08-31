@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional, List
 import hmac
 import hashlib
 
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, Header
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, Header, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator, ConfigDict
 from dotenv import load_dotenv
@@ -75,13 +75,12 @@ def _run_record_command_direct(story_id: str, action: str, date: Optional[str] =
     
     # Use current date if not provided
     if not date:
-        date = datetime.now().date().isoformat()
+        date = datetime.now(timezone.utc).date().isoformat()
     
     try:
         # Import the required modules
         from services.obs_controller import OBSController
         from services.story_state import StoryState
-        from datetime import datetime, timezone
         
         # Parse date
         if isinstance(date, str):
@@ -308,16 +307,16 @@ async def save_story_packet(story_packet: StoryPacket):
 
 
 # Add authentication dependency
-async def verify_control_auth(authorization: Optional[str] = Header(None)) -> bool:
+async def verify_control_auth(authorization: Optional[str] = Header(None)) -> None:
     """Verify authentication for control endpoints."""
     if not authorization:
         logger.warning("Control endpoint accessed without authorization header")
-        return False
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing authorization header")
     
     # Check for Bearer token
     if not authorization.startswith("Bearer "):
         logger.warning("Invalid authorization header format")
-        return False
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization header format")
     
     token = authorization[7:]  # Remove "Bearer " prefix
     
@@ -325,20 +324,18 @@ async def verify_control_auth(authorization: Optional[str] = Header(None)) -> bo
     expected_token = os.getenv("CONTROL_API_TOKEN")
     if not expected_token:
         logger.error("CONTROL_API_TOKEN not configured")
-        return False
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Server configuration error")
     
     # Use constant-time comparison to prevent timing attacks
     if not hmac.compare_digest(token, expected_token):
         logger.warning("Invalid control API token")
-        return False
-    
-    return True
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization token")
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/stories/{date}")
@@ -405,11 +402,9 @@ async def list_stories(date: str):
 async def control_record_start(
     payload: RecordControlRequest, 
     background_tasks: BackgroundTasks,
-    auth: bool = Depends(verify_control_auth)
+    _: None = Depends(verify_control_auth)
 ):
     """Start recording for a story."""
-    if not auth:
-        raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
         # Validate and sanitize inputs
@@ -448,11 +443,9 @@ async def control_record_start(
 async def control_record_stop(
     payload: RecordControlRequest, 
     background_tasks: BackgroundTasks,
-    auth: bool = Depends(verify_control_auth)
+    _: None = Depends(verify_control_auth)
 ):
     """Stop recording for a story."""
-    if not auth:
-        raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
         # Validate and sanitize inputs

@@ -39,31 +39,83 @@ class StoryState:
             json.dump(digest, f, indent=2)
         temp_path.replace(file_path)
 
-    def begin_recording(self, date: datetime, story_id: str) -> Dict[str, Any]:
+    def _normalize_date(self, date: datetime, assume_utc: bool = False) -> datetime:
+        """
+        Normalize datetime to UTC.
+        
+        Args:
+            date: The datetime to normalize
+            assume_utc: If True and date is naive, assume it's UTC. 
+                       If False (default), raise ValueError for naive datetimes.
+        
+        Returns:
+            Timezone-aware datetime in UTC
+            
+        Raises:
+            ValueError: If date is naive and assume_utc is False
+        """
+        if date.tzinfo is None:
+            if assume_utc:
+                return date.replace(tzinfo=timezone.utc)
+            else:
+                raise ValueError(
+                    "Timezone-aware datetime required. Pass assume_utc=True to "
+                    "explicitly treat naive datetime as UTC, or ensure the datetime "
+                    "has timezone information."
+                )
+        else:
+            return date.astimezone(timezone.utc)
+
+    def begin_recording(self, date: datetime, story_id: str, assume_utc: bool = False) -> Dict[str, Any]:
+        """
+        Begin recording for a story.
+        
+        Args:
+            date: Timezone-aware datetime for the story date
+            story_id: Identifier for the story
+            assume_utc: If True and date is naive, assume it's UTC. 
+                       If False (default), raise ValueError for naive datetimes.
+        
+        Returns:
+            Updated story packet
+            
+        Raises:
+            ValueError: If date is naive and assume_utc is False
+        """
         digest, file_path = self._load_digest(date)
         packet = self._find_story(digest, story_id)
-        # Ensure date is timezone-aware and convert to UTC
-        if date.tzinfo is None:
-            date = date.replace(tzinfo=timezone.utc)
-        else:
-            date = date.astimezone(timezone.utc)
+        # Normalize date to UTC
+        normalized_date = self._normalize_date(date, assume_utc)
         # Use current UTC time for started_at, not the story date
         now = datetime.now(timezone.utc).isoformat()
         # Ensure explainer dict exists
         packet.setdefault("explainer", {})
         packet["explainer"]["status"] = "recording"
         packet["explainer"]["started_at"] = now
-        self._save_digest(date, digest, file_path)
+        self._save_digest(normalized_date, digest, file_path)
         return packet
 
-    def end_recording(self, date: datetime, story_id: str, raw_path: Optional[str]=None) -> Dict[str, Any]:
+    def end_recording(self, date: datetime, story_id: str, raw_path: Optional[str]=None, assume_utc: bool = False) -> Dict[str, Any]:
+        """
+        End recording for a story.
+        
+        Args:
+            date: Timezone-aware datetime for the story date
+            story_id: Identifier for the story
+            raw_path: Optional path to the raw recording file
+            assume_utc: If True and date is naive, assume it's UTC. 
+                       If False (default), raise ValueError for naive datetimes.
+        
+        Returns:
+            Updated story packet
+            
+        Raises:
+            ValueError: If date is naive and assume_utc is False
+        """
         digest, file_path = self._load_digest(date)
         packet = self._find_story(digest, story_id)
-        # Ensure date is timezone-aware and convert to UTC
-        if date.tzinfo is None:
-            date = date.replace(tzinfo=timezone.utc)
-        else:
-            date = date.astimezone(timezone.utc)
+        # Normalize date to UTC
+        normalized_date = self._normalize_date(date, assume_utc)
         # Use current UTC time for completed_at, not the story date
         now = datetime.now(timezone.utc).isoformat()
         # Ensure explainer dict exists
@@ -75,7 +127,7 @@ class StoryState:
         packet["video"]["status"] = "pending"
         if raw_path:
             packet["video"]["raw_recording_path"] = raw_path
-        self._save_digest(date, digest, file_path)
+        self._save_digest(normalized_date, digest, file_path)
         return packet
 
     @staticmethod

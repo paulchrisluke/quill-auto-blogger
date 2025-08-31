@@ -4,7 +4,12 @@ from services.obs_controller import OBSController
 from services.story_state import StoryState
 
 def _today(date: datetime | None) -> datetime:
-    return date or datetime.now(timezone.utc)
+    if date is None:
+        return datetime.now(timezone.utc)
+    elif date.tzinfo is None:
+        return date.replace(tzinfo=timezone.utc)
+    else:
+        return date.astimezone(timezone.utc)
 
 @click.group()
 def devlog():
@@ -34,11 +39,20 @@ def record(story_id: str, action: str, date: datetime | None):
             click.echo(f"[ERR] {res.error}")
             raise SystemExit(1)
         
-        # Handle state.begin_recording errors
+        # Handle state.begin_recording errors with OBS cleanup
         try:
-            state.begin_recording(date, story_id)
+            state.begin_recording(date, story_id, assume_utc=True)
         except (FileNotFoundError, KeyError) as e:
             click.echo(f"[ERR] Failed to begin recording for story {story_id}: {e}")
+            # Rollback: stop OBS recording to prevent orphaned recording
+            try:
+                cleanup_res = obs.stop_recording()
+                if not cleanup_res.ok:
+                    click.echo(f"[WARN] Failed to cleanup OBS recording: {cleanup_res.error}")
+                else:
+                    click.echo(f"[INFO] OBS recording stopped during cleanup")
+            except Exception as cleanup_error:
+                click.echo(f"[WARN] OBS cleanup failed: {cleanup_error}")
             raise SystemExit(1)
         
         click.echo(f"[OK] recording started for {story_id}")
@@ -50,7 +64,7 @@ def record(story_id: str, action: str, date: datetime | None):
         
         # Handle state.end_recording errors
         try:
-            state.end_recording(date, story_id)
+            state.end_recording(date, story_id, assume_utc=True)
         except (FileNotFoundError, KeyError) as e:
             click.echo(f"[ERR] Failed to end recording for story {story_id}: {e}")
             raise SystemExit(1)

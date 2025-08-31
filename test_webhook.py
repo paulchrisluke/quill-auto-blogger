@@ -103,8 +103,18 @@ class TestControlEndpointSecurity:
     
     def setup_method(self):
         """Set up test environment."""
+        # Save the original CONTROL_API_TOKEN value
+        self.original_control_api_token = os.environ.get("CONTROL_API_TOKEN")
         # Clear any existing environment variables
         if "CONTROL_API_TOKEN" in os.environ:
+            del os.environ["CONTROL_API_TOKEN"]
+    
+    def teardown_method(self):
+        """Clean up test environment."""
+        # Restore the original CONTROL_API_TOKEN value
+        if self.original_control_api_token is not None:
+            os.environ["CONTROL_API_TOKEN"] = self.original_control_api_token
+        elif "CONTROL_API_TOKEN" in os.environ:
             del os.environ["CONTROL_API_TOKEN"]
     
     def test_control_start_no_auth(self):

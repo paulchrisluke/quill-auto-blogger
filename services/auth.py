@@ -33,6 +33,49 @@ class AuthService:
         self.twitch_client_secret = os.getenv('TWITCH_CLIENT_SECRET')
         self.github_token = os.getenv('GITHUB_TOKEN')
     
+    def _secure_atomic_json_write(self, path: Path, data: dict):
+        """Securely write JSON data to a file using atomic operations.
+        
+        Creates a temporary file with restrictive permissions, writes the data,
+        then atomically moves it into place. Ensures cleanup of temporary files.
+        """
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        
+        try:
+            # Create temp file with restrictive permissions
+            fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            
+            try:
+                # Write JSON data to temp file
+                with os.fdopen(fd, 'w') as f:
+                    json.dump(data, f, indent=2, default=str)
+                
+                # Atomically move temp file to target location
+                os.replace(tmp_path, path)
+                
+                # Set permissions on final file (ignore errors)
+                try:
+                    os.chmod(path, 0o600)
+                except OSError:
+                    pass
+                    
+            except OSError:
+                # Close fd if it's still open
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                raise
+                
+        except OSError:
+            # Clean up temp file if it exists
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+    
     def get_twitch_token(self) -> Optional[str]:
         """Get a valid Twitch access token, refreshing if necessary."""
         token = self._load_twitch_token()
@@ -119,12 +162,7 @@ class AuthService:
         data = token.model_dump()
         data['access_token'] = token.access_token.get_secret_value()
         
-        with open(self.twitch_token_file, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
-        try:
-            os.chmod(self.twitch_token_file, 0o600)
-        except OSError:
-            pass
+        self._secure_atomic_json_write(self.twitch_token_file, data)
     
     def _load_github_token(self) -> Optional[GitHubToken]:
         """Load GitHub token from cache."""
@@ -148,12 +186,7 @@ class AuthService:
         data = token.model_dump()
         data['token'] = token.token.get_secret_value()
         
-        with open(self.github_token_file, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
-        try:
-            os.chmod(self.github_token_file, 0o600)
-        except OSError:
-            pass
+        self._secure_atomic_json_write(self.github_token_file, data)
     
 
     
@@ -179,12 +212,7 @@ class AuthService:
         data = credentials.model_dump()
         data['token'] = credentials.token.get_secret_value()
         
-        with open(self.discord_credentials_file, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
-        try:
-            os.chmod(self.discord_credentials_file, 0o600)
-        except OSError:
-            pass
+        self._secure_atomic_json_write(self.discord_credentials_file, data)
     
     def _load_obs_credentials(self) -> Optional[OBSCredentials]:
         """Load OBS credentials from cache."""
@@ -208,12 +236,7 @@ class AuthService:
         data = credentials.model_dump()
         data['password'] = credentials.password.get_secret_value()
         
-        with open(self.obs_credentials_file, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
-        try:
-            os.chmod(self.obs_credentials_file, 0o600)
-        except OSError:
-            pass
+        self._secure_atomic_json_write(self.obs_credentials_file, data)
     
     def _initialize_discord_credentials_from_env(self) -> Optional[DiscordCredentials]:
         """Initialize Discord credentials from environment variables."""

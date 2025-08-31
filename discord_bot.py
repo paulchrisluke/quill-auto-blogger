@@ -3,7 +3,7 @@ from typing import Optional
 import discord
 from discord import app_commands
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
 from services.story_state import StoryState
 from services.outline import generate_outline
 import subprocess
@@ -37,12 +37,17 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 def _today() -> datetime:
-    return datetime.utcnow().date()
+    return datetime.now(timezone.utc)
 
 def _guard_role(interaction: discord.Interaction) -> bool:
     if ROLE_ID == 0:
         return True
-    return any(getattr(r, "id", None) == ROLE_ID for r in interaction.user.roles)  # type: ignore[attr-defined]
+    
+    # Check if we're in a guild context and user has roles
+    if not interaction.guild or not hasattr(interaction.user, 'roles'):
+        return False
+    
+    return any(getattr(r, "id", None) == ROLE_ID for r in interaction.user.roles)
 
 def _run_cli_command(args: list[str], timeout: int = 30) -> None:
     """
@@ -105,12 +110,36 @@ def _run_cli_command(args: list[str], timeout: int = 30) -> None:
             logger.error(f"Command stderr: {e.stderr}")
         raise
 
+async def _run_cli_command_async(args: list[str], timeout: int = 30) -> None:
+    """
+    Async wrapper for _run_cli_command that runs the blocking operation off the event loop.
+    
+    Args:
+        args: List of command arguments (excluding the Python interpreter)
+        timeout: Timeout in seconds for the subprocess
+    
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+        subprocess.TimeoutExpired: If the command times out
+    """
+    return await asyncio.to_thread(_run_cli_command, args, timeout)
+
 @tree.command(name="story_list", description="List story packets for today (by id/title/status)")
 async def story_list(interaction: discord.Interaction, date: Optional[str] = None):
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
-    date_obj = datetime.strptime(date, "%Y-%m-%d").date() if date else _today()
+    
+    # Validate and parse date before any processing
+    try:
+        if date:
+            date_obj = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            date_obj = _today()
+    except ValueError as e:
+        await interaction.response.send_message(f"Invalid date format. Use YYYY-MM-DD: {e}", ephemeral=True)
+        return
+    
     try:
         state = StoryState()
         digest, _ = state.load_digest(date_obj)
@@ -128,11 +157,21 @@ async def record_start(interaction: discord.Interaction, story_id: str, date: Op
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
-    date_obj = datetime.strptime(date, "%Y-%m-%d").date() if date else _today()
+    
+    # Validate and parse date before deferring
+    try:
+        if date:
+            date_obj = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            date_obj = _today()
+    except ValueError as e:
+        await interaction.response.send_message(f"Invalid date format. Use YYYY-MM-DD: {e}", ephemeral=True)
+        return
+    
     await interaction.response.defer(ephemeral=True)
     try:
-        # call CLI (keeps logic centralized)
-        _run_cli_command(["cli.devlog", "record", "--story", story_id, "--action", "start", "--date", date_obj.strftime("%Y-%m-%d")])
+        # call CLI (keeps logic centralized) - now async
+        await _run_cli_command_async(["cli.devlog", "record", "--story", story_id, "--action", "start", "--date", date_obj.strftime("%Y-%m-%d")])
         await interaction.followup.send(f"Recording started for `{story_id}`.", ephemeral=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         error_msg = f"Start failed: {type(e).__name__}"
@@ -148,10 +187,21 @@ async def record_stop(interaction: discord.Interaction, story_id: str, date: Opt
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
-    date_obj = datetime.strptime(date, "%Y-%m-%d").date() if date else _today()
+    
+    # Validate and parse date before deferring
+    try:
+        if date:
+            date_obj = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            date_obj = _today()
+    except ValueError as e:
+        await interaction.response.send_message(f"Invalid date format. Use YYYY-MM-DD: {e}", ephemeral=True)
+        return
+    
     await interaction.response.defer(ephemeral=True)
     try:
-        _run_cli_command(["cli.devlog", "record", "--story", story_id, "--action", "stop", "--date", date_obj.strftime("%Y-%m-%d")])
+        # call CLI (keeps logic centralized) - now async
+        await _run_cli_command_async(["cli.devlog", "record", "--story", story_id, "--action", "stop", "--date", date_obj.strftime("%Y-%m-%d")])
         await interaction.followup.send(f"Recording stopped for `{story_id}`.", ephemeral=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         error_msg = f"Stop failed: {type(e).__name__}"
@@ -167,7 +217,17 @@ async def story_outline(interaction: discord.Interaction, story_id: str, date: O
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
-    date_obj = datetime.strptime(date, "%Y-%m-%d").date() if date else _today()
+    
+    # Validate and parse date before any processing
+    try:
+        if date:
+            date_obj = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            date_obj = _today()
+    except ValueError as e:
+        await interaction.response.send_message(f"Invalid date format. Use YYYY-MM-DD: {e}", ephemeral=True)
+        return
+    
     try:
         state = StoryState()
         digest, _ = state.load_digest(date_obj)

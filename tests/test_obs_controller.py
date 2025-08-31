@@ -39,6 +39,17 @@ def test_obs_real_recording(monkeypatch, tmp_path):
     if not test_password:
         pytest.skip("TEST_OBS_PASSWORD environment variable not set")
     
+    # Capture real user home and compute OBS recordings directory before monkeypatching
+    real_home = Path.home()
+    obs_recordings_dir = real_home / "Movies" / "OBS-Recordings"
+    if not obs_recordings_dir.exists():
+        pytest.skip("OBS recordings directory doesn't exist")
+    
+    # Get initial file count in OBS recordings directory
+    initial_files = set()
+    if obs_recordings_dir.exists():
+        initial_files = set(f.name for f in obs_recordings_dir.iterdir())
+    
     # Set up temporary cache directory
     cache_dir = tmp_path / ".cache" / "quill-auto-blogger"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -68,15 +79,6 @@ def test_obs_real_recording(monkeypatch, tmp_path):
             pytest.skip(f"OBS not available: {conn_result.error}")
     except Exception as e:
         pytest.skip(f"OBS not available: {e}")
-    
-    # Get initial file count in OBS recordings directory
-    obs_recordings_dir = Path.home() / "Movies" / "OBS-Recordings"
-    if not obs_recordings_dir.exists():
-        pytest.skip("OBS recordings directory doesn't exist")
-    
-    initial_files = set()
-    if obs_recordings_dir.exists():
-        initial_files = set(f.name for f in obs_recordings_dir.iterdir())
     
     c = OBSController()
     
