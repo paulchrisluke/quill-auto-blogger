@@ -9,6 +9,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+__init__.py
 *.so
 .Python
 build/
@@ -224,6 +225,10 @@ logs/
 *.avi
 *.mov
 *.mkv
+
+# Generated output files
+out/
+drafts/
 
 # Database files
 *.db

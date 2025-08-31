@@ -108,7 +108,13 @@ class TwitchService:
                         logger.error("Rate limit exceeded after %d retries", max_attempts)
                         resp.raise_for_status()
                     
-                    resp.raise_for_status()
+                    # Handle non-2xx status codes and surface 429 retry hints
+                    if resp.status_code == 429:
+                        logger.error("Rate limit exceeded after retries. Consider increasing backoff or reducing request frequency.")
+                        resp.raise_for_status()
+                    elif resp.status_code >= 400:
+                        logger.error("HTTP %d error: %s", resp.status_code, resp.text)
+                        resp.raise_for_status()
                     
                     # Preemptive throttling using Ratelimit-Remaining
                     ratelimit_remaining = resp.headers.get("Ratelimit-Remaining")
@@ -251,7 +257,14 @@ class TwitchService:
         try:
             with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=10.0), http2=True) as client:
                 response = client.get(f"{self.base_url}/users", headers=headers, params=params)
-                response.raise_for_status()
+                
+                # Handle non-2xx status codes and surface 429 retry hints
+                if response.status_code == 429:
+                    logger.error("Rate limit exceeded for user lookup. Consider reducing request frequency.")
+                    response.raise_for_status()
+                elif response.status_code >= 400:
+                    logger.error("HTTP %d error for user lookup: %s", response.status_code, response.text)
+                    response.raise_for_status()
                 
                 data = response.json()
                 users = data.get("data", [])

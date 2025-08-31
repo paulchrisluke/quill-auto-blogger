@@ -5,6 +5,7 @@ Transcription service using ffmpeg, yt-dlp, and Cloudflare Workers AI Whisper AP
 import os
 import subprocess
 import tempfile
+import logging
 from pathlib import Path
 from typing import Optional
 import httpx
@@ -12,6 +13,8 @@ import yt_dlp
 from httpx import Timeout
 
 from services.utils import CacheManager
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptionService:
@@ -72,7 +75,14 @@ class TranscriptionService:
                 timeout = Timeout(connect=10.0, read=60.0, write=None, pool=None)
                 with httpx.Client(timeout=timeout) as client:
                     response = client.post(url, headers=headers, content=f)
-                response.raise_for_status()
+                
+                # Handle non-2xx status codes and surface 429 retry hints
+                if response.status_code == 429:
+                    logger.error("Transcription API rate limit exceeded. Consider reducing request frequency.")
+                    response.raise_for_status()
+                elif response.status_code >= 400:
+                    logger.error("Transcription API HTTP %d error: %s", response.status_code, response.text)
+                    response.raise_for_status()
                 
                 result = response.json()
                 
@@ -215,7 +225,14 @@ class TranscriptionService:
             timeout = Timeout(connect=10.0, read=30.0, write=None, pool=None)
             with httpx.Client(timeout=timeout) as client:
                 with client.stream('GET', url) as response:
-                    response.raise_for_status()
+                    
+                    # Handle non-2xx status codes and surface 429 retry hints
+                    if response.status_code == 429:
+                        logger.error("Download API rate limit exceeded. Consider reducing request frequency.")
+                        response.raise_for_status()
+                    elif response.status_code >= 400:
+                        logger.error("Download API HTTP %d error: %s", response.status_code, response.text)
+                        response.raise_for_status()
                     
                     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
                     try:

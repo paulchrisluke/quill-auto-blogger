@@ -1,5 +1,5 @@
 """
-Authentication service for Twitch and GitHub.
+Authentication service for Twitch, GitHub, Cloudflare R2, and Discord.
 """
 
 import os
@@ -8,18 +8,23 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 import httpx
+from dotenv import load_dotenv
 
-from models import TwitchToken, GitHubToken
+from models import TwitchToken, GitHubToken, CloudflareR2Credentials, DiscordCredentials
+
+# Load environment variables
+load_dotenv()
 
 
 class AuthService:
-    """Handles authentication for Twitch and GitHub APIs."""
+    """Handles authentication for Twitch, GitHub, Cloudflare R2, and Discord APIs."""
     
     def __init__(self):
-        self.cache_dir = Path.home() / ".cache" / "my-activity"
+        self.cache_dir = Path.home() / ".cache" / "quill-auto-blogger"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.twitch_token_file = self.cache_dir / "twitch_token.json"
         self.github_token_file = self.cache_dir / "github_token.json"
+        self.discord_credentials_file = self.cache_dir / "discord_credentials.json"
         
         # Load environment variables
         self.twitch_client_id = os.getenv('TWITCH_CLIENT_ID')
@@ -47,6 +52,39 @@ class AuthService:
         
         return token.token
     
+    def get_r2_credentials(self) -> Optional[CloudflareR2Credentials]:
+        """Get R2 credentials from environment variables."""
+        access_key_id = os.getenv("R2_ACCESS_KEY_ID")
+        secret_access_key = os.getenv("R2_SECRET_ACCESS_KEY")
+        endpoint = os.getenv("R2_S3_ENDPOINT")
+        bucket = os.getenv("R2_BUCKET")
+        region = os.getenv("R2_REGION", "auto")
+        public_base_url = os.getenv("R2_PUBLIC_BASE_URL")
+        
+        if not all([access_key_id, secret_access_key, endpoint, bucket]):
+            return None
+        
+        credentials = CloudflareR2Credentials(
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            endpoint=endpoint,
+            bucket=bucket,
+            region=region,
+            public_base_url=public_base_url
+        )
+        
+        return credentials
+    
+    def get_discord_credentials(self) -> Optional[DiscordCredentials]:
+        """Get Discord credentials from cache or environment."""
+        credentials = self._load_discord_credentials()
+        
+        if credentials is None:
+            # Try to initialize from environment variables
+            credentials = self._initialize_discord_credentials_from_env()
+        
+        return credentials
+    
     def _load_twitch_token(self) -> Optional[TwitchToken]:
         """Load Twitch token from cache."""
         if not self.twitch_token_file.exists():
@@ -58,13 +96,17 @@ class AuthService:
                 # Convert string back to datetime
                 data['expires_at'] = datetime.fromisoformat(data['expires_at'])
                 return TwitchToken(**data)
-        except Exception:
+        except (json.JSONDecodeError, KeyError, OSError):
             return None
     
     def _save_twitch_token(self, token: TwitchToken):
         """Save Twitch token to cache."""
         with open(self.twitch_token_file, 'w') as f:
             f.write(token.model_dump_json(indent=2))
+        try:
+            os.chmod(self.twitch_token_file, 0o600)
+        except OSError:
+            pass
     
     def _load_github_token(self) -> Optional[GitHubToken]:
         """Load GitHub token from cache."""
@@ -77,13 +119,68 @@ class AuthService:
                 # Convert string back to datetime
                 data['expires_at'] = datetime.fromisoformat(data['expires_at'])
                 return GitHubToken(**data)
-        except Exception:
+        except (json.JSONDecodeError, KeyError, OSError):
             return None
     
     def _save_github_token(self, token: GitHubToken):
         """Save GitHub token to cache."""
         with open(self.github_token_file, 'w') as f:
             f.write(token.model_dump_json(indent=2))
+        try:
+            os.chmod(self.github_token_file, 0o600)
+        except OSError:
+            pass
+    
+
+    
+    def _load_discord_credentials(self) -> Optional[DiscordCredentials]:
+        """Load Discord credentials from cache."""
+        if not self.discord_credentials_file.exists():
+            return None
+        
+        try:
+            with open(self.discord_credentials_file, 'r') as f:
+                data = json.load(f)
+                # Convert string back to datetime
+                data['created_at'] = datetime.fromisoformat(data['created_at'])
+                return DiscordCredentials(**data)
+        except (json.JSONDecodeError, KeyError, OSError):
+            return None
+    
+    def _save_discord_credentials(self, credentials: DiscordCredentials):
+        """Save Discord credentials to cache."""
+        with open(self.discord_credentials_file, 'w') as f:
+            f.write(credentials.model_dump_json(indent=2))
+        try:
+            os.chmod(self.discord_credentials_file, 0o600)
+        except OSError:
+            pass
+    
+    def _initialize_discord_credentials_from_env(self) -> Optional[DiscordCredentials]:
+        """Initialize Discord credentials from environment variables."""
+        application_id = os.getenv("DISCORD_APPLICATION_ID")
+        public_key = os.getenv("DISCORD_PUBLIC_KEY")
+        token = os.getenv("DISCORD_TOKEN")
+        guild_id = os.getenv("DISCORD_GUILD_ID")
+        channel_id = os.getenv("DISCORD_CHANNEL_ID")
+        webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+        mention_target = os.getenv("DISCORD_MENTION_TARGET")
+        
+        if not all([application_id, public_key, token, guild_id, channel_id]):
+            return None
+        
+        credentials = DiscordCredentials(
+            application_id=application_id,
+            public_key=public_key,
+            token=token,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            webhook_url=webhook_url,
+            mention_target=mention_target
+        )
+        
+        self._save_discord_credentials(credentials)
+        return credentials
     
     def cache_github_token(self, token: str, expires_at: datetime, permissions: dict = None):
         """Cache GitHub token with expiration info."""
@@ -106,7 +203,7 @@ class AuthService:
                 "Accept": "application/vnd.github.v3+json"
             }
             
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 # Get token info from GitHub API
                 response = client.get("https://api.github.com/user", headers=headers)
                 if response.status_code == 200:
@@ -148,7 +245,7 @@ class AuthService:
         }
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 response = client.post(url, data=data)
                 response.raise_for_status()
                 
@@ -182,7 +279,7 @@ class AuthService:
                 "Authorization": f"Bearer {token}"
             }
             
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 response = client.get("https://api.twitch.tv/helix/users", headers=headers)
                 return response.status_code == 200
                 
@@ -201,8 +298,52 @@ class AuthService:
                 "Accept": "application/vnd.github.v3+json"
             }
             
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 response = client.get("https://api.github.com/user", headers=headers)
+                return response.status_code == 200
+                
+        except Exception:
+            return False
+    
+    def validate_r2_auth(self) -> bool:
+        """Validate R2 authentication by testing bucket access."""
+        credentials = self.get_r2_credentials()
+        if not credentials:
+            return False
+        
+        try:
+            import boto3
+            from botocore.exceptions import ClientError
+            
+            s3_client = boto3.client(
+                's3',
+                aws_access_key_id=credentials.access_key_id,
+                aws_secret_access_key=credentials.secret_access_key,
+                endpoint_url=credentials.endpoint,
+                region_name=credentials.region
+            )
+            
+            # Test by listing objects (limited to 1 to minimize data transfer)
+            s3_client.list_objects_v2(Bucket=credentials.bucket, MaxKeys=1)
+            return True
+            
+        except (ClientError, ImportError, Exception):
+            return False
+    
+    def validate_discord_auth(self) -> bool:
+        """Validate Discord authentication by testing bot access."""
+        credentials = self.get_discord_credentials()
+        if not credentials:
+            return False
+        
+        try:
+            headers = {
+                "Authorization": f"Bot {credentials.token}",
+                "Content-Type": "application/json"
+            }
+            
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
+                response = client.get("https://discord.com/api/v10/users/@me", headers=headers)
                 return response.status_code == 200
                 
         except Exception:
@@ -225,4 +366,15 @@ class AuthService:
         return {
             "Client-ID": self.twitch_client_id,
             "Authorization": f"Bearer {token}"
+        }
+    
+    def get_discord_headers(self) -> dict:
+        """Get headers for Discord API requests."""
+        credentials = self.get_discord_credentials()
+        if not credentials:
+            raise ValueError("Discord credentials not available")
+        
+        return {
+            "Authorization": f"Bot {credentials.token}",
+            "Content-Type": "application/json"
         }

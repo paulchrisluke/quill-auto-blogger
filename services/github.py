@@ -42,7 +42,14 @@ class GitHubService:
                     headers=headers,
                     params={"per_page": 100}
                 )
-                response.raise_for_status()
+                
+                # Handle non-2xx status codes and surface 429 retry hints
+                if response.status_code == 429:
+                    logger.error("GitHub API rate limit exceeded. Consider reducing request frequency.")
+                    response.raise_for_status()
+                elif response.status_code >= 400:
+                    logger.error("GitHub API HTTP %d error: %s", response.status_code, response.text)
+                    response.raise_for_status()
                 data = response.json()
                 events_data = data
                 
@@ -112,7 +119,14 @@ class GitHubService:
                     headers=headers,
                     params={"per_page": 100}
                 )
-                response.raise_for_status()
+                
+                # Handle non-2xx status codes and surface 429 retry hints
+                if response.status_code == 429:
+                    logger.error("GitHub API rate limit exceeded for repo activity. Consider reducing request frequency.")
+                    response.raise_for_status()
+                elif response.status_code >= 400:
+                    logger.error("GitHub API HTTP %d error for repo activity: %s", response.status_code, response.text)
+                    response.raise_for_status()
                 data = response.json()
                 events_data = data
                 
