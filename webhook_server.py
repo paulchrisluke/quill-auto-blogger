@@ -43,24 +43,20 @@ class GitHubWebhookPayload(BaseModel):
     sender: Optional[Dict[str, Any]] = None
 
 
-def verify_webhook_signature(request: Request) -> bool:
+async def verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
     """Verify GitHub webhook signature."""
     if not WEBHOOK_SECRET:
         logger.warning("No webhook secret configured, skipping verification")
         return True
     
-    signature = request.headers.get("X-Hub-Signature-256")
     if not signature:
         logger.error("No signature header found")
         return False
     
-    # Get the raw body
-    body = request.body()
-    
     # Calculate expected signature
     expected_signature = "sha256=" + hmac.new(
         WEBHOOK_SECRET.encode(),
-        body,
+        raw_body,
         hashlib.sha256
     ).hexdigest()
     
@@ -68,15 +64,24 @@ def verify_webhook_signature(request: Request) -> bool:
 
 
 @app.post("/webhook/github")
-async def github_webhook(
-    request: Request,
-    payload: GitHubWebhookPayload
-):
+async def github_webhook(request: Request):
     """Handle GitHub webhook events."""
     
+    # Get raw body for signature verification
+    raw_body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256")
+    
     # Verify signature
-    if not verify_webhook_signature(request):
+    if not await verify_webhook_signature(raw_body, signature):
         raise HTTPException(status_code=401, detail="Invalid signature")
+    
+    # Parse the JSON payload
+    try:
+        payload_data = json.loads(raw_body.decode('utf-8'))
+        payload = GitHubWebhookPayload(**payload_data)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"Invalid JSON payload: {e}")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
     
     # Check if this is a PR merge event
     if (payload.action == "closed" and 
@@ -170,7 +175,47 @@ async def health_check():
 @app.get("/stories/{date}")
 async def list_stories(date: str):
     """List story packets for a given date."""
-    date_dir = STORY_DIR / date
+    # Validate date format (YYYY-MM-DD)
+    try:
+        # Parse the date to ensure it's in the correct format
+        parsed_date = datetime.strptime(date, "%Y-%m-%d")
+        # Reformat to ensure consistency and prevent any potential issues
+        validated_date = parsed_date.strftime("%Y-%m-%d")
+    except ValueError as e:
+        logger.warning(f"Invalid date format received: {date}")
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid date format. Use YYYY-MM-DD format."}
+        )
+    
+    # Sanitize the date string to ensure it only contains valid characters
+    if not all(c.isdigit() or c == '-' for c in validated_date):
+        logger.warning(f"Invalid characters in date parameter: {date}")
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid date format. Use YYYY-MM-DD format."}
+        )
+    
+    # Construct the path and verify it's within the allowed directory
+    date_dir = STORY_DIR / validated_date
+    resolved_path = date_dir.resolve()
+    story_dir_resolved = STORY_DIR.resolve()
+    
+    # Verify the path is within the allowed directory to prevent path traversal
+    try:
+        if not resolved_path.is_relative_to(story_dir_resolved):
+            logger.warning(f"Path traversal attempt detected: {date} -> {resolved_path}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid date parameter."}
+            )
+    except ValueError:
+        # is_relative_to raises ValueError if paths are not related
+        logger.warning(f"Path traversal attempt detected: {date} -> {resolved_path}")
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid date parameter."}
+        )
     
     if not date_dir.exists():
         return JSONResponse({"stories": []})

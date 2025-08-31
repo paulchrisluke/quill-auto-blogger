@@ -71,8 +71,8 @@ class BlogDigestBuilder:
             raise FileNotFoundError(f"No data files found in {date_path} for {target_date}")
         
         # Convert to dict format for processing
-        clips_data = [clip.model_dump() for clip in twitch_clips]
-        events_data = [event.model_dump() for event in github_events]
+        clips_data = [clip.model_dump(mode="json") for clip in twitch_clips]
+        events_data = [event.model_dump(mode="json") for event in github_events]
         
         # Generate story packets from merged PRs
         story_packets = self._generate_story_packets(events_data, clips_data)
@@ -87,8 +87,8 @@ class BlogDigestBuilder:
             "twitch_clips": clips_data,
             "github_events": events_data,
             "metadata": self._generate_metadata(target_date, twitch_clips, github_events),
-            "frontmatter": frontmatter.model_dump(),
-            "story_packets": [packet.model_dump() for packet in story_packets]
+            "frontmatter": frontmatter.model_dump(mode="json"),
+            "story_packets": [packet.model_dump(mode="json") for packet in story_packets]
         }
         
         return digest
@@ -490,7 +490,8 @@ class BlogDigestBuilder:
         # Find merged PRs
         merged_prs = [
             event for event in events_data 
-            if (event["type"] == "PullRequestEvent" and 
+            if (event.get("type") == "PullRequestEvent" and 
+                isinstance(event.get("details"), dict) and
                 event["details"].get("action") == "closed" and 
                 event["details"].get("merged") is True)
         ]
@@ -535,8 +536,13 @@ class BlogDigestBuilder:
                 # Merge highlights from other PRs
                 all_highlights = packet.highlights.copy()
                 for other_pr in pr_events[1:]:
-                    other_why, other_highlights = _extract_why_and_highlights(other_pr)
-                    all_highlights.extend(other_highlights)
+                    extractor_result = _extract_why_and_highlights(other_pr)
+                    if not extractor_result:
+                        continue
+                    
+                    other_why, other_highlights = extractor_result
+                    if other_highlights:
+                        all_highlights.extend(other_highlights)
                 
                 # Deduplicate and limit highlights
                 unique_highlights = []

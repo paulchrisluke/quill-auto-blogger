@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 from enum import Enum
+import re
 
 
 class StoryType(str, Enum):
@@ -329,7 +330,6 @@ def _normalize_technical_terms(title: str) -> str:
     # Replace technical terms
     for term, replacement in tech_terms.items():
         # Use word boundaries to avoid partial matches
-        import re
         pattern = r'\b' + re.escape(term) + r'\b'
         title = re.sub(pattern, replacement, title, flags=re.IGNORECASE)
     
@@ -374,8 +374,8 @@ def _extract_why_and_highlights(pr_event: Dict[str, Any]) -> tuple[str, List[str
     
     if not why and commit_messages:
         # Use first commit message as why
-        first_commit = commit_messages[0]
-        why = first_commit.split("\n")[0]  # First line only
+        first_commit = commit_messages[0] if commit_messages else ""
+        why = first_commit.split("\n")[0] if first_commit else ""  # First line only
     
     if not why:
         # Try to extract from CodeRabbit summary
