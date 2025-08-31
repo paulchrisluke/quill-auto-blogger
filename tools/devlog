@@ -24,8 +24,9 @@ logger = logging.getLogger(__name__)
 @click.option("--render/--no-render", default=True, help="Render videos from story packets")
 @click.option("--notify-discord/--no-notify-discord", default=True, help="Send Discord notifications")
 @click.option("--write-blog/--no-write-blog", default=True, help="Generate blog markdown")
+@click.option("--dry-run", is_flag=True, help="Dry run mode (no Discord notifications)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
-def main(date, normalize, render, notify_discord, write_blog, verbose):
+def main(date, normalize, render, notify_discord, write_blog, dry_run, verbose):
     """Process digest data for M1.5 pipeline."""
     
     if verbose:
@@ -69,19 +70,33 @@ def main(date, normalize, render, notify_discord, write_blog, verbose):
     
     # Step 3: Send Discord notifications
     if notify_discord:
-        click.echo("🔄 Sending Discord notifications...")
-        try:
-            result = subprocess.run([
-                sys.executable, "tools/discord_notifier.py", date
-            ], capture_output=True, text=True, check=True)
-            click.echo("✓ Discord: Notifications sent successfully")
-            if verbose:
-                click.echo(result.stdout)
-        except subprocess.CalledProcessError as e:
-            click.echo(f"✗ Discord notifications failed: {e.stderr}", err=True)
-            if not verbose:
-                click.echo("Use --verbose for more details")
-            # Don't exit on Discord failure - it's not critical
+        if dry_run:
+            click.echo("🔄 Sending Discord notifications (DRY RUN)...")
+            try:
+                result = subprocess.run([
+                    sys.executable, "tools/discord_notifier.py", date, "--dry-run"
+                ], capture_output=True, text=True, check=True)
+                click.echo("✓ Discord: Notifications previewed (dry run)")
+                if verbose:
+                    click.echo(result.stdout)
+            except subprocess.CalledProcessError as e:
+                click.echo(f"✗ Discord notifications failed: {e.stderr}", err=True)
+                if not verbose:
+                    click.echo("Use --verbose for more details")
+        else:
+            click.echo("🔄 Sending Discord notifications...")
+            try:
+                result = subprocess.run([
+                    sys.executable, "tools/discord_notifier.py", date
+                ], capture_output=True, text=True, check=True)
+                click.echo("✓ Discord: Notifications sent successfully")
+                if verbose:
+                    click.echo(result.stdout)
+            except subprocess.CalledProcessError as e:
+                click.echo(f"✗ Discord notifications failed: {e.stderr}", err=True)
+                if not verbose:
+                    click.echo("Use --verbose for more details")
+                # Don't exit on Discord failure - it's not critical
     
     # Step 4: Write blog markdown
     if write_blog:
