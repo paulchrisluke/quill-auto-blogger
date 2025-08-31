@@ -5,11 +5,15 @@ Video publisher service for local and R2 storage.
 import os
 import logging
 import shutil
+import re
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
-import httpx
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
 from dotenv import load_dotenv
+
+from services.auth import AuthService
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +21,32 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
+def sanitize_story_id(story_id: str) -> str:
+    """Sanitize story_id to prevent path traversal and ensure safe filenames."""
+    if not story_id:
+        return "unknown"
+    
+    # Remove any path traversal attempts and normalize
+    sanitized = re.sub(r'[./\\]', '_', story_id)
+    
+    # Remove any other potentially dangerous characters
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', sanitized)
+    
+    # Ensure it's not empty after sanitization
+    if not sanitized:
+        return "unknown"
+    
+    # Limit length to prevent extremely long filenames
+    return sanitized[:50]
+
+
 class Publisher:
-    """Handles video publishing to local storage or R2."""
+    """Handles video publishing to local storage or R2.
+    
+    Note: R2 object operations now use the S3-compatible API with Access Key ID/Secret
+    instead of the deprecated Bearer token approach. Use R2_ACCESS_KEY_ID,
+    R2_SECRET_ACCESS_KEY, and R2_S3_ENDPOINT environment variables.
+    """
     
     # Allowed publish targets
     ALLOWED_TARGETS = {"local", "r2"}
@@ -35,21 +63,28 @@ class Publisher:
         
         self.public_root = Path(os.getenv("PUBLIC_ROOT", "public"))
         self.public_base_url = os.getenv("PUBLIC_BASE_URL", "")
-        self.r2_bucket = os.getenv("R2_BUCKET", "")
-        self.r2_public_base_url = os.getenv("R2_PUBLIC_BASE_URL", "")
         
-        # Cloudflare credentials for R2 REST API
-        self.cloudflare_account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-        self.cloudflare_api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+        # Initialize AuthService for R2 credentials
+        self.auth_service = AuthService()
         
-        # Validate R2 credentials if target is R2
+        # Get R2 credentials from AuthService
+        self.r2_credentials = None
         if self.publish_target == "r2":
-            if not self.cloudflare_account_id:
-                raise ValueError("CLOUDFLARE_ACCOUNT_ID environment variable required for R2 publishing")
-            if not self.cloudflare_api_token:
-                raise ValueError("CLOUDFLARE_API_TOKEN environment variable required for R2 publishing")
-            if not self.r2_bucket:
-                raise ValueError("R2_BUCKET environment variable required for R2 publishing")
+            self.r2_credentials = self.auth_service.get_r2_credentials()
+            if not self.r2_credentials:
+                raise ValueError(
+                    "R2 credentials not found. Please set R2_ACCESS_KEY_ID, "
+                    "R2_SECRET_ACCESS_KEY, R2_S3_ENDPOINT, and R2_BUCKET environment variables"
+                )
+            
+            # Initialize S3 client for R2
+            self.s3_client = boto3.client(
+                's3',
+                aws_access_key_id=self.r2_credentials.access_key_id,
+                aws_secret_access_key=self.r2_credentials.secret_access_key,
+                endpoint_url=self.r2_credentials.endpoint,
+                region_name=self.r2_credentials.region
+            )
     
     def publish_video(self, local_path: str, target_date: str, story_id: str) -> str:
         """
@@ -66,6 +101,9 @@ class Publisher:
         if not os.path.exists(local_path):
             raise FileNotFoundError(f"Local video not found: {local_path}")
         
+        # Sanitize story_id to prevent path traversal
+        sanitized_story_id = sanitize_story_id(story_id)
+        
         # Parse date for directory structure
         date_obj = datetime.strptime(target_date, "%Y-%m-%d")
         year = str(date_obj.year)
@@ -73,9 +111,9 @@ class Publisher:
         day = f"{date_obj.day:02d}"
         
         if self.publish_target == "r2":
-            return self._publish_to_r2(local_path, year, month, day, story_id)
+            return self._publish_to_r2(local_path, year, month, day, sanitized_story_id)
         else:
-            return self._publish_to_local(local_path, year, month, day, story_id)
+            return self._publish_to_local(local_path, year, month, day, sanitized_story_id)
     
     def _publish_to_local(self, local_path: str, year: str, month: str, day: str, story_id: str) -> str:
         """Publish video to local public directory."""
@@ -117,45 +155,57 @@ class Publisher:
             logger.info(f"Published video to R2: {r2_key}")
         
         # Return public URL
-        if self.r2_public_base_url:
-            return f"{self.r2_public_base_url.rstrip('/')}/{r2_key}"
+        if self.r2_credentials.public_base_url:
+            return f"{self.r2_credentials.public_base_url.rstrip('/')}/{r2_key}"
         else:
-            # Fallback to R2 direct URL format
-            return f"https://{self.r2_bucket}.r2.cloudflarestorage.com/{r2_key}"
+            # Generate presigned URL for private bucket access
+            try:
+                presigned_url = self.s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={
+                        'Bucket': self.r2_credentials.bucket,
+                        'Key': r2_key
+                    },
+                    ExpiresIn=3600  # 1 hour expiration
+                )
+                return presigned_url
+            except Exception as e:
+                logger.error(f"Failed to generate presigned URL for {r2_key}: {e}")
+                raise RuntimeError(
+                    f"R2_PUBLIC_BASE_URL not configured and failed to generate presigned URL. "
+                    f"Please set R2_PUBLIC_BASE_URL for public access or ensure R2 credentials are valid."
+                )
     
     def _r2_file_exists(self, key: str) -> bool:
-        """Check if file exists in R2 bucket using Cloudflare REST API."""
+        """Check if file exists in R2 bucket using S3-compatible API."""
         try:
-            url = f"https://api.cloudflare.com/client/v4/accounts/{self.cloudflare_account_id}/storage/buckets/{self.r2_bucket}/objects/{key}"
-            
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
-                response = client.head(
-                    url,
-                    headers={"Authorization": f"Bearer {self.cloudflare_api_token}"}
-                )
-                return response.status_code == 200
+            self.s3_client.head_object(Bucket=self.r2_credentials.bucket, Key=key)
+            return True
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == '404' or error_code == 'NoSuchKey':
+                return False
+            logger.warning(f"Could not check R2 file existence for {key}: {e}")
+            return False
         except Exception as e:
             logger.warning(f"Could not check R2 file existence for {key}: {e}")
             return False
     
     def _upload_to_r2(self, local_path: str, r2_key: str) -> None:
-        """Upload file to R2 bucket using Cloudflare REST API."""
+        """Upload file to R2 bucket using S3-compatible API."""
         try:
-            url = f"https://api.cloudflare.com/client/v4/accounts/{self.cloudflare_account_id}/storage/buckets/{self.r2_bucket}/objects/{r2_key}"
-            
             with open(local_path, 'rb') as f:
-                with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=60.0)) as client:
-                    response = client.put(
-                        url,
-                        content=f.read(),
-                        headers={
-                            "Authorization": f"Bearer {self.cloudflare_api_token}",
-                            "Content-Type": "video/mp4"
-                        }
-                    )
-                    response.raise_for_status()
-                    
+                self.s3_client.upload_fileobj(
+                    f,
+                    self.r2_credentials.bucket,
+                    r2_key,
+                    ExtraArgs={'ContentType': 'video/mp4'}
+                )
+        except (ClientError, NoCredentialsError) as e:
+            logger.error(f"Failed to upload {local_path} to R2 key {r2_key}: {e}")
+            raise RuntimeError(f"Failed to upload to R2: {e}")
         except Exception as e:
+            logger.error(f"Unexpected error uploading {local_path} to R2 key {r2_key}: {e}")
             raise RuntimeError(f"Failed to upload to R2: {e}")
 
 
