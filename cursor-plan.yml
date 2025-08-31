@@ -1,0 +1,132 @@
+goals:
+  - Local Python pipeline for PR→story with OBS control + Discord approvals
+  - Safe integration with existing Cloudflare Worker/R2 endpoints
+  - Daily/weekly publishing in Markdown with async video rendering
+
+assumptions:
+  - Repo contains prior JSON daily snapshots (twitch_clips + github_events)
+  - Cloudflare Worker endpoints exist for clips/transcripts (optional use)
+  - OBS is installed; WebSocket server enabled; 9:16 scene exists
+  - Existing transcription system works (reuse current transcripts)
+
+scan_recommendations:
+  files_like:
+    - "**/*twitch*.py"
+    - "**/*obs*.py"
+    - "**/*discord*.py"
+    - "**/*webhook*.py"
+    - "**/*worker*.ts"
+    - "**/*r2*.ts"
+    - "vercel.json"
+    - "wrangler.toml"
+    - "requirements.txt"
+    - "package.json"
+    - "README*"
+    - "docs/**/*"
+  look_for:
+    - FastAPI/Flask servers
+    - Cloudflare R2 usage (REST vs S3-compatible)
+    - Existing JSON schemas for clips/events
+    - Any OBS or Discord code (likely none yet)
+    - Moviepy/ffmpeg usage
+    - Async job queues or background processing
+
+questions_for_author:
+  - Confirm OBS WebSocket port/password and the exact 9:16 scene name.
+  - Confirm Discord guild/channel IDs and whether the bot can use slash commands.
+  - Confirm daily/weekly auto-post preferences (auto vs approve).
+  - Provide absolute paths for local recording dir and story output dirs.
+  - Is Cloudflare AI allowed for: (titles) (summaries) (transcript cleanup)? Which models?
+  - Should story packets be git-tracked or ignored? (recommend: ignored)
+
+env:
+  # Put into .env.example and read via python-dotenv
+  - GITHUB_WEBHOOK_SECRET=
+  - DISCORD_TOKEN=
+  - DISCORD_GUILD_ID=
+  - DISCORD_CHANNEL_ID=
+  - DISCORD_WEBHOOK_URL=
+  - OBS_HOST=127.0.0.1
+  - OBS_PORT=4455
+  - OBS_PASSWORD=
+  - OBS_SCENE=PR Demo (9:16)
+  - OBS_RECORD_SECONDS=150
+  - OBS_DRY_RUN=false
+  - TZ=Asia/Bangkok
+  - STORY_DIR=./story_packets
+  - VIDEO_DIR=./out/videos
+  - BLOG_DIR=./out/blog
+  - DRAFTS_DIR=./drafts
+  - CF_ACCOUNT_ID=
+  - CF_API_TOKEN=
+  - CF_WORKER_BASE_URL=
+  - CF_AI_ENABLED=false
+
+milestones:
+  - name: M1—Schema + Packets
+    tasks:
+      - Create pydantic StoryPacket model and validators.
+      - Implement builder from provided daily JSON → N packets (one per merged PR).
+      - Dedup twitch_clips by id; prefer entries with transcript paths.
+      - Pair merges↔clips in window [-2h, +10m]; else mark needs_broll.
+      - Generate packets immediately on PR merge (webhook).
+
+  - name: M2—OBS Safe Control
+    tasks:
+      - Implement obs_helper.py with state snapshot, scene switch, start/stop recording, scene restore.
+      - Add safety: never toggle streaming, never close OBS, debounce multiple merges.
+      - Add OBS_DRY_RUN mode for testing without touching OBS.
+      - Implement scene restoration after recording completes.
+
+  - name: M3—Discord Integration (Hybrid)
+    tasks:
+      - Webhook notifications: merge cards to #build-journal; throttle merges within 5 minutes.
+      - Slash commands: /record start|extend|stop, /clip now, /why <pr>, /post daily|weekly, /status.
+      - Wire /record start to obs_helper; /clip now to Twitch Create Clip (optional).
+      - Use webhooks for notifications, bot for actions.
+
+  - name: M4—Async Renderer
+    tasks:
+      - moviepy+ffmpeg pipeline: intro card → main (clip or b-roll) → outro card; burn captions.
+      - 1080x1920 canvas; ≤60s default; file naming: YYYYMMDD_prNN_slug.mp4.
+      - B-roll sources: PR page screenshot, diff snippet image, repo badge.
+      - Async rendering: queue job, mark story.video.status = pending, don't block blog generation.
+      - Optional: waveform overlay if audio exists.
+
+  - name: M5—Publisher
+    tasks:
+      - Daily blog generator: intro, highlights, sections, embeds; write Markdown with front-matter.
+      - Weekly recap aggregator.
+      - Write to drafts directory (not git-tracked).
+      - Async: don't wait for video rendering to complete.
+
+  - name: M6—Cloudflare (optional)
+    tasks:
+      - R2 listing/fetch hooks if local files missing.
+      - Cloudflare AI summarization endpoints (titles/summaries), guarded by CF_AI_ENABLED.
+      - Strict input bounds: 8-word titles, short summaries only.
+
+acceptance_tests:
+  - Given a daily JSON with 3 merged PRs and 0 clips:
+      - Produces 3 StoryPackets (needs_broll=true for each) immediately on webhook.
+      - /record start 1 triggers local recording, produces mp4 under VIDEO_DIR.
+      - blog_writer generates a daily Markdown that lists 3 stories and embeds those with `video:` links.
+      - Rendering happens async - blog doesn't wait for video completion.
+  - Given a daily JSON with 1 clip within 10m of a merge:
+      - The packet pairs to the clip; renderer uses the video clip path if present.
+  - Given OBS_DRY_RUN=true:
+      - All OBS commands are simulated; no actual recording occurs.
+
+artifacts:
+  - story_schema.py
+  - packet_builder.py
+  - obs_helper.py
+  - discord_bot.py
+  - webhook_server.py
+  - renderer.py
+  - blog_writer.py
+  - config/.env.example
+  - scripts/run_local.sh
+  - scripts/smoke_tests.py
+  - docs/OPERATIONS.md
+  - docs/DECISIONS.md
