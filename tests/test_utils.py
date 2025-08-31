@@ -351,8 +351,8 @@ class TestUtilityFunctions:
         assert sanitize_filename("file?name") == "file_name"
         assert sanitize_filename("file*name") == "file_name"
         
-        # Test whitespace trimming
-        assert sanitize_filename("  file name  ") == "file name"
+        # Test whitespace replacement with underscores
+        assert sanitize_filename("  file name  ") == "file_name"
         
         # Test repeated underscores
         assert sanitize_filename("file__name") == "file_name"
@@ -368,6 +368,8 @@ class TestUtilityFunctions:
         
         # Test normal filename
         assert sanitize_filename("normal_file.txt") == "normal_file.txt"
+        # Mixed spaces and underscores
+        assert sanitize_filename(" file _ name ") == "file_name"
     
     def test_get_file_hash(self):
         """Test file hash generation."""
