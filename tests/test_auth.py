@@ -68,7 +68,8 @@ class TestAuthService:
         assert self.auth_service._is_token_expired(past_token)
     
     @patch('httpx.Client')
-    def test_refresh_twitch_token_success(self, mock_client):
+    @patch('httpx.Timeout')
+    def test_refresh_twitch_token_success(self, mock_timeout, mock_client):
         """Test successful Twitch token refresh."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -90,7 +91,8 @@ class TestAuthService:
             assert token.expires_in == 3600
     
     @patch('httpx.Client')
-    def test_refresh_twitch_token_failure(self, mock_client):
+    @patch('httpx.Timeout')
+    def test_refresh_twitch_token_failure(self, mock_timeout, mock_client):
         """Test Twitch token refresh failure."""
         mock_client_instance = MagicMock()
         mock_client_instance.post.side_effect = Exception("API Error")
@@ -100,7 +102,8 @@ class TestAuthService:
         assert token is None
     
     @patch('httpx.Client')
-    def test_validate_twitch_auth_success(self, mock_client):
+    @patch('httpx.Timeout')
+    def test_validate_twitch_auth_success(self, mock_timeout, mock_client):
         """Test successful Twitch authentication validation."""
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -114,7 +117,8 @@ class TestAuthService:
             assert result is True
     
     @patch('httpx.Client')
-    def test_validate_twitch_auth_failure(self, mock_client):
+    @patch('httpx.Timeout')
+    def test_validate_twitch_auth_failure(self, mock_timeout, mock_client):
         """Test failed Twitch authentication validation."""
         mock_response = MagicMock()
         mock_response.status_code = 401
@@ -128,7 +132,8 @@ class TestAuthService:
             assert result is False
     
     @patch('httpx.Client')
-    def test_validate_github_auth_success(self, mock_client):
+    @patch('httpx.Timeout')
+    def test_validate_github_auth_success(self, mock_timeout, mock_client):
         """Test successful GitHub authentication validation."""
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -152,7 +157,8 @@ class TestAuthService:
             assert call_args[1]['headers']['Accept'] == "application/vnd.github.v3+json"
     
     @patch('httpx.Client')
-    def test_validate_github_auth_failure(self, mock_client):
+    @patch('httpx.Timeout')
+    def test_validate_github_auth_failure(self, mock_timeout, mock_client):
         """Test failed GitHub authentication validation."""
         mock_response = MagicMock()
         mock_response.status_code = 401

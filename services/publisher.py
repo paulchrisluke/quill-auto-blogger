@@ -128,7 +128,7 @@ class Publisher:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{self.cloudflare_account_id}/storage/buckets/{self.r2_bucket}/objects/{key}"
             
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 response = client.head(
                     url,
                     headers={"Authorization": f"Bearer {self.cloudflare_api_token}"}
@@ -144,7 +144,7 @@ class Publisher:
             url = f"https://api.cloudflare.com/client/v4/accounts/{self.cloudflare_account_id}/storage/buckets/{self.r2_bucket}/objects/{r2_key}"
             
             with open(local_path, 'rb') as f:
-                with httpx.Client() as client:
+                with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=60.0)) as client:
                     response = client.put(
                         url,
                         content=f.read(),

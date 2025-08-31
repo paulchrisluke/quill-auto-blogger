@@ -65,12 +65,12 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
         
         # Check if digest already exists and load it to preserve video paths
         existing_digest_path = base_dir / f"blogs/{date}/PRE-CLEANED-{date}_digest.json"
+        existing_video_paths = {}  # Initialize to empty dict before checking
         if existing_digest_path.exists():
             with open(existing_digest_path, 'r') as f:
                 existing_digest = json.load(f)
             
             # Preserve published video paths from existing digest
-            existing_video_paths = {}
             for packet in existing_digest.get("story_packets", []):
                 story_id = packet.get("id")
                 video_path = packet.get("video", {}).get("path", "")
@@ -114,7 +114,13 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
             video_info = packet.get("video", {})
             
             # Check if video needs rendering
-            if video_info.get("status") != "rendered" or not video_info.get("path") or not file_exists(video_info.get("path", "")):
+            video_path = video_info.get("path", "")
+            is_local_path = video_path and not video_path.startswith(("http://", "https://", "/stories/"))
+            needs_rendering = (video_info.get("status") != "rendered" or 
+                             not video_path or 
+                             (is_local_path and not file_exists(video_path)))
+            
+            if needs_rendering:
                 click.echo(f"  Rendering video for {story_id}...")
                 try:
                     # Render video using existing renderer
@@ -126,13 +132,21 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
                     with open(digest_path, 'r') as f:
                         digest_data = json.load(f)
                     
-                    # Find the updated packet and preserve published paths
-                    for updated_packet in digest_data.get("story_packets", []):
+                    # Find and rebind the updated packet to ensure changes persist
+                    for i, updated_packet in enumerate(digest_data.get("story_packets", [])):
                         if updated_packet.get("id") == story_id:
+                            # Ensure updated_packet has a video dict
+                            if "video" not in updated_packet:
+                                updated_packet["video"] = {}
+                            
                             # Preserve published path if it exists
                             current_path = packet.get("video", {}).get("path", "")
                             if current_path and (current_path.startswith("/stories/") or current_path.startswith("http")):
                                 updated_packet["video"]["path"] = current_path
+                            
+                            # Update the packet in the digest_data list
+                            digest_data["story_packets"][i] = updated_packet
+                            # Also update the local packet reference
                             packet.update(updated_packet)
                             break
                     
@@ -172,7 +186,8 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
             # Probe duration if missing
             if packet.get("video", {}).get("status") == "rendered" and not packet.get("video", {}).get("duration_s"):
                 video_path = packet["video"].get("path", "")
-                if video_path and file_exists(video_path):
+                is_local_path = video_path and not video_path.startswith(("http://", "https://", "/stories/"))
+                if video_path and (not is_local_path or file_exists(video_path)):
                     duration = probe_duration(video_path)
                     if duration:
                         packet["video"]["duration_s"] = round(duration, 2)
@@ -250,6 +265,17 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
             if not verbose:
                 click.echo("Use --verbose for more details")
             sys.exit(1)
+    
+    # Initialize story_packets for summary if not already loaded
+    if 'story_packets' not in locals():
+        story_packets = []
+        try:
+            # Load digest to get accurate story count for summary
+            with open(digest_path, 'r') as f:
+                digest_data = json.load(f)
+            story_packets = digest_data.get("story_packets", [])
+        except Exception as e:
+            click.echo(f"⚠️ Could not load digest for summary: {e}")
     
     click.echo(f"✅ M1.5 pipeline completed for {date}")
     click.echo(f"📊 Summary:")

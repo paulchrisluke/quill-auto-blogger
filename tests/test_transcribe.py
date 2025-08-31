@@ -93,6 +93,7 @@ class TestTranscriptionService:
     def test_transcribe_audio_success(self, mock_client):
         """Test successful audio transcription."""
         mock_response = MagicMock()
+        mock_response.status_code = 200  # Set status_code for the new error handling
         mock_response.json.return_value = {
             "success": True,
             "result": {"text": "This is a test transcript"}
@@ -132,6 +133,7 @@ class TestTranscriptionService:
     def test_transcribe_audio_api_error(self, mock_client):
         """Test audio transcription with API error."""
         mock_response = MagicMock()
+        mock_response.status_code = 200  # Set status_code for the new error handling
         mock_response.json.return_value = {
             "success": False,
             "error": "Transcription failed"
@@ -172,6 +174,29 @@ class TestTranscriptionService:
         
         try:
             with pytest.raises(RuntimeError, match="HTTP error during transcription"):
+                self.transcribe_service.transcribe_audio(audio_path)
+        finally:
+            audio_path.unlink()
+    
+    @patch('httpx.Client')
+    def test_transcribe_audio_rate_limit_error(self, mock_client):
+        """Test audio transcription with rate limit error (429)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.text = "Rate limit exceeded"
+        mock_response.raise_for_status.side_effect = Exception("Rate limit error")
+        
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_client.return_value.__enter__.return_value = mock_client_instance
+        
+        # Create temporary audio file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+            f.write(b"fake audio data")
+            audio_path = Path(f.name)
+        
+        try:
+            with pytest.raises(Exception, match="Rate limit error"):
                 self.transcribe_service.transcribe_audio(audio_path)
         finally:
             audio_path.unlink()
@@ -238,6 +263,7 @@ class TestTranscriptionService:
     def test_download_video_success(self, mock_client):
         """Test successful video download."""
         mock_response = MagicMock()
+        mock_response.status_code = 200  # Set status_code for the new error handling
         mock_response.raise_for_status.return_value = None
         mock_response.iter_bytes.return_value = [b"chunk1", b"chunk2"]
         

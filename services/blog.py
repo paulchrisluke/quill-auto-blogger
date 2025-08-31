@@ -420,14 +420,16 @@ class BlogDigestBuilder:
                         # Add video embed and link if available
                         if packet.get('video', {}).get('path'):
                             video_path = packet['video']['path']
-                            # Check if it's a URL or /stories/ path
-                            if video_path.startswith(('http://', 'https://', '/stories/')):
+                            # Only embed https:// and /stories/ paths to avoid mixed-content issues
+                            if video_path.startswith(('https://', '/stories/')):
                                 # Escape video path for HTML attribute to prevent XSS
                                 escaped_video_path = html.escape(video_path, quote=True)
                                 # Add video embed for website preview
                                 content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
                                 content_parts.append("")
-                                # Add link for feed readers with angle brackets for safe URL handling
+                            
+                            # Always add link for feed readers (including http:// URLs)
+                            if video_path.startswith(('http://', 'https://', '/stories/')):
                                 content_parts.append(f"**Video:** [Watch Story](<{video_path}>)")
                                 content_parts.append("")
                         

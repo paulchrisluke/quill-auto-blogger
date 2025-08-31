@@ -1,5 +1,5 @@
 """
-Authentication service for Twitch, GitHub, and Cloudflare R2.
+Authentication service for Twitch, GitHub, Cloudflare R2, and Discord.
 """
 
 import os
@@ -20,7 +20,7 @@ class AuthService:
     """Handles authentication for Twitch, GitHub, Cloudflare R2, and Discord APIs."""
     
     def __init__(self):
-        self.cache_dir = Path.home() / ".cache" / "my-activity"
+        self.cache_dir = Path.home() / ".cache" / "quill-auto-blogger"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.twitch_token_file = self.cache_dir / "twitch_token.json"
         self.github_token_file = self.cache_dir / "github_token.json"
@@ -96,13 +96,17 @@ class AuthService:
                 # Convert string back to datetime
                 data['expires_at'] = datetime.fromisoformat(data['expires_at'])
                 return TwitchToken(**data)
-        except Exception:
+        except (json.JSONDecodeError, KeyError, OSError):
             return None
     
     def _save_twitch_token(self, token: TwitchToken):
         """Save Twitch token to cache."""
         with open(self.twitch_token_file, 'w') as f:
             f.write(token.model_dump_json(indent=2))
+        try:
+            os.chmod(self.twitch_token_file, 0o600)
+        except OSError:
+            pass
     
     def _load_github_token(self) -> Optional[GitHubToken]:
         """Load GitHub token from cache."""
@@ -115,13 +119,17 @@ class AuthService:
                 # Convert string back to datetime
                 data['expires_at'] = datetime.fromisoformat(data['expires_at'])
                 return GitHubToken(**data)
-        except Exception:
+        except (json.JSONDecodeError, KeyError, OSError):
             return None
     
     def _save_github_token(self, token: GitHubToken):
         """Save GitHub token to cache."""
         with open(self.github_token_file, 'w') as f:
             f.write(token.model_dump_json(indent=2))
+        try:
+            os.chmod(self.github_token_file, 0o600)
+        except OSError:
+            pass
     
 
     
@@ -136,13 +144,17 @@ class AuthService:
                 # Convert string back to datetime
                 data['created_at'] = datetime.fromisoformat(data['created_at'])
                 return DiscordCredentials(**data)
-        except Exception:
+        except (json.JSONDecodeError, KeyError, OSError):
             return None
     
     def _save_discord_credentials(self, credentials: DiscordCredentials):
         """Save Discord credentials to cache."""
         with open(self.discord_credentials_file, 'w') as f:
             f.write(credentials.model_dump_json(indent=2))
+        try:
+            os.chmod(self.discord_credentials_file, 0o600)
+        except OSError:
+            pass
     
     def _initialize_discord_credentials_from_env(self) -> Optional[DiscordCredentials]:
         """Initialize Discord credentials from environment variables."""
@@ -191,7 +203,7 @@ class AuthService:
                 "Accept": "application/vnd.github.v3+json"
             }
             
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 # Get token info from GitHub API
                 response = client.get("https://api.github.com/user", headers=headers)
                 if response.status_code == 200:
@@ -233,7 +245,7 @@ class AuthService:
         }
         
         try:
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 response = client.post(url, data=data)
                 response.raise_for_status()
                 
@@ -267,7 +279,7 @@ class AuthService:
                 "Authorization": f"Bearer {token}"
             }
             
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 response = client.get("https://api.twitch.tv/helix/users", headers=headers)
                 return response.status_code == 200
                 
@@ -286,7 +298,7 @@ class AuthService:
                 "Accept": "application/vnd.github.v3+json"
             }
             
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 response = client.get("https://api.github.com/user", headers=headers)
                 return response.status_code == 200
                 
@@ -330,7 +342,7 @@ class AuthService:
                 "Content-Type": "application/json"
             }
             
-            with httpx.Client() as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
                 response = client.get("https://discord.com/api/v10/users/@me", headers=headers)
                 return response.status_code == 200
                 
