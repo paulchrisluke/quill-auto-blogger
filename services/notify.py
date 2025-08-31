@@ -99,14 +99,78 @@ def notify_digest_summary(date: str, count: int, url: str, webhook_url: str) -> 
 
 
 def _send_discord_webhook(webhook_url: str, content: str) -> bool:
-    """Send message to Discord webhook."""
+    """
+    Send message to Discord webhook with input validation, character limit handling,
+    and mass ping prevention.
+    
+    Args:
+        webhook_url: Discord webhook URL
+        content: Message content to send
+        
+    Returns:
+        True if all chunks sent successfully, False otherwise
+    """
+    # Input validation
+    if not webhook_url or not webhook_url.strip():
+        logger.error("Discord webhook URL is empty or invalid")
+        return False
+    
+    if not content or not content.strip():
+        logger.error("Discord message content is empty or invalid")
+        return False
+    
+    # Split content into chunks if it exceeds Discord's 2000 character limit
+    # Leave some buffer for safety (1900 chars)
+    max_chunk_size = 1900
+    chunks = []
+    
+    if len(content) <= max_chunk_size:
+        chunks = [content]
+    else:
+        # Split by lines to avoid breaking in the middle of a line
+        lines = content.split('\n')
+        current_chunk = ""
+        
+        for line in lines:
+            # If adding this line would exceed the limit, start a new chunk
+            if len(current_chunk) + len(line) + 1 > max_chunk_size:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = line
+                else:
+                    # Single line is too long, split it
+                    while len(line) > max_chunk_size:
+                        chunks.append(line[:max_chunk_size])
+                        line = line[max_chunk_size:]
+                    current_chunk = line
+            else:
+                current_chunk += ('\n' + line) if current_chunk else line
+        
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+    
+    # Send each chunk sequentially
     try:
         timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=30.0)
         with httpx.Client(timeout=timeout) as client:
-            response = client.post(webhook_url, json={"content": content})
-            response.raise_for_status()
-            logger.info("Discord notification sent successfully")
+            for i, chunk in enumerate(chunks):
+                payload = {
+                    "content": chunk,
+                    "allowed_mentions": {"parse": []}  # Prevent mass pings
+                }
+                
+                response = client.post(webhook_url, json=payload)
+                
+                # Check for non-2xx responses
+                if response.status_code < 200 or response.status_code >= 300:
+                    logger.error(f"Discord webhook failed with status {response.status_code}: {response.text}")
+                    return False
+                
+                logger.info(f"Discord notification chunk {i+1}/{len(chunks)} sent successfully")
+            
+            logger.info(f"All {len(chunks)} Discord notification chunks sent successfully")
             return True
+            
     except httpx.HTTPStatusError as e:
         logger.error(f"Discord webhook failed: {e.response.text}")
         return False

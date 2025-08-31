@@ -48,8 +48,17 @@ def sanitize_story_id(story_id: str) -> str:
 
 def make_card(text: str, out_png: Path, w: int = 1080, h: int = 1920, pad: int = 60) -> None:
     """Create a text card image using FFmpeg drawtext filter."""
-    # Escape special characters for FFmpeg
-    escaped_text = text.replace("'", "\\'").replace(":", "\\:").replace('"', '\\"')
+    # Escape special characters for FFmpeg drawtext filter
+    # Order matters: escape backslashes first, then percent signs, then colons, then quotes
+    # Convert newlines to literal \n and carriage returns to \r
+    escaped_text = (text
+        .replace("\\", "\\\\")  # Escape backslashes first
+        .replace("%", "\\%")    # Escape percent signs
+        .replace(":", "\\:")    # Escape colons
+        .replace("'", "\\'")    # Escape single quotes
+        .replace('"', '\\"')    # Escape double quotes
+        .replace("\r", "\\r")   # Convert carriage returns to literal \r
+        .replace("\n", "\\n"))  # Convert newlines to literal \n
     
     # FFmpeg command to create text card
     cmd = [
@@ -222,6 +231,7 @@ def render_from_digest(digest_path: Path, out_dir: Path) -> bool:
                 packet["video"] = {}
             packet["video"]["status"] = "failed"
             packet["video"]["error"] = str(e)
+            changed = True
     
     # Save updated digest if changed
     if changed:

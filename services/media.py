@@ -9,6 +9,9 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Module-level timeout constant for media operations
+MEDIA_TIMEOUT = 30  # seconds
+
 
 def probe_duration(path: str) -> Optional[float]:
     """
@@ -27,14 +30,21 @@ def probe_duration(path: str) -> Optional[float]:
             "-show_entries", "format=duration",
             "-of", "csv=p=0",
             str(path)
-        ], capture_output=True, text=True, check=True)
+        ], capture_output=True, text=True, check=True, timeout=10, stdin=subprocess.DEVNULL)
         
         duration = float(result.stdout.strip())
         logger.info(f"Probed duration for {path}: {duration}s")
         return duration
         
     except subprocess.CalledProcessError as e:
-        logger.warning(f"ffprobe failed for {path}: {e}")
+        stderr_output = e.stderr.decode('utf-8', errors='replace') if e.stderr else "No stderr output"
+        stdout_output = e.stdout.decode('utf-8', errors='replace') if e.stdout else "No stdout output"
+        logger.warning(f"ffprobe failed for {path}: {e}. stderr: {stderr_output}, stdout: {stdout_output}")
+        return None
+    except subprocess.TimeoutExpired as e:
+        stderr_output = e.stderr.decode('utf-8', errors='replace') if e.stderr else "No stderr output"
+        stdout_output = e.stdout.decode('utf-8', errors='replace') if e.stdout else "No stdout output"
+        logger.warning(f"ffprobe timed out after 10s for {path}. stderr: {stderr_output}, stdout: {stdout_output}")
         return None
     except FileNotFoundError:
         logger.warning("ffprobe not found. Install ffmpeg to enable duration probing.")
@@ -54,4 +64,4 @@ def file_exists(path: str) -> bool:
     Returns:
         True if file exists, False otherwise
     """
-    return Path(path).exists()
+    return Path(path).is_file()

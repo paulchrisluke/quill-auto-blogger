@@ -50,6 +50,29 @@ class GitHubToken(BaseModel):
     permissions: Dict[str, str] = Field(default_factory=dict)
 
 
+class CloudflareR2Credentials(BaseModel):
+    """Model for Cloudflare R2 S3 credentials."""
+    access_key_id: str
+    secret_access_key: str
+    endpoint: str
+    bucket: str
+    region: str = "auto"
+    public_base_url: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class DiscordCredentials(BaseModel):
+    """Model for Discord bot credentials."""
+    application_id: str
+    public_key: str
+    token: str
+    guild_id: str
+    channel_id: str
+    webhook_url: Optional[str] = None
+    mention_target: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
 class CacheEntry(BaseModel):
     """Model for cache entries."""
     id: str

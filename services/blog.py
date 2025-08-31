@@ -4,6 +4,7 @@ Blog digest builder service for generating daily blog posts with frontmatter.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -421,11 +422,13 @@ class BlogDigestBuilder:
                             video_path = packet['video']['path']
                             # Check if it's a URL or /stories/ path
                             if video_path.startswith(('http://', 'https://', '/stories/')):
+                                # Escape video path for HTML attribute to prevent XSS
+                                escaped_video_path = html.escape(video_path, quote=True)
                                 # Add video embed for website preview
-                                content_parts.append(f'<video controls src="{video_path}"></video>')
+                                content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
                                 content_parts.append("")
-                                # Add link for feed readers
-                                content_parts.append(f"**Video:** [Watch Story]({video_path})")
+                                # Add link for feed readers with angle brackets for safe URL handling
+                                content_parts.append(f"**Video:** [Watch Story](<{video_path}>)")
                                 content_parts.append("")
                         
                         # Add PR link

@@ -20,16 +20,36 @@ load_dotenv()
 class Publisher:
     """Handles video publishing to local storage or R2."""
     
+    # Allowed publish targets
+    ALLOWED_TARGETS = {"local", "r2"}
+    
     def __init__(self):
-        self.publish_target = os.getenv("PUBLISH_TARGET", "local")
+        # Normalize and validate PUBLISH_TARGET
+        publish_target = os.getenv("PUBLISH_TARGET", "local").lower().strip()
+        if publish_target not in self.ALLOWED_TARGETS:
+            raise ValueError(
+                f"Invalid PUBLISH_TARGET '{publish_target}'. "
+                f"Must be one of: {', '.join(sorted(self.ALLOWED_TARGETS))}"
+            )
+        self.publish_target = publish_target
+        
         self.public_root = Path(os.getenv("PUBLIC_ROOT", "public"))
         self.public_base_url = os.getenv("PUBLIC_BASE_URL", "")
         self.r2_bucket = os.getenv("R2_BUCKET", "")
         self.r2_public_base_url = os.getenv("R2_PUBLIC_BASE_URL", "")
         
-        # Cloudflare credentials (reuse existing pattern)
+        # Cloudflare credentials for R2 REST API
         self.cloudflare_account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
         self.cloudflare_api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+        
+        # Validate R2 credentials if target is R2
+        if self.publish_target == "r2":
+            if not self.cloudflare_account_id:
+                raise ValueError("CLOUDFLARE_ACCOUNT_ID environment variable required for R2 publishing")
+            if not self.cloudflare_api_token:
+                raise ValueError("CLOUDFLARE_API_TOKEN environment variable required for R2 publishing")
+            if not self.r2_bucket:
+                raise ValueError("R2_BUCKET environment variable required for R2 publishing")
     
     def publish_video(self, local_path: str, target_date: str, story_id: str) -> str:
         """
@@ -84,13 +104,7 @@ class Publisher:
         return public_path
     
     def _publish_to_r2(self, local_path: str, year: str, month: str, day: str, story_id: str) -> str:
-        """Publish video to R2 storage."""
-        if not self.cloudflare_account_id or not self.cloudflare_api_token:
-            raise ValueError("Cloudflare credentials required for R2 publishing")
-        
-        if not self.r2_bucket:
-            raise ValueError("R2_BUCKET environment variable required for R2 publishing")
-        
+        """Publish video to R2 storage using Cloudflare REST API."""
         # R2 key path
         r2_key = f"stories/{year}/{month}/{day}/{story_id}.mp4"
         
@@ -110,7 +124,7 @@ class Publisher:
             return f"https://{self.r2_bucket}.r2.cloudflarestorage.com/{r2_key}"
     
     def _r2_file_exists(self, key: str) -> bool:
-        """Check if file exists in R2 bucket."""
+        """Check if file exists in R2 bucket using Cloudflare REST API."""
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{self.cloudflare_account_id}/storage/buckets/{self.r2_bucket}/objects/{key}"
             
@@ -125,7 +139,7 @@ class Publisher:
             return False
     
     def _upload_to_r2(self, local_path: str, r2_key: str) -> None:
-        """Upload file to R2 bucket."""
+        """Upload file to R2 bucket using Cloudflare REST API."""
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{self.cloudflare_account_id}/storage/buckets/{self.r2_bucket}/objects/{r2_key}"
             
