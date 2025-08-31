@@ -24,6 +24,10 @@ class StoryState:
         with open(file_path, "r") as f:
             return json.load(f), file_path
 
+    def load_digest(self, date: datetime) -> tuple[Dict[str, Any], Path]:
+        """Public method to load a digest for read-only access."""
+        return self._load_digest(date)
+
     def _save_digest(self, date: datetime, digest: Dict[str, Any], file_path: Path) -> None:
         # Convert datetime to YYYY-MM-DD format for file paths
         date_str = date.strftime("%Y-%m-%d")
@@ -43,7 +47,10 @@ class StoryState:
             date = date.replace(tzinfo=timezone.utc)
         else:
             date = date.astimezone(timezone.utc)
-        now = date.isoformat()
+        # Use current UTC time for started_at, not the story date
+        now = datetime.now(timezone.utc).isoformat()
+        # Ensure explainer dict exists
+        packet.setdefault("explainer", {})
         packet["explainer"]["status"] = "recording"
         packet["explainer"]["started_at"] = now
         self._save_digest(date, digest, file_path)
@@ -57,9 +64,13 @@ class StoryState:
             date = date.replace(tzinfo=timezone.utc)
         else:
             date = date.astimezone(timezone.utc)
-        now = date.isoformat()
+        # Use current UTC time for completed_at, not the story date
+        now = datetime.now(timezone.utc).isoformat()
+        # Ensure explainer dict exists
+        packet.setdefault("explainer", {})
         packet["explainer"]["status"] = "recorded"
         packet["explainer"]["completed_at"] = now
+        # Ensure video dict exists
         packet.setdefault("video", {})
         packet["video"]["status"] = "pending"
         if raw_path:

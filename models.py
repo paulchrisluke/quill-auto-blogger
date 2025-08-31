@@ -76,7 +76,7 @@ class DiscordCredentials(BaseModel):
 class OBSCredentials(BaseModel):
     """Model for OBS WebSocket credentials."""
     host: str = "127.0.0.1"
-    port: int = 4444
+    port: int = 4455
     password: SecretStr
     scene: str = ""
     dry_run: bool = False

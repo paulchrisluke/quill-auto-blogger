@@ -231,9 +231,8 @@ class TestAuthService:
     
     def test_get_obs_credentials(self, tmp_path, monkeypatch):
         """Test getting OBS credentials."""
-        # Use temporary file for OBS credentials to avoid affecting real credentials
-        temp_obs_file = tmp_path / "obs_credentials.json"
-        monkeypatch.setattr(AuthService, "obs_credentials_file", temp_obs_file)
+        # Patch Path.home to return tmp_path so AuthService uses the sandbox
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         
         with patch.dict(os.environ, {
             'OBS_HOST': '127.0.0.1',
@@ -253,9 +252,8 @@ class TestAuthService:
     
     def test_validate_obs_auth_dry_run(self, tmp_path, monkeypatch):
         """Test OBS auth validation in dry run mode."""
-        # Use temporary file for OBS credentials to avoid affecting real credentials
-        temp_obs_file = tmp_path / "obs_credentials.json"
-        monkeypatch.setattr(AuthService, "obs_credentials_file", temp_obs_file)
+        # Patch Path.home to return tmp_path so AuthService uses the sandbox
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         
         with patch.dict(os.environ, {
             'OBS_HOST': '127.0.0.1',

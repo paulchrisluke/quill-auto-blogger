@@ -25,6 +25,8 @@ def test_obs_dry_run(monkeypatch, tmp_path):
     
     # Mock Path.home() to return our temporary directory
     monkeypatch.setattr(Path, "home", mock_home)
+    # Set HOME environment variable so os.path.expanduser resolves to tmp_path
+    monkeypatch.setenv("HOME", str(tmp_path))
     
     c = OBSController()
     assert c.start_recording().ok
@@ -54,6 +56,8 @@ def test_obs_real_recording(monkeypatch, tmp_path):
     
     # Mock Path.home() to return our temporary directory
     monkeypatch.setattr(Path, "home", mock_home)
+    # Set HOME environment variable so os.path.expanduser resolves to tmp_path
+    monkeypatch.setenv("HOME", str(tmp_path))
     
     # Skip test if OBS is not available
     try:
@@ -66,13 +70,13 @@ def test_obs_real_recording(monkeypatch, tmp_path):
         pytest.skip(f"OBS not available: {e}")
     
     # Get initial file count in OBS recordings directory
-    obs_recordings_dir = os.path.expanduser("~/Movies/OBS-Recordings")
-    if not os.path.exists(obs_recordings_dir):
+    obs_recordings_dir = Path.home() / "Movies" / "OBS-Recordings"
+    if not obs_recordings_dir.exists():
         pytest.skip("OBS recordings directory doesn't exist")
     
     initial_files = set()
-    if os.path.exists(obs_recordings_dir):
-        initial_files = set(os.listdir(obs_recordings_dir))
+    if obs_recordings_dir.exists():
+        initial_files = set(f.name for f in obs_recordings_dir.iterdir())
     
     c = OBSController()
     
@@ -85,6 +89,17 @@ def test_obs_real_recording(monkeypatch, tmp_path):
     start_time = time.time()
     while time.time() - start_time < max_wait:
         try:
+            # Reconnect if websocket was closed by start_recording()
+            if c.ws is None:
+                c._connect()
+                # Wait for connection to be established
+                reconnect_timeout = 2
+                reconnect_start = time.time()
+                while c.ws is None and time.time() - reconnect_start < reconnect_timeout:
+                    time.sleep(0.1)
+                if c.ws is None:
+                    raise Exception("Failed to reconnect websocket")
+            
             rec_status = c.ws.get_record_status()
             if hasattr(rec_status, 'outputActive') and rec_status.outputActive:
                 break
@@ -102,8 +117,8 @@ def test_obs_real_recording(monkeypatch, tmp_path):
     new_files = set()
     
     while time.time() - start_time < max_wait:
-        if os.path.exists(obs_recordings_dir):
-            final_files = set(os.listdir(obs_recordings_dir))
+        if obs_recordings_dir.exists():
+            final_files = set(f.name for f in obs_recordings_dir.iterdir())
             new_files = final_files - initial_files
             if new_files:
                 break

@@ -4,24 +4,25 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import schedule, time
 
-DATA_DIR = Path("data")
+DATA_DIR = Path("blogs")
 
 def _post_discord(msg: str) -> None:
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
     if not webhook_url:
         return
     try:
-        import requests  # already in reqs
-        requests.post(
-            webhook_url, 
-            json={
-                "content": msg,
-                "allowed_mentions": {"parse": []}  # Block @everyone/@here
-            }, 
-            timeout=5
-        )
-    except Exception:
-        pass
+        import httpx
+        with httpx.Client(timeout=5) as client:
+            client.post(
+                webhook_url, 
+                json={
+                    "content": msg,
+                    "allowed_mentions": {"parse": []}  # Block @everyone/@here
+                }
+            )
+    except (httpx.RequestError, httpx.TimeoutException) as e:
+        # Log the error but don't crash the reminder service
+        print(f"Discord webhook error: {e}")
 
 def scan_and_notify() -> None:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -33,6 +34,7 @@ def scan_and_notify() -> None:
     for day_dir in DATA_DIR.iterdir():
         if not day_dir.is_dir():
             continue
+        # Look for PRE-CLEANED digests in the YYYY-MM-DD subdirectories
         for digest_path in sorted(day_dir.glob("PRE-CLEANED-*digest.json")):
             try:
                 obj = json.loads(digest_path.read_text())

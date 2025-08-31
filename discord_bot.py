@@ -36,8 +36,8 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-def _today() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d")
+def _today() -> datetime:
+    return datetime.utcnow().date()
 
 def _guard_role(interaction: discord.Interaction) -> bool:
     if ROLE_ID == 0:
@@ -110,10 +110,10 @@ async def story_list(interaction: discord.Interaction, date: Optional[str] = Non
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
-    date = date or _today()
+    date_obj = datetime.strptime(date, "%Y-%m-%d").date() if date else _today()
     try:
         state = StoryState()
-        digest = state._load_digest(date)
+        digest, _ = state.load_digest(date_obj)
         rows = []
         for p in digest.get("story_packets", []):
             status = p.get("explainer", {}).get("status", "missing")
@@ -128,11 +128,11 @@ async def record_start(interaction: discord.Interaction, story_id: str, date: Op
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
-    date = date or _today()
+    date_obj = datetime.strptime(date, "%Y-%m-%d").date() if date else _today()
     await interaction.response.defer(ephemeral=True)
     try:
         # call CLI (keeps logic centralized)
-        _run_cli_command(["cli.devlog", "record", "--story", story_id, "--action", "start", "--date", date])
+        _run_cli_command(["cli.devlog", "record", "--story", story_id, "--action", "start", "--date", date_obj.strftime("%Y-%m-%d")])
         await interaction.followup.send(f"Recording started for `{story_id}`.", ephemeral=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         error_msg = f"Start failed: {type(e).__name__}"
@@ -148,10 +148,10 @@ async def record_stop(interaction: discord.Interaction, story_id: str, date: Opt
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
-    date = date or _today()
+    date_obj = datetime.strptime(date, "%Y-%m-%d").date() if date else _today()
     await interaction.response.defer(ephemeral=True)
     try:
-        _run_cli_command(["cli.devlog", "record", "--story", story_id, "--action", "stop", "--date", date])
+        _run_cli_command(["cli.devlog", "record", "--story", story_id, "--action", "stop", "--date", date_obj.strftime("%Y-%m-%d")])
         await interaction.followup.send(f"Recording stopped for `{story_id}`.", ephemeral=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         error_msg = f"Stop failed: {type(e).__name__}"
@@ -167,10 +167,10 @@ async def story_outline(interaction: discord.Interaction, story_id: str, date: O
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
-    date = date or _today()
+    date_obj = datetime.strptime(date, "%Y-%m-%d").date() if date else _today()
     try:
         state = StoryState()
-        digest = state._load_digest(date)
+        digest, _ = state.load_digest(date_obj)
         pkt = [p for p in digest.get("story_packets", []) if p.get("id")==story_id]
         if not pkt:
             await interaction.response.send_message("Story not found.", ephemeral=True)

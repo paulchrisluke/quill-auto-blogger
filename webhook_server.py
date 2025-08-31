@@ -7,16 +7,17 @@ import os
 import json
 import logging
 import subprocess
+import sys
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import hmac
 import hashlib
 
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator, ConfigDict
 from dotenv import load_dotenv
 
 from story_schema import StoryPacket, make_story_packet, pair_with_clip
@@ -56,14 +57,14 @@ def _validate_story_id(story_id: str) -> bool:
     return bool(re.match(pattern, story_id))
 
 
-def _run_record_command(story_id: str, action: str, date: Optional[str] = None) -> bool:
+def _run_record_command_direct(story_id: str, action: str, date: Optional[str] = None) -> bool:
     """
-    Run the record command securely with proper error handling.
+    Run the record command directly using Python functions instead of subprocess.
     
     Args:
-        story_id: The validated story ID (already validated by Pydantic)
+        story_id: The validated story ID
         action: The action to perform ('start' or 'stop')
-        date: Optional date string in YYYY-MM-DD format (already validated by Pydantic)
+        date: Optional date string in YYYY-MM-DD format
         
     Returns:
         True if command executed successfully, False otherwise
@@ -76,32 +77,60 @@ def _run_record_command(story_id: str, action: str, date: Optional[str] = None) 
     if not date:
         date = datetime.now().date().isoformat()
     
-    # Build command arguments
-    cmd = ["python", "-m", "cli.devlog", "record", "--story", story_id, "--action", action, "--date", date]
-    
     try:
-        logger.info(f"Executing command: {' '.join(cmd)}")
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30  # 30 second timeout
-        )
+        # Import the required modules
+        from services.obs_controller import OBSController
+        from services.story_state import StoryState
+        from datetime import datetime, timezone
         
-        if result.returncode != 0:
-            logger.error(f"Command failed with return code {result.returncode}")
-            logger.error(f"stdout: {result.stdout}")
-            logger.error(f"stderr: {result.stderr}")
+        # Parse date
+        if isinstance(date, str):
+            parsed_date = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            parsed_date = date
+        
+        # Initialize OBSController with error handling
+        try:
+            obs = OBSController()
+        except Exception as e:
+            logger.error(f"OBS initialization failed: {e}")
             return False
         
-        logger.info(f"Command executed successfully: {result.stdout.strip()}")
-        return True
-        
-    except subprocess.TimeoutExpired:
-        logger.error(f"Command timed out after 30 seconds: {' '.join(cmd)}")
-        return False
+        state = StoryState()
+
+        if action == "start":
+            res = obs.start_recording()
+            if not res.ok:
+                logger.error(f"Failed to start recording: {res.error}")
+                return False
+            
+            # Handle state.begin_recording errors
+            try:
+                state.begin_recording(parsed_date, story_id)
+            except (FileNotFoundError, KeyError) as e:
+                logger.error(f"Failed to begin recording for story {story_id}: {e}")
+                return False
+            
+            logger.info(f"Recording started for {story_id}")
+            return True
+        else:
+            res = obs.stop_recording()
+            if not res.ok:
+                logger.error(f"Failed to stop recording: {res.error}")
+                return False
+            
+            # Handle state.end_recording errors
+            try:
+                state.end_recording(parsed_date, story_id)
+            except (FileNotFoundError, KeyError) as e:
+                logger.error(f"Failed to end recording for story {story_id}: {e}")
+                return False
+            
+            logger.info(f"Recording stopped for {story_id}")
+            return True
+            
     except Exception as e:
-        logger.error(f"Exception executing command: {e}")
+        logger.error(f"Exception in direct record command: {e}")
         return False
 
 
@@ -118,11 +147,10 @@ class RecordControlRequest(BaseModel):
     story_id: str
     date: Optional[str] = None
     
-    class Config:
-        # Allow extra fields but ignore them
-        extra = "ignore"
+    model_config = ConfigDict(extra="ignore")  # Allow extra fields but ignore them
     
-    @validator('story_id')
+    @field_validator('story_id')
+    @classmethod
     def validate_story_id(cls, v):
         """Validate story_id format."""
         if not v or not isinstance(v, str):
@@ -135,7 +163,8 @@ class RecordControlRequest(BaseModel):
         
         return v
     
-    @validator('date')
+    @field_validator('date')
+    @classmethod
     def validate_date(cls, v):
         """Validate date format if provided."""
         if v is None:
@@ -278,6 +307,34 @@ async def save_story_packet(story_packet: StoryPacket):
     logger.info(f"Story packet saved to {packet_file}")
 
 
+# Add authentication dependency
+async def verify_control_auth(authorization: Optional[str] = Header(None)) -> bool:
+    """Verify authentication for control endpoints."""
+    if not authorization:
+        logger.warning("Control endpoint accessed without authorization header")
+        return False
+    
+    # Check for Bearer token
+    if not authorization.startswith("Bearer "):
+        logger.warning("Invalid authorization header format")
+        return False
+    
+    token = authorization[7:]  # Remove "Bearer " prefix
+    
+    # Get expected token from environment
+    expected_token = os.getenv("CONTROL_API_TOKEN")
+    if not expected_token:
+        logger.error("CONTROL_API_TOKEN not configured")
+        return False
+    
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(token, expected_token):
+        logger.warning("Invalid control API token")
+        return False
+    
+    return True
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
@@ -345,22 +402,86 @@ async def list_stories(date: str):
 
 
 @app.post("/control/record/start")
-async def control_record_start(payload: RecordControlRequest, background_tasks: BackgroundTasks):
+async def control_record_start(
+    payload: RecordControlRequest, 
+    background_tasks: BackgroundTasks,
+    auth: bool = Depends(verify_control_auth)
+):
     """Start recording for a story."""
+    if not auth:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
     try:
-        background_tasks.add_task(_run_record_command, payload.story_id, "start", payload.date)
+        # Validate and sanitize inputs
+        if not payload.story_id or not isinstance(payload.story_id, str):
+            raise HTTPException(status_code=400, detail="Invalid story_id")
+        
+        # Additional validation for story_id pattern
+        if not re.match(r'^[a-zA-Z0-9_-]+$', payload.story_id):
+            raise HTTPException(status_code=400, detail="Invalid story_id format")
+        
+        # Validate date if provided
+        if payload.date:
+            try:
+                datetime.strptime(payload.date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Add task to background tasks with proper error handling
+        try:
+            background_tasks.add_task(_run_record_command_direct, payload.story_id, "start", payload.date)
+        except Exception as e:
+            logger.error(f"Failed to schedule recording start task: {e}")
+            raise HTTPException(status_code=500, detail="Failed to schedule recording task")
+        
         return {"ok": True, "story_id": payload.story_id, "action": "start"}
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         logger.error(f"Error starting recording for story {payload.story_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to start recording")
 
 
 @app.post("/control/record/stop")
-async def control_record_stop(payload: RecordControlRequest, background_tasks: BackgroundTasks):
+async def control_record_stop(
+    payload: RecordControlRequest, 
+    background_tasks: BackgroundTasks,
+    auth: bool = Depends(verify_control_auth)
+):
     """Stop recording for a story."""
+    if not auth:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
     try:
-        background_tasks.add_task(_run_record_command, payload.story_id, "stop", payload.date)
+        # Validate and sanitize inputs
+        if not payload.story_id or not isinstance(payload.story_id, str):
+            raise HTTPException(status_code=400, detail="Invalid story_id")
+        
+        # Additional validation for story_id pattern
+        if not re.match(r'^[a-zA-Z0-9_-]+$', payload.story_id):
+            raise HTTPException(status_code=400, detail="Invalid story_id format")
+        
+        # Validate date if provided
+        if payload.date:
+            try:
+                datetime.strptime(payload.date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Add task to background tasks with proper error handling
+        try:
+            background_tasks.add_task(_run_record_command_direct, payload.story_id, "stop", payload.date)
+        except Exception as e:
+            logger.error(f"Failed to schedule recording stop task: {e}")
+            raise HTTPException(status_code=500, detail="Failed to schedule recording task")
+        
         return {"ok": True, "story_id": payload.story_id, "action": "stop"}
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         logger.error(f"Error stopping recording for story {payload.story_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to stop recording")

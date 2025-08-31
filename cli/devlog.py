@@ -18,7 +18,14 @@ def devlog():
 def record(story_id: str, action: str, date: datetime | None):
     """Start/stop OBS recording and persist story state."""
     date = _today(date)
-    obs = OBSController()
+    
+    # Initialize OBSController with error handling
+    try:
+        obs = OBSController()
+    except Exception as e:
+        click.echo(f"[ERR] OBS initialization failed: {e}")
+        raise SystemExit(1)
+    
     state = StoryState()
 
     if action == "start":
@@ -26,15 +33,28 @@ def record(story_id: str, action: str, date: datetime | None):
         if not res.ok:
             click.echo(f"[ERR] {res.error}")
             raise SystemExit(1)
-        state.begin_recording(date, story_id)
+        
+        # Handle state.begin_recording errors
+        try:
+            state.begin_recording(date, story_id)
+        except (FileNotFoundError, KeyError) as e:
+            click.echo(f"[ERR] Failed to begin recording for story {story_id}: {e}")
+            raise SystemExit(1)
+        
         click.echo(f"[OK] recording started for {story_id}")
     else:
         res = obs.stop_recording()
         if not res.ok:
             click.echo(f"[ERR] {res.error}")
             raise SystemExit(1)
-        # raw path capture is optional; OBS saves to its configured dir
-        state.end_recording(date, story_id)
+        
+        # Handle state.end_recording errors
+        try:
+            state.end_recording(date, story_id)
+        except (FileNotFoundError, KeyError) as e:
+            click.echo(f"[ERR] Failed to end recording for story {story_id}: {e}")
+            raise SystemExit(1)
+        
         click.echo(f"[OK] recording stopped for {story_id}")
 
 if __name__ == "__main__":
