@@ -154,7 +154,10 @@ async def save_story_packet(story_packet: StoryPacket):
     """Save a story packet to disk."""
     
     # Create date directory
-    date_str = story_packet.merged_at.strftime("%Y-%m-%d")
+    # Fix: merged_at is a string, need to parse it to datetime first
+    from datetime import datetime, timezone
+    dt = datetime.fromisoformat(story_packet.merged_at.replace("Z", "+00:00")).astimezone(timezone.utc)
+    date_str = dt.strftime("%Y-%m-%d")
     date_dir = STORY_DIR / date_str
     date_dir.mkdir(parents=True, exist_ok=True)
     
