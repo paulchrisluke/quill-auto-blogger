@@ -323,8 +323,8 @@ async def verify_control_auth(authorization: Optional[str] = Header(None)) -> No
     # Get expected token from environment
     expected_token = os.getenv("CONTROL_API_TOKEN")
     if not expected_token:
-        logger.error("CONTROL_API_TOKEN not configured")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Server configuration error")
+        logger.warning("Control endpoint accessed but CONTROL_API_TOKEN not configured")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization token")
     
     # Use constant-time comparison to prevent timing attacks
     if not hmac.compare_digest(token, expected_token):

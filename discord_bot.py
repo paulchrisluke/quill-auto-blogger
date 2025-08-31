@@ -64,13 +64,11 @@ def _run_cli_command(args: list[str], timeout: int = 30) -> None:
     # Use sys.executable to get the current Python interpreter path
     cmd = [sys.executable, "-m"] + args
     
-    # Create minimal sanitized environment
-    env = {
-        'PATH': os.environ.get('PATH', ''),
-        'PYTHONPATH': os.environ.get('PYTHONPATH', ''),
-        'HOME': os.environ.get('HOME', ''),
-        'USER': os.environ.get('USER', ''),
-    }
+    # Create environment that preserves required variables for CLI
+    env = dict(os.environ)  # Start with full process environment
+    
+    # Preserve all OBS_*, R2_*, and DISCORD_* variables
+    # The CLI (cli.devlog/AuthService) needs these runtime variables
     
     try:
         logger.info(f"Running CLI command: {' '.join(cmd)}")
@@ -91,16 +89,9 @@ def _run_cli_command(args: list[str], timeout: int = 30) -> None:
             logger.debug(f"Command stderr: {result.stderr}")
             
     except subprocess.TimeoutExpired as e:
-        logger.error(f"CLI command timed out after {timeout}s: {' '.join(cmd)}")
-        # Attempt to terminate the process if it's still running
-        if hasattr(e, 'process') and e.process:
-            try:
-                e.process.terminate()
-                e.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                logger.warning("Process did not terminate gracefully, killing it")
-                e.process.kill()
-                e.process.wait()
+        logger.error(f"CLI command timed out after {timeout}s: {' '.join(cmd)}", exc_info=True)
+        # subprocess.run already handles process termination on timeout
+        # No need to manually terminate - just re-raise the exception
         raise
     except subprocess.CalledProcessError as e:
         logger.error(f"CLI command failed with return code {e.returncode}: {' '.join(cmd)}")

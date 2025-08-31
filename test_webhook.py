@@ -16,22 +16,30 @@ from webhook_server import app, _run_record_command_direct
 TIMEOUT = 5
 
 def test_webhook_endpoints():
+    """Integration test for webhook endpoints using pytest-style assertions."""
+    import pytest
+    
     base_url = "http://localhost:8000"
+    
+    # Get bearer token from environment
+    bearer_token = os.environ.get("WEBHOOK_TOKEN")
+    if not bearer_token:
+        pytest.skip("WEBHOOK_TOKEN environment variable not set")
     
     # Test health endpoint
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
             response = client.get(f"{base_url}/health")
-            print(f"Health check: {response.status_code} - {response.json()}")
+            assert 200 <= response.status_code < 300, f"Health check failed with status {response.status_code}: {response.text}"
+            health_data = response.json()
+            assert "status" in health_data, f"Health response missing 'status' field: {health_data}"
+            assert health_data["status"] == "healthy", f"Health status not 'healthy': {health_data}"
     except httpx.ConnectError:
-        print("❌ Webhook server not running. Start it with: python webhook_server.py")
-        return False
+        pytest.skip("Webhook server not running. Start it with: python webhook_server.py")
     except httpx.TimeoutException:
-        print("❌ Health check timed out")
-        return False
+        pytest.skip("Health check timed out - server may be unresponsive")
     except httpx.RequestError as e:
-        print(f"❌ Health check failed: {e}")
-        return False
+        pytest.skip(f"Health check failed: {e}")
     
     # Test record start endpoint
     payload = {
@@ -43,55 +51,38 @@ def test_webhook_endpoints():
         with httpx.Client(timeout=TIMEOUT) as client:
             response = client.post(
                 f"{base_url}/control/record/start",
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {bearer_token}"
+                },
                 json=payload
             )
         
-        if not (200 <= response.status_code < 300):
-            try:
-                error_body = response.json()
-            except (json.JSONDecodeError, ValueError):
-                error_body = response.text
-            print(f"❌ Record start failed with status {response.status_code}: {error_body}")
-            return False
-        
-        try:
-            response_body = response.json()
-        except (json.JSONDecodeError, ValueError):
-            response_body = response.text
-        print(f"Record start: {response.status_code} - {response_body}")
+        assert 200 <= response.status_code < 300, f"Record start failed with status {response.status_code}: {response.text}"
+        response_data = response.json()
+        assert "ok" in response_data, f"Record start response missing 'ok' field: {response_data}"
+        assert response_data["ok"] is True, f"Record start not successful: {response_data}"
     except httpx.RequestError as e:
-        print(f"❌ Record start failed: {e}")
-        return False
+        pytest.skip(f"Record start request failed: {e}")
     
     # Test record stop endpoint
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
             response = client.post(
                 f"{base_url}/control/record/stop",
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {bearer_token}"
+                },
                 json=payload
             )
         
-        if not (200 <= response.status_code < 300):
-            try:
-                error_body = response.json()
-            except (json.JSONDecodeError, ValueError):
-                error_body = response.text
-            print(f"❌ Record stop failed with status {response.status_code}: {error_body}")
-            return False
-        
-        try:
-            response_body = response.json()
-        except (json.JSONDecodeError, ValueError):
-            response_body = response.text
-        print(f"Record stop: {response.status_code} - {response_body}")
+        assert 200 <= response.status_code < 300, f"Record stop failed with status {response.status_code}: {response.text}"
+        response_data = response.json()
+        assert "ok" in response_data, f"Record stop response missing 'ok' field: {response_data}"
+        assert response_data["ok"] is True, f"Record stop not successful: {response_data}"
     except httpx.RequestError as e:
-        print(f"❌ Record stop failed: {e}")
-        return False
-    
-    print("✅ All webhook endpoints working!")
-    return True
+        pytest.skip(f"Record stop request failed: {e}")
 
 
 # Unit tests for security improvements
