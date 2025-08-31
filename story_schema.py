@@ -112,7 +112,7 @@ class DigestV2(BaseModel):
 def make_story_packet(
     pr_event: Dict[str, Any],
     pairing: PairingInfo,
-    clips: List[Dict[str, Any]]
+    _clips: List[Dict[str, Any]],
 ) -> StoryPacket:
     """Create a story packet from a merged PR event."""
     
@@ -498,7 +498,7 @@ def pair_with_clip(
         else:
             clip_created_at = clip_created_at_str
         
-        # Check time window (-2h to +10m)
+        # Check time window (± time_window_hours)
         time_diff = abs((pr_merged_at - clip_created_at).total_seconds() / 3600)
         if time_diff > time_window_hours:
             continue

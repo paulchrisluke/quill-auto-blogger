@@ -12,12 +12,11 @@ from typing import Dict, Any, Optional
 import hmac
 import hashlib
 
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from services.blog import BlogDigestBuilder
 from story_schema import StoryPacket, make_story_packet, pair_with_clip
 
 # Load environment variables
@@ -184,7 +183,7 @@ async def list_stories(date: str):
         parsed_date = datetime.strptime(date, "%Y-%m-%d")
         # Reformat to ensure consistency and prevent any potential issues
         validated_date = parsed_date.strftime("%Y-%m-%d")
-    except ValueError as e:
+    except ValueError:
         logger.warning(f"Invalid date format received: {date}")
         return JSONResponse(
             status_code=400,

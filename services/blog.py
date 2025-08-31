@@ -87,7 +87,7 @@ class BlogDigestBuilder:
             "twitch_clips": clips_data,
             "github_events": events_data,
             "metadata": self._generate_metadata(target_date, twitch_clips, github_events),
-            "frontmatter": frontmatter.model_dump(mode="json"),
+            "frontmatter": frontmatter.model_dump(mode="json", by_alias=True),
             "story_packets": [packet.model_dump(mode="json") for packet in story_packets]
         }
         
@@ -519,7 +519,7 @@ class BlogDigestBuilder:
             pr_groups[base_title].append(pr_event)
         
         # Generate story packets with deduplication
-        for base_title, pr_events in pr_groups.items():
+        for pr_events in pr_groups.values():
             if len(pr_events) == 1:
                 # Single PR, create normal story packet
                 pr_event = pr_events[0]
