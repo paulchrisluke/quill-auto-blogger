@@ -82,10 +82,10 @@ class StoryState:
         Raises:
             ValueError: If date is naive and assume_utc is False
         """
-        digest, file_path = self._load_digest(date)
-        packet = self._find_story(digest, story_id)
-        # Normalize date to UTC
+        # Normalize date to UTC first
         normalized_date = self._normalize_date(date, assume_utc)
+        digest, file_path = self._load_digest(normalized_date)
+        packet = self._find_story(digest, story_id)
         # Use current UTC time for started_at, not the story date
         now = datetime.now(timezone.utc).isoformat()
         # Ensure explainer dict exists
@@ -112,10 +112,10 @@ class StoryState:
         Raises:
             ValueError: If date is naive and assume_utc is False
         """
-        digest, file_path = self._load_digest(date)
-        packet = self._find_story(digest, story_id)
-        # Normalize date to UTC
+        # Normalize date to UTC first
         normalized_date = self._normalize_date(date, assume_utc)
+        digest, file_path = self._load_digest(normalized_date)
+        packet = self._find_story(digest, story_id)
         # Use current UTC time for completed_at, not the story date
         now = datetime.now(timezone.utc).isoformat()
         # Ensure explainer dict exists

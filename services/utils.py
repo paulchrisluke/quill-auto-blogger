@@ -375,6 +375,14 @@ def validate_story_id(story_id: str) -> bool:
     if not story_id or not isinstance(story_id, str):
         return False
     
+    # Reject IDs that start with hyphens to prevent CLI option injection
+    if story_id.startswith('-'):
+        return False
+    
+    # Enforce ASCII-only characters
+    if not story_id.isascii():
+        return False
+    
     # Restrict to safe charset: alphanumeric, hyphens, underscores only
     if not story_id.replace('-', '').replace('_', '').isalnum():
         return False

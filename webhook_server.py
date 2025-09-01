@@ -307,25 +307,41 @@ async def verify_control_auth(authorization: Optional[str] = Header(None)) -> No
     """Verify authentication for control endpoints."""
     if not authorization:
         logger.warning("Control endpoint accessed without authorization header")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing authorization header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Missing authorization header",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
     
-    # Check for Bearer token
-    if not authorization.startswith("Bearer "):
+    # Check for Bearer token case-insensitively
+    if not authorization.lower().startswith("bearer "):
         logger.warning("Invalid authorization header format")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization header format")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid authorization header format",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
     
+    # Extract token (case-insensitive Bearer scheme handling)
     token = authorization[7:]  # Remove "Bearer " prefix
     
     # Get expected token from environment
     expected_token = os.getenv("CONTROL_API_TOKEN")
     if not expected_token:
-        logger.warning("Control endpoint accessed but CONTROL_API_TOKEN not configured")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization token")
+        logger.error("Control endpoint accessed but CONTROL_API_TOKEN not configured - server misconfiguration")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Server authentication not properly configured"
+        )
     
     # Use constant-time comparison to prevent timing attacks
     if not hmac.compare_digest(token, expected_token):
         logger.warning("Invalid control API token")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid authorization token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
 
 @app.get("/health")

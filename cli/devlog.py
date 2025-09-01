@@ -42,7 +42,7 @@ def record(story_id: str, action: str, date: datetime | None):
         # Handle state.begin_recording errors with OBS cleanup
         try:
             state.begin_recording(date, story_id, assume_utc=True)
-        except (FileNotFoundError, KeyError) as e:
+        except Exception as e:
             click.echo(f"[ERR] Failed to begin recording for story {story_id}: {e}")
             # Rollback: stop OBS recording to prevent orphaned recording
             try:

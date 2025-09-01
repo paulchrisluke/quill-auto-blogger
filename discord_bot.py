@@ -84,9 +84,34 @@ def _run_cli_command(args: list[str], timeout: int = 30) -> None:
     Raises:
         subprocess.CalledProcessError: If the command fails
         subprocess.TimeoutExpired: If the command times out
+        ValueError: If args contains invalid types or nested iterables
     """
-    # Use sys.executable to get the current Python interpreter path
-    cmd = [sys.executable, "-m", *args]
+    # Validate args is a sequence and not empty
+    if not isinstance(args, (list, tuple)) or not args:
+        raise ValueError("args must be a non-empty sequence")
+    
+    # Validate and flatten args to ensure no nested iterables
+    try:
+        # Convert all args to strings and ensure they're flat
+        flat_args = []
+        for arg in args:
+            # Check if arg is a string or simple type that can be safely converted
+            if isinstance(arg, (str, int, float, bool)):
+                flat_args.append(str(arg))
+            elif isinstance(arg, (list, tuple, dict, set)):
+                raise ValueError(f"Nested iterables are not allowed: {type(arg).__name__} = {arg}")
+            else:
+                # For other types, try to convert but be cautious
+                flat_args.append(str(arg))
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"All arguments must be convertible to strings: {e}")
+    
+    # Validate module name (first argument should be a valid module)
+    if flat_args and not flat_args[0].startswith("cli."):
+        raise ValueError(f"Invalid module name: {flat_args[0]}. Only 'cli.*' modules are allowed.")
+    
+    # Construct command safely
+    cmd = [sys.executable, "-m"] + flat_args
     
     # Create environment that preserves required variables for CLI
     env = dict(os.environ)  # Start with full process environment
@@ -136,6 +161,7 @@ async def _run_cli_command_async(args: list[str], timeout: int = 30) -> None:
     Raises:
         subprocess.CalledProcessError: If the command fails
         subprocess.TimeoutExpired: If the command times out
+        ValueError: If args contains invalid types or nested iterables
     """
     return await asyncio.to_thread(_run_cli_command, args, timeout)
 
