@@ -109,35 +109,39 @@ def record_bounded(story_id: str, date: datetime | None):
         click.echo(f"[ERR] Failed to begin recording for story {story_id}: {e}")
         raise SystemExit(1) from e
     
-    # Run the bounded recording with proper cleanup
+    # Run the bounded recording; cleanup is guarded by started_by_us, and state mutations happen based on success/failure
     try:
         import asyncio
         result = asyncio.run(obs.record_bounded(story_id, prep_delay, duration))
-        if not result.ok:
-            click.echo(f"[ERR] Bounded recording failed: {result.error}")
-            raise SystemExit(1)
     except Exception as e:
+        # On unexpected exception, try to fail the story without altering OBS state here
         click.echo(f"[ERR] Bounded recording failed: {e}")
+        try:
+            state.fail_recording(date, story_id, reason=str(e), assume_utc=True)
+        except Exception as fail_err:
+            click.echo(f"[WARN] Failed to mark recording as failed: {fail_err}")
         raise SystemExit(1) from e
-    finally:
-        # Always perform cleanup and rollback regardless of success or failure
-        # This ensures OBS is properly stopped and story state is rolled back
-        
-        # OBS cleanup - stop recording and disconnect
+
+    # Decide actions based on result
+    started_by_us = bool(getattr(result, 'started_by_us', False))
+    if not result.ok:
+        click.echo(f"[ERR] Bounded recording failed: {result.error}")
+        # Stop OBS only if we started it
+        if started_by_us:
+            try:
+                stop_res = obs.stop_recording()
+                if not stop_res.ok:
+                    click.echo(f"[WARN] OBS stop during failure cleanup: {stop_res.error}")
+            except Exception as cleanup_error:
+                click.echo(f"[WARN] OBS stop recording failed during cleanup: {cleanup_error}")
+        # Mark story failure; avoid calling end_recording here
         try:
-            obs.stop_recording()
-            click.echo(f"[INFO] OBS recording stopped during cleanup for {story_id}")
-        except Exception as cleanup_error:
-            click.echo(f"[WARN] OBS stop recording failed during cleanup: {cleanup_error}")
-        
-        # Story state rollback - clear the "in-progress" flag
-        try:
-            state.end_recording(date, story_id, assume_utc=True)
-            click.echo(f"[INFO] Recording state rolled back for {story_id}")
-        except Exception as rollback_error:
-            click.echo(f"[WARN] Failed to rollback recording state: {rollback_error}")
+            state.fail_recording(date, story_id, reason=result.error or "unknown error", assume_utc=True)
+        except Exception as fail_err:
+            click.echo(f"[WARN] Failed to mark recording as failed: {fail_err}")
+        raise SystemExit(1)
     
-    # Complete the bounded recording state
+    # Success path: complete the bounded recording state
     try:
         state.complete_bounded_recording(date, story_id, duration, assume_utc=True)
         click.echo(f"[OK] Bounded recording completed for {story_id} ({duration}s)")

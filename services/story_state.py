@@ -170,6 +170,24 @@ class StoryState:
         self._save_digest(normalized_date, digest, file_path)
         return packet
 
+    def fail_recording(self, date: datetime, story_id: str, reason: str | None = None, assume_utc: bool = False) -> Dict[str, Any]:
+        """
+        Mark a recording as failed without flipping to recorded/completed.
+        """
+        normalized_date = self._normalize_date(date, assume_utc)
+        digest, file_path = self._load_digest(normalized_date)
+        packet = self._find_story(digest, story_id)
+        now = datetime.now(timezone.utc).isoformat()
+        packet.setdefault("explainer", {})
+        packet["explainer"]["status"] = "failed"
+        packet["explainer"]["failed_at"] = now
+        if reason:
+            packet["explainer"]["failure_reason"] = reason
+        packet.setdefault("video", {})
+        packet["video"]["status"] = "failed"
+        self._save_digest(normalized_date, digest, file_path)
+        return packet
+
     @staticmethod
     def _find_story(digest: Dict[str, Any], story_id: str) -> Dict[str, Any]:
         for p in digest.get("story_packets", []):
