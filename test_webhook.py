@@ -1,13 +1,12 @@
-#!/usr/bin/env python3
 """
 Simple test script for webhook endpoints
 """
 
 import httpx
 import json
-import time
 import os
 import pytest
+import secrets
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from webhook_server import app, _run_record_command_direct
@@ -17,14 +16,13 @@ TIMEOUT = 5
 
 def test_webhook_endpoints():
     """Integration test for webhook endpoints using pytest-style assertions."""
-    import pytest
     
     base_url = "http://localhost:8000"
     
     # Get bearer token from environment
-    bearer_token = os.environ.get("WEBHOOK_TOKEN")
+    bearer_token = os.environ.get("WEBHOOK_TOKEN") or os.environ.get("CONTROL_API_TOKEN")
     if not bearer_token:
-        pytest.skip("WEBHOOK_TOKEN environment variable not set")
+        pytest.skip("WEBHOOK_TOKEN or CONTROL_API_TOKEN environment variable not set")
     
     # Test health endpoint
     try:
@@ -140,18 +138,21 @@ class TestControlEndpointSecurity:
     
     def test_control_start_invalid_token(self):
         """Test that invalid token is rejected."""
-        os.environ["CONTROL_API_TOKEN"] = "correct_token"
+        token = secrets.token_urlsafe(16)
+        os.environ["CONTROL_API_TOKEN"] = token
         payload = {"story_id": "test_story", "date": "2025-01-01"}
-        headers = {"Authorization": "Bearer wrong_token"}
-        response = client.post("/control/record/start", json=payload, headers=headers)
+        headers = {"Authorization": f"Bearer {token}"}
+        wrong_headers = {"Authorization": "Bearer wrong_token"}
+        response = client.post("/control/record/start", json=payload, headers=wrong_headers)
         assert response.status_code == 401
         assert "Unauthorized" in response.json()["detail"]
     
     def test_control_start_valid_auth(self):
         """Test that valid authentication works."""
-        os.environ["CONTROL_API_TOKEN"] = "correct_token"
+        token = secrets.token_urlsafe(16)
+        os.environ["CONTROL_API_TOKEN"] = token
         payload = {"story_id": "test_story", "date": "2025-01-01"}
-        headers = {"Authorization": "Bearer correct_token"}
+        headers = {"Authorization": f"Bearer {token}"}
         
         with patch('webhook_server._run_record_command_direct') as mock_run:
             mock_run.return_value = True
@@ -161,9 +162,10 @@ class TestControlEndpointSecurity:
     
     def test_control_start_invalid_story_id(self):
         """Test that invalid story_id is rejected by Pydantic validation."""
-        os.environ["CONTROL_API_TOKEN"] = "correct_token"
+        token = secrets.token_urlsafe(16)
+        os.environ["CONTROL_API_TOKEN"] = token
         payload = {"story_id": "invalid@story", "date": "2025-01-01"}
-        headers = {"Authorization": "Bearer correct_token"}
+        headers = {"Authorization": f"Bearer {token}"}
         response = client.post("/control/record/start", json=payload, headers=headers)
         assert response.status_code == 422  # Pydantic validation error
         # Check that the error message contains validation info
@@ -172,9 +174,10 @@ class TestControlEndpointSecurity:
     
     def test_control_start_invalid_date(self):
         """Test that invalid date is rejected by Pydantic validation."""
-        os.environ["CONTROL_API_TOKEN"] = "correct_token"
+        token = secrets.token_urlsafe(16)
+        os.environ["CONTROL_API_TOKEN"] = token
         payload = {"story_id": "test_story", "date": "invalid-date"}
-        headers = {"Authorization": "Bearer correct_token"}
+        headers = {"Authorization": f"Bearer {token}"}
         response = client.post("/control/record/start", json=payload, headers=headers)
         assert response.status_code == 422  # Pydantic validation error
         # Check that the error message contains validation info
@@ -183,9 +186,10 @@ class TestControlEndpointSecurity:
     
     def test_control_start_empty_story_id(self):
         """Test that empty story_id is rejected by Pydantic validation."""
-        os.environ["CONTROL_API_TOKEN"] = "correct_token"
+        token = secrets.token_urlsafe(16)
+        os.environ["CONTROL_API_TOKEN"] = token
         payload = {"story_id": "", "date": "2025-01-01"}
-        headers = {"Authorization": "Bearer correct_token"}
+        headers = {"Authorization": f"Bearer {token}"}
         response = client.post("/control/record/start", json=payload, headers=headers)
         assert response.status_code == 422  # Pydantic validation error
         # Check that the error message contains validation info
@@ -194,9 +198,10 @@ class TestControlEndpointSecurity:
     
     def test_control_stop_valid_auth(self):
         """Test that valid authentication works for stop endpoint."""
-        os.environ["CONTROL_API_TOKEN"] = "correct_token"
+        token = secrets.token_urlsafe(16)
+        os.environ["CONTROL_API_TOKEN"] = token
         payload = {"story_id": "test_story", "date": "2025-01-01"}
-        headers = {"Authorization": "Bearer correct_token"}
+        headers = {"Authorization": f"Bearer {token}"}
         
         with patch('webhook_server._run_record_command_direct') as mock_run:
             mock_run.return_value = True
@@ -278,5 +283,4 @@ class TestDirectRecordCommand:
             assert result is False
 
 
-if __name__ == "__main__":
-    test_webhook_endpoints()
+

@@ -6,12 +6,10 @@ FastAPI webhook server for GitHub PR merge events.
 import os
 import json
 import logging
-import subprocess
-import sys
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import hmac
 import hashlib
 
@@ -21,6 +19,7 @@ from pydantic import BaseModel, field_validator, ConfigDict
 from dotenv import load_dotenv
 
 from story_schema import StoryPacket, make_story_packet, pair_with_clip
+from services.utils import validate_story_id
 
 # Load environment variables
 load_dotenv()
@@ -48,13 +47,8 @@ def _validate_story_id(story_id: str) -> bool:
     Returns:
         True if valid, False otherwise
     """
-    if not story_id or not isinstance(story_id, str):
-        return False
-    
-    # Allow alphanumeric characters, hyphens, and underscores
-    # This pattern allows for UUIDs, numeric IDs, and descriptive IDs
-    pattern = r'^[a-zA-Z0-9_-]+$'
-    return bool(re.match(pattern, story_id))
+    # Use shared validation function
+    return validate_story_id(story_id)
 
 
 def _run_record_command_direct(story_id: str, action: str, date: Optional[str] = None) -> bool:
@@ -85,14 +79,17 @@ def _run_record_command_direct(story_id: str, action: str, date: Optional[str] =
         # Parse date
         if isinstance(date, str):
             parsed_date = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        elif isinstance(date, datetime):
+            parsed_date = date.replace(tzinfo=timezone.utc) if date.tzinfo is None else date.astimezone(timezone.utc)
         else:
-            parsed_date = date
+            logger.error(f"Unsupported date type: {type(date)}")
+            return False
         
         # Initialize OBSController with error handling
         try:
             obs = OBSController()
-        except Exception as e:
-            logger.error(f"OBS initialization failed: {e}")
+        except Exception:
+            logger.exception("OBS initialization failed")
             return False
         
         state = StoryState()
@@ -106,8 +103,8 @@ def _run_record_command_direct(story_id: str, action: str, date: Optional[str] =
             # Handle state.begin_recording errors
             try:
                 state.begin_recording(parsed_date, story_id)
-            except (FileNotFoundError, KeyError) as e:
-                logger.error(f"Failed to begin recording for story {story_id}: {e}")
+            except (FileNotFoundError, KeyError, ValueError):
+                logger.exception("Failed to begin recording for story %s", story_id)
                 return False
             
             logger.info(f"Recording started for {story_id}")
@@ -121,15 +118,15 @@ def _run_record_command_direct(story_id: str, action: str, date: Optional[str] =
             # Handle state.end_recording errors
             try:
                 state.end_recording(parsed_date, story_id)
-            except (FileNotFoundError, KeyError) as e:
-                logger.error(f"Failed to end recording for story {story_id}: {e}")
+            except (FileNotFoundError, KeyError, ValueError):
+                logger.exception("Failed to end recording for story %s", story_id)
                 return False
             
             logger.info(f"Recording stopped for {story_id}")
             return True
             
-    except Exception as e:
-        logger.error(f"Exception in direct record command: {e}")
+    except Exception:
+        logger.exception("Exception in direct record command")
         return False
 
 
@@ -155,9 +152,8 @@ class RecordControlRequest(BaseModel):
         if not v or not isinstance(v, str):
             raise ValueError('story_id must be a non-empty string')
         
-        # Use the same validation as the helper function
-        pattern = r'^[a-zA-Z0-9_-]+$'
-        if not re.match(pattern, v):
+        # Use the shared validation function
+        if not validate_story_id(v):
             raise ValueError('story_id must contain only alphanumeric characters, hyphens, and underscores')
         
         return v
@@ -354,34 +350,15 @@ async def list_stories(date: str):
             content={"error": "Invalid date format. Use YYYY-MM-DD format."}
         )
     
-    # Sanitize the date string to ensure it only contains valid characters
-    if not all(c.isdigit() or c == '-' for c in validated_date):
-        logger.warning(f"Invalid characters in date parameter: {date}")
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Invalid date format. Use YYYY-MM-DD format."}
-        )
-    
     # Construct the path and verify it's within the allowed directory
     date_dir = STORY_DIR / validated_date
     resolved_path = date_dir.resolve()
     story_dir_resolved = STORY_DIR.resolve()
     
     # Verify the path is within the allowed directory to prevent path traversal
-    try:
-        if not resolved_path.is_relative_to(story_dir_resolved):
-            logger.warning(f"Path traversal attempt detected: {date} -> {resolved_path}")
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Invalid date parameter."}
-            )
-    except ValueError:
-        # is_relative_to raises ValueError if paths are not related
+    if not resolved_path.is_relative_to(story_dir_resolved):
         logger.warning(f"Path traversal attempt detected: {date} -> {resolved_path}")
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Invalid date parameter."}
-        )
+        return JSONResponse(status_code=400, content={"error": "Invalid date parameter."})
     
     if not date_dir.exists():
         return JSONResponse({"stories": []})
@@ -407,21 +384,6 @@ async def control_record_start(
     """Start recording for a story."""
     
     try:
-        # Validate and sanitize inputs
-        if not payload.story_id or not isinstance(payload.story_id, str):
-            raise HTTPException(status_code=400, detail="Invalid story_id")
-        
-        # Additional validation for story_id pattern
-        if not re.match(r'^[a-zA-Z0-9_-]+$', payload.story_id):
-            raise HTTPException(status_code=400, detail="Invalid story_id format")
-        
-        # Validate date if provided
-        if payload.date:
-            try:
-                datetime.strptime(payload.date, "%Y-%m-%d")
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-        
         # Add task to background tasks with proper error handling
         try:
             background_tasks.add_task(_run_record_command_direct, payload.story_id, "start", payload.date)
@@ -448,21 +410,6 @@ async def control_record_stop(
     """Stop recording for a story."""
     
     try:
-        # Validate and sanitize inputs
-        if not payload.story_id or not isinstance(payload.story_id, str):
-            raise HTTPException(status_code=400, detail="Invalid story_id")
-        
-        # Additional validation for story_id pattern
-        if not re.match(r'^[a-zA-Z0-9_-]+$', payload.story_id):
-            raise HTTPException(status_code=400, detail="Invalid story_id format")
-        
-        # Validate date if provided
-        if payload.date:
-            try:
-                datetime.strptime(payload.date, "%Y-%m-%d")
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-        
         # Add task to background tasks with proper error handling
         try:
             background_tasks.add_task(_run_record_command_direct, payload.story_id, "stop", payload.date)

@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from datetime import datetime, timezone
 from services.story_state import StoryState
 from services.outline import generate_outline
+from services.utils import validate_story_id
 import subprocess
 import logging
 
@@ -39,6 +40,11 @@ tree = app_commands.CommandTree(client)
 def _today() -> datetime:
     return datetime.now(timezone.utc)
 
+def _parse_date_str(date: Optional[str]) -> datetime:
+    if date:
+        return datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return _today()
+
 def _guard_role(interaction: discord.Interaction) -> bool:
     if ROLE_ID == 0:
         return True
@@ -48,6 +54,24 @@ def _guard_role(interaction: discord.Interaction) -> bool:
         return False
     
     return any(getattr(r, "id", None) == ROLE_ID for r in interaction.user.roles)
+
+def _guard_channel(interaction: discord.Interaction) -> bool:
+    if CONTROL_CHANNEL_ID == 0:
+        return True
+    return getattr(interaction.channel, "id", None) == CONTROL_CHANNEL_ID
+
+def _validate_story_id(story_id: str) -> bool:
+    """
+    Validate story_id to prevent path traversal and CLI misuse.
+    
+    Args:
+        story_id: The story ID to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    # Use shared validation function
+    return validate_story_id(story_id)
 
 def _run_cli_command(args: list[str], timeout: int = 30) -> None:
     """
@@ -62,7 +86,7 @@ def _run_cli_command(args: list[str], timeout: int = 30) -> None:
         subprocess.TimeoutExpired: If the command times out
     """
     # Use sys.executable to get the current Python interpreter path
-    cmd = [sys.executable, "-m"] + args
+    cmd = [sys.executable, "-m", *args]
     
     # Create environment that preserves required variables for CLI
     env = dict(os.environ)  # Start with full process environment
@@ -120,13 +144,14 @@ async def story_list(interaction: discord.Interaction, date: Optional[str] = Non
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
+
+    if not _guard_channel(interaction):
+        await interaction.response.send_message("Wrong channel for controls.", ephemeral=True)
+        return
     
     # Validate and parse date before any processing
     try:
-        if date:
-            date_obj = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        else:
-            date_obj = _today()
+        date_obj = _parse_date_str(date)
     except ValueError as e:
         await interaction.response.send_message(f"Invalid date format. Use YYYY-MM-DD: {e}", ephemeral=True)
         return
@@ -140,21 +165,32 @@ async def story_list(interaction: discord.Interaction, date: Optional[str] = Non
             rows.append(f"- `{p['id']}` • **{p.get('title_human', p.get('title_raw'))}** • {status}")
         msg = "\n".join(rows) or "No stories."
         await interaction.response.send_message(msg, ephemeral=True)
-    except Exception as e:
+    except FileNotFoundError:
+        await interaction.response.send_message(f"No digest found for {date_obj.strftime('%Y-%m-%d')}.", ephemeral=True)
+    except (KeyError, ValueError) as e:
         await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+    except Exception:
+        logger.exception("Unexpected error in story_list")
+        await interaction.response.send_message("Unexpected error.", ephemeral=True)
 
 @tree.command(name="record_start", description="Start recording for a story id")
 async def record_start(interaction: discord.Interaction, story_id: str, date: Optional[str] = None):
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
+
+    if not _guard_channel(interaction):
+        await interaction.response.send_message("Wrong channel for controls.", ephemeral=True)
+        return
+    
+    # Validate story_id before any processing
+    if not _validate_story_id(story_id):
+        await interaction.response.send_message("Invalid story ID. Use only letters, numbers, hyphens, and underscores (max 50 chars).", ephemeral=True)
+        return
     
     # Validate and parse date before deferring
     try:
-        if date:
-            date_obj = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        else:
-            date_obj = _today()
+        date_obj = _parse_date_str(date)
     except ValueError as e:
         await interaction.response.send_message(f"Invalid date format. Use YYYY-MM-DD: {e}", ephemeral=True)
         return
@@ -178,13 +214,19 @@ async def record_stop(interaction: discord.Interaction, story_id: str, date: Opt
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
+
+    if not _guard_channel(interaction):
+        await interaction.response.send_message("Wrong channel for controls.", ephemeral=True)
+        return
+    
+    # Validate story_id before any processing
+    if not _validate_story_id(story_id):
+        await interaction.response.send_message("Invalid story ID. Use only letters, numbers, hyphens, and underscores (max 50 chars).", ephemeral=True)
+        return
     
     # Validate and parse date before deferring
     try:
-        if date:
-            date_obj = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        else:
-            date_obj = _today()
+        date_obj = _parse_date_str(date)
     except ValueError as e:
         await interaction.response.send_message(f"Invalid date format. Use YYYY-MM-DD: {e}", ephemeral=True)
         return
@@ -208,13 +250,19 @@ async def story_outline(interaction: discord.Interaction, story_id: str, date: O
     if not _guard_role(interaction):
         await interaction.response.send_message("Not authorized.", ephemeral=True)
         return
+
+    if not _guard_channel(interaction):
+        await interaction.response.send_message("Wrong channel for controls.", ephemeral=True)
+        return
+    
+    # Validate story_id before any processing
+    if not _validate_story_id(story_id):
+        await interaction.response.send_message("Invalid story ID. Use only letters, numbers, hyphens, and underscores (max 50 chars).", ephemeral=True)
+        return
     
     # Validate and parse date before any processing
     try:
-        if date:
-            date_obj = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        else:
-            date_obj = _today()
+        date_obj = _parse_date_str(date)
     except ValueError as e:
         await interaction.response.send_message(f"Invalid date format. Use YYYY-MM-DD: {e}", ephemeral=True)
         return
@@ -227,9 +275,25 @@ async def story_outline(interaction: discord.Interaction, story_id: str, date: O
             await interaction.response.send_message("Story not found.", ephemeral=True)
             return
         outline = generate_outline(pkt[0])
-        await interaction.response.send_message(f"```markdown\n{outline}\n```", ephemeral=True)
-    except Exception as e:
+        
+        # Wrap outline in markdown code block and handle Discord's character limit
+        outline_text = f"```markdown\n{outline}\n```"
+        
+        # Discord has a 2000 character limit, use 1990 for safety
+        if len(outline_text) > 1990:
+            # Truncate to ~1900 chars and add truncation marker
+            max_outline_length = 1900 - len("```markdown\n\n… [truncated]\n```")
+            truncated_outline = outline[:max_outline_length] + "\n\n… [truncated]"
+            outline_text = f"```markdown\n{truncated_outline}\n```"
+        
+        await interaction.response.send_message(outline_text, ephemeral=True)
+    except FileNotFoundError:
+        await interaction.response.send_message(f"No digest found for {date_obj.strftime('%Y-%m-%d')}.", ephemeral=True)
+    except (KeyError, ValueError) as e:
         await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+    except Exception as e:
+        logger.exception("Unexpected error in story_outline")
+        await interaction.response.send_message("Unexpected error.", ephemeral=True)
 
 @client.event
 async def on_ready():
@@ -238,9 +302,10 @@ async def on_ready():
         await tree.sync(guild=guild)
     else:
         await tree.sync()
-    print(f"Bot logged in as {client.user} (synced)")
+    logger.info("Bot logged in as %s (synced)", client.user)
 
 if __name__ == "__main__":
     if not TOKEN:
-        raise SystemExit("DISCORD_BOT_TOKEN (or legacy DISCORD_TOKEN) missing")
+        logger.critical("DISCORD_BOT_TOKEN (or legacy DISCORD_TOKEN) missing")
+        raise SystemExit(1)
     client.run(TOKEN)
