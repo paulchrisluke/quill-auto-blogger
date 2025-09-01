@@ -10,7 +10,8 @@ from typing import Optional
 import httpx
 from dotenv import load_dotenv
 
-from models import TwitchToken, GitHubToken, CloudflareR2Credentials, DiscordCredentials
+from models import TwitchToken, GitHubToken, CloudflareR2Credentials, DiscordCredentials, OBSCredentials
+from pydantic import SecretStr
 
 # Load environment variables
 load_dotenv()
@@ -25,11 +26,55 @@ class AuthService:
         self.twitch_token_file = self.cache_dir / "twitch_token.json"
         self.github_token_file = self.cache_dir / "github_token.json"
         self.discord_credentials_file = self.cache_dir / "discord_credentials.json"
+        self.obs_credentials_file = self.cache_dir / "obs_credentials.json"
         
         # Load environment variables
         self.twitch_client_id = os.getenv('TWITCH_CLIENT_ID')
         self.twitch_client_secret = os.getenv('TWITCH_CLIENT_SECRET')
         self.github_token = os.getenv('GITHUB_TOKEN')
+    
+    def _secure_atomic_json_write(self, path: Path, data: dict):
+        """Securely write JSON data to a file using atomic operations.
+        
+        Creates a temporary file with restrictive permissions, writes the data,
+        then atomically moves it into place. Ensures cleanup of temporary files.
+        """
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        
+        try:
+            # Create temp file with restrictive permissions
+            fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            
+            try:
+                # Write JSON data to temp file
+                with os.fdopen(fd, 'w') as f:
+                    json.dump(data, f, indent=2, default=str)
+                
+                # Atomically move temp file to target location
+                os.replace(tmp_path, path)
+                
+                # Set permissions on final file (ignore errors)
+                try:
+                    os.chmod(path, 0o600)
+                except OSError:
+                    pass
+                    
+            except OSError:
+                # Close fd if it's still open
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                raise
+                
+        except OSError:
+            # Clean up temp file if it exists
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
     
     def get_twitch_token(self) -> Optional[str]:
         """Get a valid Twitch access token, refreshing if necessary."""
@@ -38,7 +83,7 @@ class AuthService:
         if token is None or self._is_token_expired(token):
             token = self._refresh_twitch_token()
         
-        return token.access_token if token else None
+        return token.access_token.get_secret_value() if token else None
     
     def get_github_token(self) -> Optional[str]:
         """Get a valid GitHub token, checking expiration."""
@@ -50,7 +95,7 @@ class AuthService:
             print("⚠️  GitHub token expired. Please refresh your fine-grained token.")
             return None
         
-        return token.token
+        return token.token.get_secret_value()
     
     def get_r2_credentials(self) -> Optional[CloudflareR2Credentials]:
         """Get R2 credentials from environment variables."""
@@ -66,7 +111,7 @@ class AuthService:
         
         credentials = CloudflareR2Credentials(
             access_key_id=access_key_id,
-            secret_access_key=secret_access_key,
+            secret_access_key=SecretStr(secret_access_key),
             endpoint=endpoint,
             bucket=bucket,
             region=region,
@@ -85,6 +130,16 @@ class AuthService:
         
         return credentials
     
+    def get_obs_credentials(self) -> Optional[OBSCredentials]:
+        """Get OBS credentials from cache or environment."""
+        credentials = self._load_obs_credentials()
+        
+        if credentials is None:
+            # Try to initialize from environment variables
+            credentials = self._initialize_obs_credentials_from_env()
+        
+        return credentials
+    
     def _load_twitch_token(self) -> Optional[TwitchToken]:
         """Load Twitch token from cache."""
         if not self.twitch_token_file.exists():
@@ -95,18 +150,19 @@ class AuthService:
                 data = json.load(f)
                 # Convert string back to datetime
                 data['expires_at'] = datetime.fromisoformat(data['expires_at'])
+                # Convert plain string back to SecretStr
+                data['access_token'] = SecretStr(data['access_token'])
                 return TwitchToken(**data)
         except (json.JSONDecodeError, KeyError, OSError):
             return None
     
     def _save_twitch_token(self, token: TwitchToken):
         """Save Twitch token to cache."""
-        with open(self.twitch_token_file, 'w') as f:
-            f.write(token.model_dump_json(indent=2))
-        try:
-            os.chmod(self.twitch_token_file, 0o600)
-        except OSError:
-            pass
+        # Convert SecretStr to plain string for storage
+        data = token.model_dump()
+        data['access_token'] = token.access_token.get_secret_value()
+        
+        self._secure_atomic_json_write(self.twitch_token_file, data)
     
     def _load_github_token(self) -> Optional[GitHubToken]:
         """Load GitHub token from cache."""
@@ -118,18 +174,19 @@ class AuthService:
                 data = json.load(f)
                 # Convert string back to datetime
                 data['expires_at'] = datetime.fromisoformat(data['expires_at'])
+                # Convert plain string back to SecretStr
+                data['token'] = SecretStr(data['token'])
                 return GitHubToken(**data)
         except (json.JSONDecodeError, KeyError, OSError):
             return None
     
     def _save_github_token(self, token: GitHubToken):
         """Save GitHub token to cache."""
-        with open(self.github_token_file, 'w') as f:
-            f.write(token.model_dump_json(indent=2))
-        try:
-            os.chmod(self.github_token_file, 0o600)
-        except OSError:
-            pass
+        # Convert SecretStr to plain string for storage
+        data = token.model_dump()
+        data['token'] = token.token.get_secret_value()
+        
+        self._secure_atomic_json_write(self.github_token_file, data)
     
 
     
@@ -143,24 +200,62 @@ class AuthService:
                 data = json.load(f)
                 # Convert string back to datetime
                 data['created_at'] = datetime.fromisoformat(data['created_at'])
+                # Convert plain string back to SecretStr
+                data['token'] = SecretStr(data['token'])
                 return DiscordCredentials(**data)
         except (json.JSONDecodeError, KeyError, OSError):
             return None
     
     def _save_discord_credentials(self, credentials: DiscordCredentials):
         """Save Discord credentials to cache."""
-        with open(self.discord_credentials_file, 'w') as f:
-            f.write(credentials.model_dump_json(indent=2))
+        # Convert SecretStr to plain string for storage
+        data = credentials.model_dump()
+        data['token'] = credentials.token.get_secret_value()
+        
+        self._secure_atomic_json_write(self.discord_credentials_file, data)
+    
+    def _load_obs_credentials(self) -> Optional[OBSCredentials]:
+        """Load OBS credentials from cache."""
+        if not self.obs_credentials_file.exists():
+            return None
+        
         try:
-            os.chmod(self.discord_credentials_file, 0o600)
-        except OSError:
-            pass
+            with open(self.obs_credentials_file, 'r') as f:
+                data = json.load(f)
+                # Convert string back to datetime
+                data['created_at'] = datetime.fromisoformat(data['created_at'])
+                # Convert plain string back to SecretStr
+                data['password'] = SecretStr(data['password'])
+                return OBSCredentials(**data)
+        except (json.JSONDecodeError, KeyError, OSError, ValueError):
+            return None
+    
+    def _save_obs_credentials(self, credentials: OBSCredentials):
+        """Save OBS credentials to cache."""
+        # Convert SecretStr to plain string for storage
+        data = credentials.model_dump()
+        data['password'] = credentials.password.get_secret_value()
+        
+        self._secure_atomic_json_write(self.obs_credentials_file, data)
     
     def _initialize_discord_credentials_from_env(self) -> Optional[DiscordCredentials]:
         """Initialize Discord credentials from environment variables."""
         application_id = os.getenv("DISCORD_APPLICATION_ID")
         public_key = os.getenv("DISCORD_PUBLIC_KEY")
-        token = os.getenv("DISCORD_TOKEN")
+        
+        # Use DISCORD_BOT_TOKEN with fallback to legacy DISCORD_TOKEN
+        token = os.getenv("DISCORD_BOT_TOKEN")
+        if not token:
+            token = os.getenv("DISCORD_TOKEN")
+            if token:
+                import warnings
+                warnings.warn(
+                    "DISCORD_TOKEN is deprecated and will be removed in a future version. "
+                    "Please use DISCORD_BOT_TOKEN instead.",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+        
         guild_id = os.getenv("DISCORD_GUILD_ID")
         channel_id = os.getenv("DISCORD_CHANNEL_ID")
         webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
@@ -172,7 +267,7 @@ class AuthService:
         credentials = DiscordCredentials(
             application_id=application_id,
             public_key=public_key,
-            token=token,
+            token=SecretStr(token),
             guild_id=guild_id,
             channel_id=channel_id,
             webhook_url=webhook_url,
@@ -182,10 +277,48 @@ class AuthService:
         self._save_discord_credentials(credentials)
         return credentials
     
+    def _initialize_obs_credentials_from_env(self) -> Optional[OBSCredentials]:
+        """Initialize OBS credentials from environment variables."""
+        host = os.getenv("OBS_HOST", "127.0.0.1")
+        
+        # Safely parse port with fallback to default
+        port_str = os.getenv("OBS_PORT", "4455")
+        try:
+            port = int(port_str) if port_str else 4455
+        except ValueError:
+            port = 4455
+        
+        password = os.getenv("OBS_PASSWORD", "")
+        scene = os.getenv("OBS_SCENE", "")
+        dry_run = os.getenv("OBS_DRY_RUN", "false").lower() == "true"
+        
+        # Only save credentials if we have non-default values or essential config
+        has_custom_config = (
+            os.getenv("OBS_HOST") is not None or
+            os.getenv("OBS_PORT") is not None or
+            os.getenv("OBS_PASSWORD") is not None or
+            os.getenv("OBS_SCENE") is not None or
+            os.getenv("OBS_DRY_RUN") is not None
+        )
+        
+        credentials = OBSCredentials(
+            host=host,
+            port=port,
+            password=SecretStr(password),
+            scene=scene,
+            dry_run=dry_run
+        )
+        
+        # Only cache if we have custom configuration
+        if has_custom_config:
+            self._save_obs_credentials(credentials)
+        
+        return credentials
+    
     def cache_github_token(self, token: str, expires_at: datetime, permissions: dict = None):
         """Cache GitHub token with expiration info."""
         github_token = GitHubToken(
-            token=token,
+            token=SecretStr(token),
             expires_at=expires_at,
             permissions=permissions or {}
         )
@@ -253,7 +386,7 @@ class AuthService:
                 expires_at = datetime.now() + timedelta(seconds=token_data['expires_in'])
                 
                 token = TwitchToken(
-                    access_token=token_data['access_token'],
+                    access_token=SecretStr(token_data['access_token']),
                     expires_in=token_data['expires_in'],
                     token_type=token_data['token_type'],
                     expires_at=expires_at
@@ -318,7 +451,7 @@ class AuthService:
             s3_client = boto3.client(
                 's3',
                 aws_access_key_id=credentials.access_key_id,
-                aws_secret_access_key=credentials.secret_access_key,
+                aws_secret_access_key=credentials.secret_access_key.get_secret_value(),
                 endpoint_url=credentials.endpoint,
                 region_name=credentials.region
             )
@@ -338,7 +471,7 @@ class AuthService:
         
         try:
             headers = {
-                "Authorization": f"Bot {credentials.token}",
+                "Authorization": f"Bot {credentials.token.get_secret_value()}",
                 "Content-Type": "application/json"
             }
             
@@ -346,6 +479,25 @@ class AuthService:
                 response = client.get("https://discord.com/api/v10/users/@me", headers=headers)
                 return response.status_code == 200
                 
+        except Exception:
+            return False
+    
+    def validate_obs_auth(self) -> bool:
+        """Validate OBS authentication by testing WebSocket connection."""
+        credentials = self.get_obs_credentials()
+        if not credentials:
+            return False
+        
+        if credentials.dry_run:
+            return True
+        
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex((credentials.host, credentials.port))
+            sock.close()
+            return result == 0
         except Exception:
             return False
     
@@ -375,6 +527,6 @@ class AuthService:
             raise ValueError("Discord credentials not available")
         
         return {
-            "Authorization": f"Bot {credentials.token}",
+            "Authorization": f"Bot {credentials.token.get_secret_value()}",
             "Content-Type": "application/json"
         }

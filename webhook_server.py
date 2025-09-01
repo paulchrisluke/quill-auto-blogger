@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 import hmac
 import hashlib
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -171,6 +171,100 @@ async def save_story_packet(story_packet: StoryPacket):
         json.dump(story_packet.model_dump(), f, indent=2, default=str)
     
     logger.info(f"Story packet saved to {packet_file}")
+
+
+@app.post("/control/record/start")
+async def start_recording(
+    story_id: str = Query(..., description="Story ID to record"),
+    bounded: bool = Query(False, description="Enable bounded recording mode"),
+    date: str = Query(None, description="Date for the story (YYYY-MM-DD)")
+):
+    """Start recording for a story, optionally with bounded mode."""
+    try:
+        from services.obs_controller import OBSController
+        from services.story_state import StoryState
+        
+        # Initialize OBS controller
+        obs = OBSController()
+        state = StoryState()
+        
+        # Parse date parameter or use current date
+        if date:
+            try:
+                parsed_date = datetime.strptime(date, "%Y-%m-%d")
+                date_obj = parsed_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        else:
+            # Get current date
+            now = datetime.now()
+            date_obj = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Begin recording state
+        state.begin_recording(date_obj, story_id, assume_utc=True)
+        
+        if bounded:
+            # Get environment variables for timing
+            prep_delay = int(os.getenv("RECORDING_PREP_DELAY", "5"))
+            duration = int(os.getenv("RECORDING_DURATION", "15"))
+            
+            # Start bounded recording in background
+            import asyncio
+            asyncio.create_task(run_bounded_recording(obs, state, date_obj, story_id, duration))
+            
+            return {
+                "status": "started",
+                "mode": "bounded",
+                "story_id": story_id,
+                "prep_delay": prep_delay,
+                "duration": duration
+            }
+        else:
+            # Start regular recording
+            result = obs.start_recording()
+            if not result.ok:
+                raise HTTPException(status_code=500, detail=f"Failed to start recording: {result.error}")
+            
+            return {
+                "status": "started",
+                "mode": "manual",
+                "story_id": story_id
+            }
+            
+    except Exception as e:
+        logger.error(f"Failed to start recording: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def run_bounded_recording(obs, state, date, story_id, duration):
+    """Run bounded recording in background."""
+    try:
+        prep_delay = int(os.getenv("RECORDING_PREP_DELAY", "5"))
+        
+        # Wait for prep delay
+        await asyncio.sleep(prep_delay)
+        
+        # Start recording
+        start_result = obs.start_recording()
+        if not start_result.ok:
+            logger.error(f"Failed to start recording in bounded mode: {start_result.error}")
+            return
+        
+        # Wait for duration
+        await asyncio.sleep(duration)
+        
+        # Stop recording
+        stop_result = obs.stop_recording()
+        if not stop_result.ok:
+            logger.error(f"Failed to stop recording in bounded mode: {stop_result.error}")
+            return
+        
+        # Complete bounded recording state
+        state.complete_bounded_recording(date, story_id, duration, assume_utc=True)
+        logger.info(f"Bounded recording completed for {story_id} ({duration}s)")
+        
+    except Exception as e:
+        logger.error(f"Bounded recording failed: {e}")
 
 
 @app.get("/health")
