@@ -18,7 +18,7 @@ import re
 from services.media import probe_duration, file_exists
 
 try:
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
     from jinja2 import Environment, FileSystemLoader
 except ImportError as e:
     raise ImportError(f"Missing required dependency: {e}. Run: pip install playwright jinja2") from e
@@ -216,22 +216,27 @@ def render_html_to_png(html_str: str, out_path: Path) -> None:
             # Wait for fonts to load
             page.wait_for_load_state("networkidle")
             
+            # Wait for fonts to be ready to avoid layout shifts
+            page.wait_for_function("document.fonts.ready")
+            
             # Take screenshot of viewport only (not full page)
             page.screenshot(path=str(out_path), full_page=False)
             
             render_time = (time.time() - start_time) * 1000
             logger.info(f"Rendered PNG: {out_path} ({render_time:.0f}ms)")
                 
+    except PlaywrightError as e:
+        render_time = (time.time() - start_time) * 1000
+        logger.exception(f"Playwright error during HTML to PNG rendering after {render_time:.0f}ms")
+        raise RuntimeError(f"Playwright browser error: {e}. Please ensure Playwright is installed and system dependencies are available.") from e
+    except PlaywrightTimeoutError as e:
+        render_time = (time.time() - start_time) * 1000
+        logger.exception(f"Playwright timeout during HTML to PNG rendering after {render_time:.0f}ms")
+        raise RuntimeError(f"Rendering timeout: {e}. The page may be too complex or network resources unavailable.") from e
     except Exception as e:
         render_time = (time.time() - start_time) * 1000
-        logger.exception(f"Failed to render HTML to PNG after {render_time:.0f}ms")
-        # Re-raise with more specific context
-        if "chromium" in str(e).lower() or "browser" in str(e).lower():
-            raise RuntimeError(f"Chromium browser error: {e}. Please ensure Playwright is installed and system dependencies are available.") from e
-        elif "timeout" in str(e).lower():
-            raise RuntimeError(f"Rendering timeout: {e}. The page may be too complex or network resources unavailable.") from e
-        else:
-            raise RuntimeError(f"HTML rendering failed: {e}") from e
+        logger.exception(f"Unexpected error during HTML to PNG rendering after {render_time:.0f}ms")
+        raise RuntimeError(f"HTML rendering failed: {e}") from e
     finally:
         # Clean up resources even if browser crashes
         if temp_html_path:
@@ -410,10 +415,12 @@ class VideoComposer:
         ]
         
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             logger.info(f"Created video: {out_path}")
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"ffmpeg timed out after 300 seconds while creating video") from e
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"ffmpeg failed creating video: {e.stderr}")
+            raise RuntimeError(f"ffmpeg failed creating video: {e.stderr}") from e
         except FileNotFoundError:
             raise RuntimeError("ffmpeg not found. Please install ffmpeg.")
 
@@ -583,7 +590,7 @@ def main():
     import sys
     
     if len(sys.argv) != 2:
-        print("Usage: python renderer_html.py YYYY-MM-DD")
+        print("Usage: python -m tools.renderer_html YYYY-MM-DD")
         sys.exit(1)
     
     date = sys.argv[1]
