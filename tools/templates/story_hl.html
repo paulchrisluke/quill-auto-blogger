@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Highlights</h2>
+<ul class="highlight-list">
+    {% for highlight in highlights %}
+    <li class="highlight-item wrap-text">{{ highlight }}</li>
+    {% endfor %}
+</ul>
+<div class="footer">
+    <div class="brand-footer">pcl-labs / paulchrisluke.com</div>
+</div>
+{% endblock %}

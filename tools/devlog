@@ -112,43 +112,44 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
         for packet in story_packets:
             story_id = packet.get("id")
             video_info = packet.get("video", {})
+            explainer_info = packet.get("explainer", {})
             
-            # Check if video needs rendering
-            video_path = video_info.get("path", "")
-            is_local_path = video_path and not video_path.startswith(("http://", "https://", "/stories/"))
-            needs_rendering = (video_info.get("status") != "rendered" or 
-                             not video_path or 
-                             (is_local_path and not file_exists(video_path)))
+            # Check if packet needs rendering based on explainer status or video status
+            explainer_status = explainer_info.get("status")
+            video_status = video_info.get("status")
+            
+            needs_rendering = (
+                explainer_status in ["recorded", "recording"] or 
+                video_status != "rendered"
+            )
             
             if needs_rendering:
                 click.echo(f"  Rendering video for {story_id}...")
                 try:
-                    # Render video using existing renderer
-                    result = subprocess.run([
-                        sys.executable, str(base_dir / "tools/renderer_stub.py"), date
-                    ], capture_output=True, text=True, check=True)
+                    # Import and use new HTML renderer
+                    from tools.renderer_html import render_for_packet
                     
-                    # Reload digest to get updated video info
-                    with open(digest_path, 'r') as f:
-                        digest_data = json.load(f)
+                    # Render video using new HTML→PNG renderer
+                    out_dir = base_dir / f"out/videos/{date}"
+                    out_mp4 = render_for_packet(packet, out_dir)
                     
-                    # Find and rebind the updated packet to ensure changes persist
-                    for i, updated_packet in enumerate(digest_data.get("story_packets", [])):
-                        if updated_packet.get("id") == story_id:
-                            # Ensure updated_packet has a video dict
-                            if "video" not in updated_packet:
-                                updated_packet["video"] = {}
-                            
-                            # Preserve published path if it exists
-                            current_path = packet.get("video", {}).get("path", "")
-                            if current_path and (current_path.startswith("/stories/") or current_path.startswith("http")):
-                                updated_packet["video"]["path"] = current_path
-                            
-                            # Update the packet in the digest_data list
-                            digest_data["story_packets"][i] = updated_packet
-                            # Also update the local packet reference
-                            packet.update(updated_packet)
-                            break
+                    # Update packet with video info
+                    if "video" not in packet:
+                        packet["video"] = {}
+                    
+                    packet["video"]["status"] = "rendered"
+                    packet["video"]["path"] = out_mp4
+                    packet["video"]["canvas"] = "1080x1920"
+                    
+                    # Get duration and calculate frames
+                    from services.media import probe_duration
+                    from tools.renderer_html import get_renderer_config
+                    
+                    duration = probe_duration(out_mp4)
+                    if duration:
+                        packet["video"]["duration_s"] = round(duration, 2)
+                        config = get_renderer_config()
+                        packet["video"]["frames"] = int(duration * config["fps"])
                     
                     click.echo(f"  ✓ Rendered video for {story_id}")
                     changed = True

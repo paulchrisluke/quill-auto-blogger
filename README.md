@@ -2,6 +2,15 @@
 
 A Python project that fetches and processes Twitch clips and GitHub activity, with automatic transcription using the Cloudflare Workers AI Whisper API. It also includes a digest builder that generates daily blog posts with structured front matter for SEO and social sharing.
 
+## M3 Features - HTML→PNG Video Rendering
+
+- **HTML→PNG Renderer**: Crisp, readable 1080×1920 slides using Playwright + Jinja2
+- **GitHub-style Design**: Clean typography with Inter font, high contrast cards
+- **Smart Text Handling**: Auto-truncation, ellipsis, and overflow prevention
+- **FFmpeg Stitching**: PNG slides → MP4 videos (H.264, 30fps)
+- **Template System**: Modular HTML templates for intro/why/highlights/outro slides
+- **Local-first**: No external APIs, all assets bundled locally
+
 ## M2 Features - Capture & Control
 
 - **OBS Integration**: Safe start/stop recording via Discord/CLI
@@ -27,7 +36,8 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 ## Prerequisites
 
 - Python 3.8+
-- ffmpeg (for audio extraction)
+- ffmpeg (for audio extraction and video stitching)
+- Playwright (for HTML→PNG rendering)
 - Twitch Developer Account
 - GitHub Personal Access Token
 - Cloudflare Account with Workers AI
@@ -50,6 +60,12 @@ pip install -r requirements.txt
    - **macOS**: `brew install ffmpeg`
    - **Ubuntu/Debian**: `sudo apt install ffmpeg`
    - **Windows**: Download from https://ffmpeg.org/download.html
+
+4. Install Playwright and Chromium browser:
+```bash
+pip install playwright jinja2
+python -m tools.setup_playwright
+```
 
 4. Set up environment variables:
 ```bash
@@ -279,6 +295,77 @@ og:
 ---
 ```
 
+## Video Rendering (M3)
+
+The project now uses an HTML→PNG renderer for creating story videos. This replaces the legacy FFmpeg drawtext approach with a more flexible and maintainable solution.
+
+### Quick Start
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Setup Playwright browser
+python -m tools.setup_playwright
+
+# Run tests to verify setup
+python -m pytest tests/test_renderer_html.py -v
+
+# Render videos for a specific date
+python -m tools.renderer_html 2025-01-15
+
+# Or use the devlog command
+python -m tools.devlog render --date 2025-01-15
+```
+
+### Renderer Features
+
+- **HTML Templates**: Modular templates for intro, why, highlights, and outro slides
+- **GitHub-style Design**: Clean typography with Inter font, high contrast cards
+- **Brand Tokens**: Consistent spacing, colors, and shadows via CSS variables
+- **Smart Text Handling**: Auto-truncation, ellipsis, and quality validation
+- **1080×1920 Output**: Optimized for vertical video platforms
+- **FFmpeg Stitching**: High-quality MP4 output with H.264 encoding
+- **Environment Configuration**: Configurable viewport, fps, quality via env vars
+- **Idempotent Rendering**: Skip re-render if video exists (unless --force)
+- **Integration Tests**: Comprehensive end-to-end testing with theme validation
+
+### Slide Types
+
+1. **Intro Slide**: Title with subtitle (repo, PR number, date)
+2. **Why Slide**: "Why it matters" explanation
+3. **Highlights Slides**: Up to 3 slides with 2-3 bullet points each
+4. **Outro Slide**: CTA with attribution
+
+### Environment Configuration
+
+The renderer can be configured via environment variables:
+
+```bash
+# Viewport size for HTML→PNG rendering
+RENDERER_VIEWPORT=1080x1920
+
+# Video output settings
+RENDERER_FPS=30
+RENDERER_SLIDE_SECONDS=6
+RENDERER_CRF=18
+
+# Force re-render even if video exists
+RENDERER_FORCE=false
+```
+
+### Troubleshooting
+
+- **Font Issues**: The renderer uses Google Fonts (Inter) with system fallbacks
+- **macOS Permissions**: Ensure Playwright has permission to run headless browser
+- **FFmpeg Errors**: Verify ffmpeg is installed and in PATH
+- **Brand Tokens**: CSS variables ensure consistent design across all slides
+- **Quality Issues**: Check RENDERER_CRF setting (lower = higher quality, 18-28 recommended)
+- **Missing Libraries**: On Linux, install: `sudo apt-get install libnss3 libatk-bridge2.0-0 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2 libdrm2 libxss1 libgtk-3-0 libxshmfence1`
+- **CI Setup**: Use `python -m tools.setup_ci` to install dependencies in CI environment
+- **Theme Issues**: Set `RENDERER_THEME=dark` for dark mode slides
+- **Testing**: Run `python -m pytest tests/test_renderer_html.py -v` for comprehensive testing
+
 ## Testing
 
 Run the test suite:
@@ -310,6 +397,12 @@ pytest tests/test_obs_controller.py
 
 # Test story state
 pytest tests/test_story_state.py
+
+# Test HTML renderer
+pytest tests/test_renderer_html.py
+
+# Test HTML renderer integration (end-to-end)
+pytest tests/test_renderer_html.py::TestRendererIntegration -v
 ```
 
 ### M2 - Capture & Control Usage

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="wrap-text">{{ title }}</h1>
+{% if subtitle %}
+<div class="subtitle">{{ subtitle }}</div>
+{% endif %}
+<div class="footer">
+    <div class="brand-footer">pcl-labs / paulchrisluke.com</div>
+</div>
+{% endblock %}
