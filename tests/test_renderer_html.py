@@ -8,10 +8,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# Add parent directory to Python path for imports
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from tools.renderer_html import (
     HtmlSlideRenderer, VideoComposer, render_for_packet,
     truncate_text, sanitize_story_id, clamp_text_length, validate_text_quality,
@@ -30,7 +26,7 @@ class TestHtmlSlideRenderer:
         # Long text should be truncated with ellipsis
         long_text = "This is a very long text that should be truncated"
         truncated = truncate_text(long_text, 20)
-        assert len(truncate_text(long_text, 20)) == 20
+        assert len(truncated) == 20
         assert truncated.endswith("...")
         assert truncated == "This is a very lo..."
         
@@ -361,6 +357,15 @@ class TestRendererIntegration:
     
     def test_end_to_end_rendering(self, tmp_path):
         """Test complete end-to-end rendering workflow."""
+        # Check if renderer dependencies are available
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                browser.close()
+        except Exception:
+            pytest.skip("Playwright/Chromium not available - skipping end-to-end test")
+        
         # Create test packet
         test_packet = {
             "id": "integration_test_story",
@@ -407,6 +412,15 @@ class TestRendererIntegration:
         """Test that light and dark themes produce different outputs."""
         import os
         
+        # Check if renderer dependencies are available
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                browser.close()
+        except Exception:
+            pytest.skip("Playwright/Chromium not available - skipping theme test")
+        
         test_packet = {
             "id": "theme_test_story",
             "title_human": "Theme Test",
@@ -434,6 +448,15 @@ class TestRendererIntegration:
     
     def test_content_validation_fallbacks(self, tmp_path):
         """Test content validation and fallback mechanisms."""
+        # Check if renderer dependencies are available
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                browser.close()
+        except Exception:
+            pytest.skip("Playwright/Chromium not available - skipping fallback test")
+        
         # Test packet with minimal content
         minimal_packet = {
             "id": "minimal_test",
@@ -460,6 +483,15 @@ class TestRendererIntegration:
     
     def test_idempotent_operation(self, tmp_path):
         """Test that rendering is idempotent."""
+        # Check if renderer dependencies are available
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                browser.close()
+        except Exception:
+            pytest.skip("Playwright/Chromium not available - skipping idempotent test")
+        
         test_packet = {
             "id": "idempotent_test",
             "title_human": "Idempotent Test",

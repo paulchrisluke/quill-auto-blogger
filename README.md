@@ -54,11 +54,10 @@ pip install -r requirements.txt
 
 4. Install Playwright and Chromium browser:
 ```bash
-pip install playwright jinja2
 python -m tools.setup_playwright
 ```
 
-4. Set up environment variables:
+5. Set up environment variables:
 ```bash
 cp env.example .env
 # Edit .env with your credentials
