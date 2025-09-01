@@ -28,6 +28,9 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
+# Default placeholder for short text
+DEFAULT_PLACEHOLDER = "Content placeholder text for display purposes"
+
 
 def get_renderer_config() -> Dict[str, Any]:
     """Get renderer configuration from environment variables."""
@@ -80,7 +83,7 @@ def truncate_text(text: str, max_chars: int = 180) -> str:
     return text[:max_chars-3] + "..."
 
 
-def clamp_text_length(text: str, max_chars: int = 180, min_chars: int = 10) -> str:
+def clamp_text_length(text: str, max_chars: int = 180, min_chars: int = 10, default_placeholder: Optional[str] = None) -> str:
     """Clamp text length between min_chars and max_chars."""
     if not text:
         return "No content"
@@ -92,10 +95,20 @@ def clamp_text_length(text: str, max_chars: int = 180, min_chars: int = 10) -> s
     if len(text) > max_chars:
         text = truncate_text(text, max_chars)
     
-    # Ensure minimum length by padding with dots if needed
+    # Ensure minimum length by using default placeholder if needed
     if len(text) < min_chars:
-        padding_needed = min_chars - len(text)
-        text = text + "." * padding_needed
+        placeholder = default_placeholder or DEFAULT_PLACEHOLDER
+        
+        # Ensure placeholder meets min_chars requirement
+        if len(placeholder) < min_chars:
+            # Pad placeholder with dots if it's too short
+            padding_needed = min_chars - len(placeholder)
+            placeholder = placeholder + "." * padding_needed
+        elif len(placeholder) > min_chars:
+            # Truncate placeholder if it's too long
+            placeholder = truncate_text(placeholder, min_chars)
+        
+        text = placeholder
     
     return text
 
@@ -174,8 +187,8 @@ def render_html_to_png(html_str: str, out_path: Path) -> None:
                 # Wait for fonts to load
                 page.wait_for_load_state("networkidle")
                 
-                # Take screenshot
-                page.screenshot(path=str(out_path), full_page=True)
+                # Take screenshot of viewport only (not full page)
+                page.screenshot(path=str(out_path), full_page=False)
                 
                 render_time = (time.time() - start_time) * 1000
                 logger.info(f"Rendered PNG: {out_path} ({render_time:.0f}ms)")

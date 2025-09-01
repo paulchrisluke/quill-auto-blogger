@@ -49,11 +49,24 @@ class TestHtmlSlideRenderer:
         assert len(clamped) <= 20
         assert clamped.endswith("...")
         
-        # Short text should be padded
+        # Short text should use default placeholder
         short_text = "Hi"
         clamped = clamp_text_length(short_text, 20, 10)
         assert len(clamped) >= 10
-        assert "Hi" in clamped
+        assert "Content" in clamped
+        
+        # Custom placeholder should be used when provided
+        custom_placeholder = "Custom text here"
+        clamped = clamp_text_length(short_text, 20, 10, custom_placeholder)
+        assert len(clamped) >= 10
+        assert "Custom" in clamped
+        
+        # Short placeholder should be padded with dots
+        short_placeholder = "Short"
+        clamped = clamp_text_length(short_text, 20, 15, short_placeholder)
+        assert len(clamped) >= 15
+        assert clamped.startswith("Short")
+        assert clamped.endswith(".")
         
         # Empty text should get default
         assert clamp_text_length("", 20, 10) == "No content"

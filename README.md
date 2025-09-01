@@ -2,15 +2,6 @@
 
 A Python project that fetches and processes Twitch clips and GitHub activity, with automatic transcription using the Cloudflare Workers AI Whisper API. It also includes a digest builder that generates daily blog posts with structured front matter for SEO and social sharing.
 
-## M3 Features - HTML→PNG Video Rendering
-
-- **HTML→PNG Renderer**: Crisp, readable 1080×1920 slides using Playwright + Jinja2
-- **GitHub-style Design**: Clean typography with Inter font, high contrast cards
-- **Smart Text Handling**: Auto-truncation, ellipsis, and overflow prevention
-- **FFmpeg Stitching**: PNG slides → MP4 videos (H.264, 30fps)
-- **Template System**: Modular HTML templates for intro/why/highlights/outro slides
-- **Local-first**: No external APIs, all assets bundled locally
-
 ## M2 Features - Capture & Control
 
 - **OBS Integration**: Safe start/stop recording via Discord/CLI

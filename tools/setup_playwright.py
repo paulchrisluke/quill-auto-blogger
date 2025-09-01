@@ -17,14 +17,21 @@ def main():
         print("Installing Chromium browser...")
         result = subprocess.run([
             sys.executable, "-m", "playwright", "install", "chromium"
-        ], capture_output=True, text=True, check=True)
+        ], timeout=120, check=True)
         
         print("✅ Chromium browser installed successfully!")
         print("Playwright is ready for HTML→PNG rendering.")
         
+    except subprocess.TimeoutExpired as e:
+        print(f"❌ Playwright browser installation timed out after 120 seconds")
+        if e.stdout:
+            print(f"Partial stdout: {e.stdout.decode()}")
+        if e.stderr:
+            print(f"Partial stderr: {e.stderr.decode()}")
+        sys.exit(1)
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to install Playwright browsers: {e}")
-        print(f"Error output: {e.stderr}")
+        print("Note: Output was streamed to console during execution")
         sys.exit(1)
     except FileNotFoundError:
         print("❌ Playwright not found. Please install it first:")

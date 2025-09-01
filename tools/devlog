@@ -114,21 +114,42 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
             video_info = packet.get("video", {})
             explainer_info = packet.get("explainer", {})
             
-            # Check if packet needs rendering based on explainer status or video status
+            # Check if packet needs rendering based on video status and force_rerender flag
             explainer_status = explainer_info.get("status")
             video_status = video_info.get("status")
+            force_rerender = video_info.get("force_rerender", False)
             
-            needs_rendering = (
-                explainer_status in ["recorded", "recording"] or 
-                video_status != "rendered"
-            )
+            # Only render if video is not rendered OR if force_rerender is set
+            needs_rendering = video_status != "rendered" or force_rerender
+            
+            # Set force_rerender flag when explainer status changes to recorded
+            # This allows for re-rendering when explainer content changes
+            if explainer_status == "recorded" and video_status == "rendered" and not force_rerender:
+                # Check if this is a new explainer recording (explainer was previously not recorded)
+                # We'll set force_rerender to true to trigger re-rendering
+                video_info["force_rerender"] = True
+                needs_rendering = True
             
             if needs_rendering:
                 click.echo(f"  Rendering video for {story_id}...")
+                
+                # First, attempt to import the renderer module
                 try:
-                    # Import and use new HTML renderer
                     from tools.renderer_html import render_for_packet
-                    
+                except (ImportError, SyntaxError) as e:
+                    click.echo(f"  ✗ Failed to import renderer module for {story_id}: {e}", err=True)
+                    click.echo(f"  ✗ Cannot render video for packet {story_id} - skipping", err=True)
+                    # Mark as failed due to import error
+                    if "video" not in packet:
+                        packet["video"] = {}
+                    packet["video"]["status"] = "failed"
+                    packet["video"]["error"] = f"Import error: {e}"
+                    packet["video"]["force_rerender"] = False
+                    changed = True
+                    continue
+                
+                # Now attempt to render the video
+                try:
                     # Render video using new HTML→PNG renderer
                     out_dir = base_dir / f"out/videos/{date}"
                     out_mp4 = render_for_packet(packet, out_dir)
@@ -140,16 +161,25 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
                     packet["video"]["status"] = "rendered"
                     packet["video"]["path"] = out_mp4
                     packet["video"]["canvas"] = "1080x1920"
+                    packet["video"]["force_rerender"] = False
                     
                     # Get duration and calculate frames
-                    from services.media import probe_duration
                     from tools.renderer_html import get_renderer_config
                     
                     duration = probe_duration(out_mp4)
                     if duration:
                         packet["video"]["duration_s"] = round(duration, 2)
                         config = get_renderer_config()
-                        packet["video"]["frames"] = int(duration * config["fps"])
+                        
+                        # Validate fps configuration before computing frames
+                        fps = config.get("fps")
+                        if fps and isinstance(fps, (int, float)) and fps > 0:
+                            packet["video"]["frames"] = int(duration * fps)
+                        else:
+                            # Use sensible default if fps is missing or invalid
+                            default_fps = 30
+                            packet["video"]["frames"] = int(duration * default_fps)
+                            click.echo(f"  ⚠️ Using default fps ({default_fps}) for {story_id} - config fps was invalid: {fps}")
                     
                     click.echo(f"  ✓ Rendered video for {story_id}")
                     changed = True
@@ -161,6 +191,16 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
                         packet["video"] = {}
                     packet["video"]["status"] = "failed"
                     packet["video"]["error"] = str(e)
+                    packet["video"]["force_rerender"] = False
+                    changed = True
+                except Exception as e:
+                    click.echo(f"  ✗ Render failed for {story_id} (packet_id: {story_id}, out_dir: {out_dir}): {e}", err=True)
+                    # Mark as failed
+                    if "video" not in packet:
+                        packet["video"] = {}
+                    packet["video"]["status"] = "failed"
+                    packet["video"]["error"] = str(e)
+                    packet["video"]["force_rerender"] = False
                     changed = True
             else:
                 click.echo(f"  ✓ Video already rendered for {story_id}")
