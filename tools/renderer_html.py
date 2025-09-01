@@ -13,10 +13,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import logging
-import sys
-
-# Add parent directory to Python path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import re
 
 from services.media import probe_duration, file_exists
 
@@ -33,16 +30,47 @@ DEFAULT_PLACEHOLDER = "Content placeholder text for display purposes"
 
 
 def get_renderer_config() -> Dict[str, Any]:
-    """Get renderer configuration from environment variables."""
+    """Get renderer configuration from environment variables with validation."""
+    # Validate viewport format
     viewport = os.getenv("RENDERER_VIEWPORT", "1080x1920")
+    if not re.match(r'^\d+x\d+$', viewport):
+        raise ValueError(f"Invalid viewport format: {viewport}. Expected format: WIDTHxHEIGHT")
+    
     width, height = map(int, viewport.split("x"))
+    
+    # Validate fps
+    fps_str = os.getenv("RENDERER_FPS", "30")
+    try:
+        fps = int(fps_str)
+        if not (1 <= fps <= 120):
+            raise ValueError(f"FPS must be between 1 and 120, got: {fps}")
+    except ValueError as e:
+        raise ValueError(f"Invalid FPS value '{fps_str}': {e}")
+    
+    # Validate slide duration
+    slide_duration_str = os.getenv("RENDERER_SLIDE_SECONDS", "6")
+    try:
+        slide_duration = int(slide_duration_str)
+        if slide_duration < 1:
+            raise ValueError(f"Slide duration must be >= 1, got: {slide_duration}")
+    except ValueError as e:
+        raise ValueError(f"Invalid slide duration '{slide_duration_str}': {e}")
+    
+    # Validate CRF
+    crf_str = os.getenv("RENDERER_CRF", "18")
+    try:
+        crf = int(crf_str)
+        if not (0 <= crf <= 51):
+            raise ValueError(f"CRF must be between 0 and 51, got: {crf}")
+    except ValueError as e:
+        raise ValueError(f"Invalid CRF value '{crf_str}': {e}")
     
     return {
         "viewport_width": width,
         "viewport_height": height,
-        "fps": int(os.getenv("RENDERER_FPS", "30")),
-        "slide_duration": int(os.getenv("RENDERER_SLIDE_SECONDS", "6")),
-        "crf": int(os.getenv("RENDERER_CRF", "18")),
+        "fps": fps,
+        "slide_duration": slide_duration,
+        "crf": crf,
         "force": os.getenv("RENDERER_FORCE", "false").lower() == "true",
         "theme": os.getenv("RENDERER_THEME", "light")
     }
@@ -54,7 +82,6 @@ def sanitize_story_id(story_id: str) -> str:
         return "unknown"
     
     # Replace invalid characters with underscores
-    import re
     sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', story_id)
     
     # Remove consecutive underscores
@@ -164,6 +191,9 @@ def render_html_to_png(html_str: str, out_path: Path) -> None:
     config = get_renderer_config()
     start_time = time.time()
     
+    browser = None
+    temp_html_path = None
+    
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -180,37 +210,49 @@ def render_html_to_png(html_str: str, out_path: Path) -> None:
                 f.write(html_str)
                 temp_html_path = f.name
             
-            try:
-                # Load the HTML file
-                page.goto(f"file://{temp_html_path}")
-                
-                # Wait for fonts to load
-                page.wait_for_load_state("networkidle")
-                
-                # Take screenshot of viewport only (not full page)
-                page.screenshot(path=str(out_path), full_page=False)
-                
-                render_time = (time.time() - start_time) * 1000
-                logger.info(f"Rendered PNG: {out_path} ({render_time:.0f}ms)")
-                
-            finally:
-                # Clean up temp file
-                Path(temp_html_path).unlink(missing_ok=True)
-                browser.close()
+            # Load the HTML file
+            page.goto(f"file://{temp_html_path}")
+            
+            # Wait for fonts to load
+            page.wait_for_load_state("networkidle")
+            
+            # Take screenshot of viewport only (not full page)
+            page.screenshot(path=str(out_path), full_page=False)
+            
+            render_time = (time.time() - start_time) * 1000
+            logger.info(f"Rendered PNG: {out_path} ({render_time:.0f}ms)")
                 
     except Exception as e:
         render_time = (time.time() - start_time) * 1000
-        logger.error(f"Failed to render HTML to PNG after {render_time:.0f}ms: {e}")
-        raise RuntimeError(f"Chromium launch failed: {e}. Please ensure Playwright is installed and system dependencies are available.")
+        logger.exception(f"Failed to render HTML to PNG after {render_time:.0f}ms")
+        # Re-raise with more specific context
+        if "chromium" in str(e).lower() or "browser" in str(e).lower():
+            raise RuntimeError(f"Chromium browser error: {e}. Please ensure Playwright is installed and system dependencies are available.") from e
+        elif "timeout" in str(e).lower():
+            raise RuntimeError(f"Rendering timeout: {e}. The page may be too complex or network resources unavailable.") from e
+        else:
+            raise RuntimeError(f"HTML rendering failed: {e}") from e
+    finally:
+        # Clean up resources even if browser crashes
+        if temp_html_path:
+            Path(temp_html_path).unlink(missing_ok=True)
+        if browser:
+            try:
+                browser.close()
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to close browser during cleanup: {cleanup_error}")
 
 
 class HtmlSlideRenderer:
     """Renders story slides using HTML templates and Playwright."""
     
     def __init__(self):
-        # Setup Jinja2 environment
+        # Setup Jinja2 environment with autoescape for security
         templates_dir = Path(__file__).parent / "templates"
-        self.env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        self.env = Environment(
+            loader=FileSystemLoader(str(templates_dir)),
+            autoescape=True  # Enable autoescape to prevent XSS
+        )
         
         # Brand tokens path
         self.brand_tokens_path = str(Path(__file__).parent / "assets" / "brand-tokens.css")

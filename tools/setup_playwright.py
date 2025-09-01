@@ -13,11 +13,11 @@ def main():
     print("Setting up Playwright for HTML→PNG rendering...")
     
     try:
-        # Install Playwright browsers (Chromium)
+        # Install Playwright browsers (Chromium) with dependencies
         print("Installing Chromium browser...")
-        result = subprocess.run([
-            sys.executable, "-m", "playwright", "install", "chromium"
-        ], timeout=120, check=True)
+        subprocess.run([
+            sys.executable, "-m", "playwright", "install", "chromium", "--with-deps"
+        ], timeout=300, check=True)
         
         print("✅ Chromium browser installed successfully!")
         print("Playwright is ready for HTML→PNG rendering.")

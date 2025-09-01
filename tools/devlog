@@ -122,11 +122,10 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
             # Only render if video is not rendered OR if force_rerender is set
             needs_rendering = video_status != "rendered" or force_rerender
             
-            # Set force_rerender flag when explainer status changes to recorded
-            # This allows for re-rendering when explainer content changes
-            if explainer_status == "recorded" and video_status == "rendered" and not force_rerender:
-                # Check if this is a new explainer recording (explainer was previously not recorded)
-                # We'll set force_rerender to true to trigger re-rendering
+            # Set force_rerender flag only when explainer status has changed since last render
+            # This prevents perpetual re-renders when explainer status hasn't actually changed
+            explainer_status_at_render = video_info.get("explainer_status_at_render")
+            if explainer_status == "recorded" and video_status == "rendered" and explainer_status != explainer_status_at_render:
                 video_info["force_rerender"] = True
                 needs_rendering = True
             
@@ -158,10 +157,20 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
                     if "video" not in packet:
                         packet["video"] = {}
                     
+                    # Normalize path to be relative to base_dir for publishing
+                    try:
+                        relative_path = Path(out_mp4).relative_to(base_dir)
+                        video_path_for_publish = str(relative_path)
+                    except ValueError:
+                        # If out_mp4 is not relative to base_dir, use as-is
+                        video_path_for_publish = out_mp4
+                    
                     packet["video"]["status"] = "rendered"
-                    packet["video"]["path"] = out_mp4
+                    packet["video"]["path"] = video_path_for_publish
                     packet["video"]["canvas"] = "1080x1920"
                     packet["video"]["force_rerender"] = False
+                    # Store current explainer status to prevent unnecessary re-renders
+                    packet["video"]["explainer_status_at_render"] = explainer_status
                     
                     # Get duration and calculate frames
                     from tools.renderer_html import get_renderer_config
@@ -173,8 +182,19 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
                         
                         # Validate fps configuration before computing frames
                         fps = config.get("fps")
-                        if fps and isinstance(fps, (int, float)) and fps > 0:
-                            packet["video"]["frames"] = int(duration * fps)
+                        parsed_fps = None
+                        
+                        # Handle string values by attempting to parse
+                        if isinstance(fps, str):
+                            try:
+                                parsed_fps = float(fps.strip())
+                            except (ValueError, AttributeError):
+                                pass
+                        elif isinstance(fps, (int, float)):
+                            parsed_fps = float(fps)
+                        
+                        if parsed_fps and parsed_fps > 0:
+                            packet["video"]["frames"] = int(duration * parsed_fps)
                         else:
                             # Use sensible default if fps is missing or invalid
                             default_fps = 30
