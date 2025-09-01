@@ -145,8 +145,12 @@ class StoryState:
             Updated story packet
             
         Raises:
-            ValueError: If date is naive and assume_utc is False
+            ValueError: If date is naive and assume_utc is False, or if duration is not a positive integer
         """
+        # Validate duration is a positive integer
+        if not isinstance(duration, int) or duration <= 0:
+            raise ValueError(f"duration must be a positive integer, got {duration}")
+        
         # Normalize date to UTC first
         normalized_date = self._normalize_date(date, assume_utc)
         digest, file_path = self._load_digest(normalized_date)

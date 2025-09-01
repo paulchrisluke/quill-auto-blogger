@@ -130,8 +130,8 @@ class OBSController:
         # Validate parameters (allow int or float, non-negative)
         if not isinstance(prep_delay, (int, float)) or prep_delay < 0:
             return ObsResult(ok=False, error=f"prep_delay must be a non-negative number, got {prep_delay}")
-        if not isinstance(duration, (int, float)) or duration < 0:
-            return ObsResult(ok=False, error=f"duration must be a non-negative number, got {duration}")
+        if not isinstance(duration, (int, float)) or duration <= 0:
+            return ObsResult(ok=False, error=f"duration must be a positive number, got {duration}")
         
         started_by_us = False
         try:

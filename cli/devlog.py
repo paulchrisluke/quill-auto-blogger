@@ -147,12 +147,12 @@ def record_bounded(story_id: str, date: datetime | None):
         click.echo(f"[OK] Bounded recording completed for {story_id} ({duration}s)")
     except Exception as e:
         click.echo(f"[ERR] Failed to complete bounded recording for story {story_id}: {e}")
-        # Clean up recording state on failure
+        # Mark as failed instead of recorded when completion fails
         try:
-            state.end_recording(date, story_id, assume_utc=True)
-            click.echo(f"[INFO] Recording state cleaned up for {story_id}")
+            state.fail_recording(date, story_id, reason=f"State finalization failed: {e}", assume_utc=True)
+            click.echo(f"[INFO] Recording marked as failed for {story_id}")
         except Exception as cleanup_error:
-            click.echo(f"[WARN] Failed to cleanup recording state: {cleanup_error}")
+            click.echo(f"[WARN] Failed to mark recording as failed: {cleanup_error}")
         raise SystemExit(1) from e
 
 
