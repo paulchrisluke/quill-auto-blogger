@@ -140,7 +140,12 @@ class OBSController:
             
             # Start recording using asyncio.to_thread to avoid blocking
             start = await asyncio.to_thread(self.start_recording)
-            # Derive whether we started recording based on start result
+            
+            if not start.ok:
+                # If start failed, we definitely didn't start recording
+                return ObsResult(ok=False, error=start.error, info=start.info, started_by_us=False, story_id=story_id)
+            
+            # Derive whether we started recording based on start result (only when start.ok is True)
             if isinstance(start.info, dict) and "started_by_us" in start.info:
                 started_by_us = bool(start.info["started_by_us"])
             else:

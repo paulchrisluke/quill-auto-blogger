@@ -141,19 +141,22 @@ def record_bounded(story_id: str, date: datetime | None):
             click.echo(f"[WARN] Failed to mark recording as failed: {fail_err}")
         raise SystemExit(1)
     
-    # Success path: complete the bounded recording state
-    try:
-        state.complete_bounded_recording(date, story_id, duration, assume_utc=True)
-        click.echo(f"[OK] Bounded recording completed for {story_id} ({duration}s)")
-    except Exception as e:
-        click.echo(f"[ERR] Failed to complete bounded recording for story {story_id}: {e}")
-        # Mark as failed instead of recorded when completion fails
+    # Success path: only finalize if we started the recording
+    if started_by_us:
         try:
-            state.fail_recording(date, story_id, reason=f"State finalization failed: {e}", assume_utc=True)
-            click.echo(f"[INFO] Recording marked as failed for {story_id}")
-        except Exception as cleanup_error:
-            click.echo(f"[WARN] Failed to mark recording as failed: {cleanup_error}")
-        raise SystemExit(1) from e
+            state.complete_bounded_recording(date, story_id, duration, assume_utc=True)
+            click.echo(f"[OK] Bounded recording completed for {story_id} ({duration}s)")
+        except Exception as e:
+            click.echo(f"[ERR] Failed to complete bounded recording for story {story_id}: {e}")
+            # Mark as failed instead of recorded when completion fails
+            try:
+                state.fail_recording(date, story_id, reason=f"State finalization failed: {e}", assume_utc=True)
+                click.echo(f"[INFO] Recording marked as failed for {story_id}")
+            except Exception as cleanup_error:
+                click.echo(f"[WARN] Failed to mark recording as failed: {cleanup_error}")
+            raise SystemExit(1) from e
+    else:
+        click.echo(f"[INFO] Bounded recording succeeded but did not finalize state for {story_id} (recording was already active)")
 
 
 if __name__ == "__main__":
