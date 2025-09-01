@@ -78,10 +78,17 @@ class Publisher:
                 )
             
             # Initialize S3 client for R2
+            # Handle both Pydantic SecretStr and plain string types for secret_access_key
+            secret_key = self.r2_credentials.secret_access_key
+            if hasattr(secret_key, 'get_secret_value'):
+                aws_secret_access_key = secret_key.get_secret_value()
+            else:
+                aws_secret_access_key = str(secret_key) if secret_key is not None else ""
+            
             self.s3_client = boto3.client(
                 's3',
                 aws_access_key_id=self.r2_credentials.access_key_id,
-                aws_secret_access_key=self.r2_credentials.secret_access_key,
+                aws_secret_access_key=aws_secret_access_key,
                 endpoint_url=self.r2_credentials.endpoint,
                 region_name=self.r2_credentials.region
             )

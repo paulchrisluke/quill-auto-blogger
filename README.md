@@ -2,6 +2,15 @@
 
 A Python project that fetches and processes Twitch clips and GitHub activity, with automatic transcription using the Cloudflare Workers AI Whisper API. It also includes a digest builder that generates daily blog posts with structured front matter for SEO and social sharing.
 
+## M2 Features - Capture & Control
+
+- **OBS Integration**: Safe start/stop recording via Discord/CLI
+- **Story State Management**: Persist recording status in v2 digest files
+- **Discord Bot**: Slash commands for story control and outlines
+- **CLI Interface**: Command-line recording control
+- **24h Reminders**: Gentle nudges for missing explainers
+- **Local-first**: Minimal dependencies, no external services required
+
 ## Features
 
 - **Twitch Integration**: Fetch recent clips for any broadcaster
@@ -295,6 +304,56 @@ pytest tests/test_transcribe.py
 
 # Test blog digest builder
 pytest tests/test_blog.py
+
+# Test OBS controller
+pytest tests/test_obs_controller.py
+
+# Test story state
+pytest tests/test_story_state.py
+```
+
+### M2 - Capture & Control Usage
+
+#### Start Bots
+
+```bash
+# Discord Bot
+python discord_bot.py
+
+# Reminder Service (optional)
+python -m services.reminder
+```
+
+#### Record from CLI
+
+```bash
+# Start recording for a story
+python -m cli.devlog record --story story_20250827_pr35 --action start --date 2025-08-27
+
+# Stop recording for a story
+python -m cli.devlog record --story story_20250827_pr35 --action stop --date 2025-08-27
+```
+
+#### Discord Commands
+
+- `/story_list` - List today's stories with statuses
+- `/record_start <id>` - Start recording for a story
+- `/record_stop <id>` - Stop recording for a story  
+- `/story_outline <id>` - Generate talk track outline
+
+#### Webhook Endpoints
+
+```bash
+# Start recording via HTTP
+curl -X POST http://localhost:8000/control/record/start \
+  -H "Content-Type: application/json" \
+  -d '{"story_id": "story_20250827_pr35", "date": "2025-08-27"}'
+
+# Stop recording via HTTP
+curl -X POST http://localhost:8000/control/record/stop \
+  -H "Content-Type: application/json" \
+  -d '{"story_id": "story_20250827_pr35", "date": "2025-08-27"}'
+```
 ```
 
 ## Project Structure
@@ -310,7 +369,11 @@ quill-auto-blogger/
 │   ├── github.py          # GitHub API client
 │   ├── transcribe.py      # Audio transcription
 │   ├── utils.py           # Cache and utility functions
-│   └── blog.py            # Digest builder and front matter generator
+│   ├── blog.py            # Digest builder and front matter generator
+│   ├── obs_controller.py  # OBS recording control
+│   ├── story_state.py     # Story state persistence
+│   ├── outline.py         # Talk track generation
+│   └── reminder.py        # 24h reminder service
 ├── data/                  # Stored JSON data
 ├── blogs/                 # Generated JSON digests (pre-cleaned for AI processing)
 ├── tests/                 # Test suite
@@ -319,7 +382,9 @@ quill-auto-blogger/
 │   ├── test_models.py
 │   ├── test_utils.py
 │   ├── test_transcribe.py
-│   └── test_blog.py
+│   ├── test_blog.py
+│   ├── test_obs_controller.py
+│   └── test_story_state.py
 ├── requirements.txt
 ├── env.example
 └── README.md
