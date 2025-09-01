@@ -139,3 +139,4 @@ class OBSController:
         # Stop recording
         stop = self.stop_recording()
         return stop
+>>>>>>> main

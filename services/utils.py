@@ -360,3 +360,40 @@ def get_file_hash(file_path: Path) -> str:
         for chunk in iter(lambda: f.read(4096), b""):
             hash_sha256.update(chunk)
     return hash_sha256.hexdigest()
+
+
+def validate_story_id(story_id: str) -> bool:
+    """
+    Validate story_id to prevent path traversal and CLI misuse.
+    
+    Args:
+        story_id: The story ID to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    if not story_id or not isinstance(story_id, str):
+        return False
+    
+    # Reject IDs that start with hyphens to prevent CLI option injection
+    if story_id.startswith('-'):
+        return False
+    
+    # Enforce ASCII-only characters
+    if not story_id.isascii():
+        return False
+    
+    # Restrict to safe charset: alphanumeric, hyphens, underscores only
+    if not story_id.replace('-', '').replace('_', '').isalnum():
+        return False
+    
+    # Limit length to prevent abuse
+    if len(story_id) > 50:
+        return False
+    
+    # Prevent common path traversal patterns
+    dangerous_patterns = ['..', '/', '\\', '~']
+    if any(pattern in story_id for pattern in dangerous_patterns):
+        return False
+    
+    return True

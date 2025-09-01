@@ -4,12 +4,14 @@ Tests for authentication service.
 
 import pytest
 import json
+import os
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
 from services.auth import AuthService
 from models import TwitchToken, GitHubToken
+from pydantic import SecretStr
 
 
 class TestAuthService:
@@ -31,7 +33,7 @@ class TestAuthService:
     def test_load_twitch_token_valid(self):
         """Test loading valid Twitch token from file."""
         test_token = TwitchToken(
-            access_token="test_token",
+            access_token=SecretStr("test_token"),
             expires_in=3600,
             token_type="bearer",
             expires_at=datetime.now() + timedelta(hours=1)
@@ -39,16 +41,20 @@ class TestAuthService:
         
         with patch('pathlib.Path.exists', return_value=True):
             with patch('builtins.open', create=True) as mock_open:
-                mock_open.return_value.__enter__.return_value.read.return_value = test_token.model_dump_json()
+                # Create the JSON data that would be saved by the new method
+                data = test_token.model_dump()
+                data['access_token'] = test_token.access_token.get_secret_value()
+                import json
+                mock_open.return_value.__enter__.return_value.read.return_value = json.dumps(data, default=str)
                 
                 token = self.auth_service._load_twitch_token()
                 assert token is not None
-                assert token.access_token == "test_token"
+                assert token.access_token.get_secret_value() == "test_token"
     
     def test_is_token_expired_future(self):
         """Test token expiration check for future token."""
         future_token = TwitchToken(
-            access_token="test_token",
+            access_token=SecretStr("test_token"),
             expires_in=3600,
             token_type="bearer",
             expires_at=datetime.now() + timedelta(hours=1)
@@ -59,7 +65,7 @@ class TestAuthService:
     def test_is_token_expired_past(self):
         """Test token expiration check for expired token."""
         past_token = TwitchToken(
-            access_token="test_token",
+            access_token=SecretStr("test_token"),
             expires_in=3600,
             token_type="bearer",
             expires_at=datetime.now() - timedelta(hours=1)
@@ -87,7 +93,7 @@ class TestAuthService:
             token = self.auth_service._refresh_twitch_token()
             
             assert token is not None
-            assert token.access_token == "new_token"
+            assert token.access_token.get_secret_value() == "new_token"
             assert token.expires_in == 3600
     
     @patch('httpx.Client')
@@ -189,7 +195,7 @@ class TestAuthService:
     def test_get_github_token(self):
         """Test GitHub token retrieval."""
         test_token = GitHubToken(
-            token="test_github_token",
+            token=SecretStr("test_github_token"),
             expires_at=datetime.now() + timedelta(days=30)
         )
         
@@ -200,7 +206,7 @@ class TestAuthService:
     def test_get_github_token_expired(self):
         """Test GitHub token retrieval when expired."""
         expired_token = GitHubToken(
-            token="test_github_token",
+            token=SecretStr("test_github_token"),
             expires_at=datetime.now() - timedelta(days=1)
         )
         
@@ -222,3 +228,39 @@ class TestAuthService:
         with patch.object(self.auth_service, 'get_github_token', return_value=None):
             with pytest.raises(ValueError, match="GitHub token not available or expired"):
                 self.auth_service.get_github_headers()
+    
+    def test_get_obs_credentials(self, tmp_path, monkeypatch):
+        """Test getting OBS credentials."""
+        # Patch Path.home to return tmp_path so AuthService uses the sandbox
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        
+        with patch.dict(os.environ, {
+            'OBS_HOST': '127.0.0.1',
+            'OBS_PORT': '4455',
+            'OBS_PASSWORD': 'test_password',
+            'OBS_SCENE': 'test_scene',
+            'OBS_DRY_RUN': 'false'
+        }):
+            auth_service = AuthService()
+            credentials = auth_service.get_obs_credentials()
+            assert credentials is not None
+            assert credentials.host == '127.0.0.1'
+            assert credentials.port == 4455
+            assert credentials.password.get_secret_value() == 'test_password'
+            assert credentials.scene == 'test_scene'
+            assert not credentials.dry_run
+    
+    def test_validate_obs_auth_dry_run(self, tmp_path, monkeypatch):
+        """Test OBS auth validation in dry run mode."""
+        # Patch Path.home to return tmp_path so AuthService uses the sandbox
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        
+        with patch.dict(os.environ, {
+            'OBS_HOST': '127.0.0.1',
+            'OBS_PORT': '4455',
+            'OBS_PASSWORD': 'test_password',
+            'OBS_SCENE': 'test_scene',
+            'OBS_DRY_RUN': 'true'
+        }):
+            auth_service = AuthService()
+            assert auth_service.validate_obs_auth() is True

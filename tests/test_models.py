@@ -5,6 +5,7 @@ Tests for Pydantic models.
 import pytest
 from datetime import datetime
 from models import TwitchClip, GitHubEvent, TwitchToken, GitHubToken, SeenIds
+from pydantic import SecretStr
 
 
 class TestTwitchClip:
@@ -130,27 +131,27 @@ class TestTwitchToken:
     def test_twitch_token_creation(self):
         """Test creating a TwitchToken."""
         token = TwitchToken(
-            access_token="test_token",
+            access_token=SecretStr("test_token"),
             expires_in=3600,
             token_type="bearer",
             expires_at=datetime.now()
         )
         
-        assert token.access_token == "test_token"
+        assert token.access_token.get_secret_value() == "test_token"
         assert token.expires_in == 3600
         assert token.token_type == "bearer"
     
     def test_twitch_token_serialization(self):
         """Test TwitchToken serialization to dict."""
         token = TwitchToken(
-            access_token="test_token",
+            access_token=SecretStr("test_token"),
             expires_in=3600,
             token_type="bearer",
             expires_at=datetime(2023, 1, 1, 12, 0, 0)
         )
         
         data = token.model_dump()
-        assert data["access_token"] == "test_token"
+        assert data["access_token"].get_secret_value() == "test_token"
         assert data["expires_in"] == 3600
         assert "expires_at" in data
 
@@ -161,24 +162,24 @@ class TestGitHubToken:
     def test_github_token_creation(self):
         """Test creating a GitHubToken."""
         token = GitHubToken(
-            token="test_github_token",
+            token=SecretStr("test_github_token"),
             expires_at=datetime.now(),
             permissions={"contents": "read", "metadata": "read"}
         )
         
-        assert token.token == "test_github_token"
+        assert token.token.get_secret_value() == "test_github_token"
         assert token.permissions == {"contents": "read", "metadata": "read"}
     
     def test_github_token_serialization(self):
         """Test GitHubToken serialization to dict."""
         token = GitHubToken(
-            token="test_github_token",
+            token=SecretStr("test_github_token"),
             expires_at=datetime(2023, 1, 1, 12, 0, 0),
             permissions={"contents": "read"}
         )
         
         data = token.model_dump()
-        assert data["token"] == "test_github_token"
+        assert data["token"].get_secret_value() == "test_github_token"
         assert data["permissions"] == {"contents": "read"}
         assert "expires_at" in data
 

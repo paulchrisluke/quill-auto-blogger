@@ -162,7 +162,6 @@ def test_obs_bounded_recording_dry_run(monkeypatch, tmp_path):
     c = OBSController()
     
     # Test bounded recording
-    import asyncio
     start_time = time.time()
     result = asyncio.run(c.record_bounded("test_story", 1, 2))
     end_time = time.time()
@@ -221,3 +220,4 @@ def test_obs_bounded_recording_timing(monkeypatch, tmp_path):
     assert elapsed <= expected_max, f"Bounded recording too slow: {elapsed:.3f}s (expected <={expected_max:.3f}s)"
     
     print(f"✅ Bounded recording timing accurate: {elapsed:.3f}s (expected {prep_delay + duration:.3f}s ±0.2s)")
+>>>>>>> main

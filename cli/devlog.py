@@ -120,6 +120,6 @@ def record_bounded(story_id: str, date: datetime | None):
     except Exception as e:
         click.echo(f"[ERR] Failed to complete bounded recording for story {story_id}: {e}")
         raise SystemExit(1)
-
+>>>>>>> main
 if __name__ == "__main__":
     devlog()

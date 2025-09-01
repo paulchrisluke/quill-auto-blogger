@@ -105,7 +105,7 @@ class TestPublisher:
             assert publisher.publish_target == 'r2'
             assert publisher.r2_credentials is not None
             assert publisher.r2_credentials.access_key_id == 'test-access-key-id'
-            assert publisher.r2_credentials.secret_access_key == 'test-secret-access-key'
+            assert publisher.r2_credentials.secret_access_key.get_secret_value() == 'test-secret-access-key'
             assert publisher.r2_credentials.endpoint == 'https://test-account-id.r2.cloudflarestorage.com'
             assert publisher.r2_credentials.bucket == 'test-bucket'
     
