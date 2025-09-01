@@ -120,4 +120,3 @@ def test_bounded_recording_completion(tmp_path: Path):
     iso_pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{6}\+\d{2}:\d{2}$'
     assert re.match(iso_pattern, pkt["video"]["started_at"])
     assert re.match(iso_pattern, pkt["video"]["ended_at"])
->>>>>>> main

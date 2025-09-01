@@ -220,4 +220,3 @@ def test_obs_bounded_recording_timing(monkeypatch, tmp_path):
     assert elapsed <= expected_max, f"Bounded recording too slow: {elapsed:.3f}s (expected <={expected_max:.3f}s)"
     
     print(f"✅ Bounded recording timing accurate: {elapsed:.3f}s (expected {prep_delay + duration:.3f}s ±0.2s)")
->>>>>>> main

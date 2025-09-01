@@ -169,7 +169,7 @@ class StoryState:
         
         self._save_digest(normalized_date, digest, file_path)
         return packet
->>>>>>> main
+
     @staticmethod
     def _find_story(digest: Dict[str, Any], story_id: str) -> Dict[str, Any]:
         for p in digest.get("story_packets", []):
