@@ -112,43 +112,94 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
         for packet in story_packets:
             story_id = packet.get("id")
             video_info = packet.get("video", {})
+            explainer_info = packet.get("explainer", {})
             
-            # Check if video needs rendering
-            video_path = video_info.get("path", "")
-            is_local_path = video_path and not video_path.startswith(("http://", "https://", "/stories/"))
-            needs_rendering = (video_info.get("status") != "rendered" or 
-                             not video_path or 
-                             (is_local_path and not file_exists(video_path)))
+            # Check if packet needs rendering based on video status and force_rerender flag
+            explainer_status = explainer_info.get("status")
+            video_status = video_info.get("status")
+            force_rerender = video_info.get("force_rerender", False)
+            
+            # Only render if video is not rendered OR if force_rerender is set
+            needs_rendering = video_status != "rendered" or force_rerender
+            
+            # Set force_rerender flag only when explainer status has changed since last render
+            # This prevents perpetual re-renders when explainer status hasn't actually changed
+            explainer_status_at_render = video_info.get("explainer_status_at_render")
+            if explainer_status == "recorded" and video_status == "rendered" and explainer_status != explainer_status_at_render:
+                video_info["force_rerender"] = True
+                needs_rendering = True
             
             if needs_rendering:
                 click.echo(f"  Rendering video for {story_id}...")
+                
+                # First, attempt to import the renderer module
                 try:
-                    # Render video using existing renderer
-                    result = subprocess.run([
-                        sys.executable, str(base_dir / "tools/renderer_stub.py"), date
-                    ], capture_output=True, text=True, check=True)
+                    from tools.renderer_html import render_for_packet
+                except (ImportError, SyntaxError) as e:
+                    click.echo(f"  ✗ Failed to import renderer module for {story_id}: {e}", err=True)
+                    click.echo(f"  ✗ Cannot render video for packet {story_id} - skipping", err=True)
+                    # Mark as failed due to import error
+                    if "video" not in packet:
+                        packet["video"] = {}
+                    packet["video"]["status"] = "failed"
+                    packet["video"]["error"] = f"Import error: {e}"
+                    packet["video"]["force_rerender"] = False
+                    changed = True
+                    continue
+                
+                # Now attempt to render the video
+                try:
+                    # Render video using new HTML→PNG renderer
+                    out_dir = base_dir / f"out/videos/{date}"
+                    out_mp4 = render_for_packet(packet, out_dir)
                     
-                    # Reload digest to get updated video info
-                    with open(digest_path, 'r') as f:
-                        digest_data = json.load(f)
+                    # Update packet with video info
+                    if "video" not in packet:
+                        packet["video"] = {}
                     
-                    # Find and rebind the updated packet to ensure changes persist
-                    for i, updated_packet in enumerate(digest_data.get("story_packets", [])):
-                        if updated_packet.get("id") == story_id:
-                            # Ensure updated_packet has a video dict
-                            if "video" not in updated_packet:
-                                updated_packet["video"] = {}
-                            
-                            # Preserve published path if it exists
-                            current_path = packet.get("video", {}).get("path", "")
-                            if current_path and (current_path.startswith("/stories/") or current_path.startswith("http")):
-                                updated_packet["video"]["path"] = current_path
-                            
-                            # Update the packet in the digest_data list
-                            digest_data["story_packets"][i] = updated_packet
-                            # Also update the local packet reference
-                            packet.update(updated_packet)
-                            break
+                    # Normalize path to be relative to base_dir for publishing
+                    try:
+                        relative_path = Path(out_mp4).relative_to(base_dir)
+                        video_path_for_publish = str(relative_path)
+                    except ValueError:
+                        # If out_mp4 is not relative to base_dir, use as-is
+                        video_path_for_publish = out_mp4
+                    
+                    packet["video"]["status"] = "rendered"
+                    packet["video"]["path"] = video_path_for_publish
+                    packet["video"]["canvas"] = "1080x1920"
+                    packet["video"]["force_rerender"] = False
+                    # Store current explainer status to prevent unnecessary re-renders
+                    packet["video"]["explainer_status_at_render"] = explainer_status
+                    
+                    # Get duration and calculate frames
+                    from tools.renderer_html import get_renderer_config
+                    
+                    duration = probe_duration(out_mp4)
+                    if duration:
+                        packet["video"]["duration_s"] = round(duration, 2)
+                        config = get_renderer_config()
+                        
+                        # Validate fps configuration before computing frames
+                        fps = config.get("fps")
+                        parsed_fps = None
+                        
+                        # Handle string values by attempting to parse
+                        if isinstance(fps, str):
+                            try:
+                                parsed_fps = float(fps.strip())
+                            except (ValueError, AttributeError):
+                                pass
+                        elif isinstance(fps, (int, float)):
+                            parsed_fps = float(fps)
+                        
+                        if parsed_fps and parsed_fps > 0:
+                            packet["video"]["frames"] = int(duration * parsed_fps)
+                        else:
+                            # Use sensible default if fps is missing or invalid
+                            default_fps = 30
+                            packet["video"]["frames"] = int(duration * default_fps)
+                            click.echo(f"  ⚠️ Using default fps ({default_fps}) for {story_id} - config fps was invalid: {fps}")
                     
                     click.echo(f"  ✓ Rendered video for {story_id}")
                     changed = True
@@ -160,6 +211,16 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
                         packet["video"] = {}
                     packet["video"]["status"] = "failed"
                     packet["video"]["error"] = str(e)
+                    packet["video"]["force_rerender"] = False
+                    changed = True
+                except Exception as e:
+                    click.echo(f"  ✗ Render failed for {story_id} (packet_id: {story_id}, out_dir: {out_dir}): {e}", err=True)
+                    # Mark as failed
+                    if "video" not in packet:
+                        packet["video"] = {}
+                    packet["video"]["status"] = "failed"
+                    packet["video"]["error"] = str(e)
+                    packet["video"]["force_rerender"] = False
                     changed = True
             else:
                 click.echo(f"  ✓ Video already rendered for {story_id}")

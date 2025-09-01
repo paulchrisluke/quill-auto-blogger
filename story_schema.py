@@ -56,6 +56,7 @@ class VideoInfo(BaseModel):
     path: Optional[str] = None
     duration_s: Optional[float] = None
     canvas: str = "1080x1920"
+    force_rerender: bool = False
 
 
 class StoryLinks(BaseModel):

@@ -1,0 +1,155 @@
+/* Brand Tokens for quill-auto-blogger (GitHub-style) */
+
+:root {
+    /* Colors - GitHub-inspired palette */
+    --color-bg-primary: #F6F8FA;
+    --color-bg-secondary: #FFFFFF;
+    --color-border-primary: #D0D7DE;
+    --color-border-secondary: #D8DEE4;
+
+    /* Text colors */
+    --color-text-primary: #24292F;
+    --color-text-secondary: #656D76;
+    --color-text-tertiary: #8C959F;
+    --color-text-link: #0969DA;
+    --color-text-accent: #0969DA;
+
+    /* Accent colors */
+    --color-accent-primary: #0969DA;
+    --color-accent-secondary: #1F883D;
+    --color-accent-warning: #9A6700;
+    --color-accent-danger: #CF222E;
+
+    /* Shadows */
+    --shadow-small: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --shadow-large: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+    /* Border radius */
+    --radius-small: 6px;
+    --radius-medium: 12px;
+    --radius-large: 24px;
+
+    /* Spacing */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+    --space-2xl: 48px;
+    --space-3xl: 64px;
+
+    /* Typography */
+    --font-family-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+
+    /* Line heights */
+    --line-height-tight: 1.1;
+    --line-height-normal: 1.2;
+    --line-height-relaxed: 1.3;
+    --line-height-loose: 1.4;
+
+    /* Font sizes - converted from px to rem (root font-size: 16px) */
+    --text-xs: 1.5rem;
+    /* 24px / 16px */
+    --text-sm: 1.75rem;
+    /* 28px / 16px */
+    --text-base: 2rem;
+    /* 32px / 16px */
+    --text-lg: 2.5rem;
+    /* 40px / 16px */
+    --text-xl: 3rem;
+    /* 48px / 16px */
+    --text-2xl: 3.5rem;
+    /* 56px / 16px */
+    --text-3xl: 4rem;
+    /* 64px / 16px */
+    --text-4xl: 4.5rem;
+    /* 72px / 16px */
+    --text-5xl: 6rem;
+    /* 96px / 16px */
+    --text-6xl: 6.875rem;
+    /* 110px / 16px */
+}
+
+/* Dark theme support */
+[data-theme="dark"] {
+    --color-bg-primary: #0D1117;
+    --color-bg-secondary: #161B22;
+    --color-border-primary: #30363D;
+    --color-border-secondary: #21262D;
+
+    --color-text-primary: #F0F6FC;
+    --color-text-secondary: #8B949E;
+    --color-text-tertiary: #7D8590;
+    --color-text-link: #58A6FF;
+    --color-text-accent: #58A6FF;
+
+    --shadow-small: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-large: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Utility classes */
+.text-primary {
+    color: var(--color-text-primary);
+}
+
+.text-secondary {
+    color: var(--color-text-secondary);
+}
+
+.text-tertiary {
+    color: var(--color-text-tertiary);
+}
+
+.text-link {
+    color: var(--color-text-link);
+}
+
+.text-accent {
+    color: var(--color-text-accent);
+}
+
+.bg-primary {
+    background-color: var(--color-bg-primary);
+}
+
+.bg-secondary {
+    background-color: var(--color-bg-secondary);
+}
+
+.border-primary {
+    border-color: var(--color-border-primary);
+}
+
+.border-secondary {
+    border-color: var(--color-border-secondary);
+}
+
+.shadow-small {
+    box-shadow: var(--shadow-small);
+}
+
+.shadow-medium {
+    box-shadow: var(--shadow-medium);
+}
+
+.shadow-large {
+    box-shadow: var(--shadow-large);
+}
+
+.rounded-small {
+    border-radius: var(--radius-small);
+}
+
+.rounded-medium {
+    border-radius: var(--radius-medium);
+}
+
+.rounded-large {
+    border-radius: var(--radius-large);
+}
