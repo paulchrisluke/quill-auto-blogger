@@ -29,7 +29,7 @@ def record(story_id: str, action: str, date: datetime | None):
         obs = OBSController()
     except Exception as e:
         click.echo(f"[ERR] OBS initialization failed: {e}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
     
     state = StoryState()
 
@@ -53,7 +53,7 @@ def record(story_id: str, action: str, date: datetime | None):
                     click.echo(f"[INFO] OBS recording stopped during cleanup")
             except Exception as cleanup_error:
                 click.echo(f"[WARN] OBS cleanup failed: {cleanup_error}")
-            raise SystemExit(1)
+            raise SystemExit(1) from e
         
         click.echo(f"[OK] recording started for {story_id}")
     else:
@@ -79,8 +79,15 @@ def record_bounded(story_id: str, date: datetime | None):
     date = _today(date)
     
     # Get environment variables for timing
-    prep_delay = int(os.getenv("RECORDING_PREP_DELAY", "5"))
-    duration = int(os.getenv("RECORDING_DURATION", "15"))
+    try:
+        prep_delay = int(os.getenv("RECORDING_PREP_DELAY", "5"))
+        duration = int(os.getenv("RECORDING_DURATION", "15"))
+    except ValueError as e:
+        click.echo(f"[ERR] Invalid RECORDING_PREP_DELAY or RECORDING_DURATION: {e}")
+        raise SystemExit(1) from e
+    if prep_delay < 0 or duration <= 0:
+        click.echo("[ERR] prep_delay must be >= 0 and duration must be > 0")
+        raise SystemExit(1)
     
     click.echo(f"[INFO] Starting bounded recording for {story_id}")
     click.echo(f"[INFO] Prep delay: {prep_delay}s, Duration: {duration}s")
@@ -91,7 +98,7 @@ def record_bounded(story_id: str, date: datetime | None):
         obs = OBSController()
     except Exception as e:
         click.echo(f"[ERR] OBS initialization failed: {e}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
     
     state = StoryState()
     
@@ -100,7 +107,7 @@ def record_bounded(story_id: str, date: datetime | None):
         state.begin_recording(date, story_id, assume_utc=True)
     except Exception as e:
         click.echo(f"[ERR] Failed to begin recording for story {story_id}: {e}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
     
     # Run the bounded recording
     try:
@@ -111,7 +118,7 @@ def record_bounded(story_id: str, date: datetime | None):
             raise SystemExit(1)
     except Exception as e:
         click.echo(f"[ERR] Bounded recording failed: {e}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
     
     # Complete the bounded recording state
     try:
@@ -119,7 +126,7 @@ def record_bounded(story_id: str, date: datetime | None):
         click.echo(f"[OK] Bounded recording completed for {story_id} ({duration}s)")
     except Exception as e:
         click.echo(f"[ERR] Failed to complete bounded recording for story {story_id}: {e}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 if __name__ == "__main__":

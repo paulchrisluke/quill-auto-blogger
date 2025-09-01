@@ -7,6 +7,7 @@ import os
 import json
 import logging
 import re
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -142,6 +143,7 @@ class RecordControlRequest(BaseModel):
     """Request model for record control endpoints."""
     story_id: str
     date: Optional[str] = None
+    bounded: bool = False
     
     model_config = ConfigDict(extra="ignore")  # Allow extra fields but ignore them
     
@@ -302,74 +304,9 @@ async def save_story_packet(story_packet: StoryPacket):
     logger.info(f"Story packet saved to {packet_file}")
 
 
-@app.post("/control/record/start")
-async def start_recording(
-    story_id: str = Query(..., description="Story ID to record"),
-    bounded: bool = Query(False, description="Enable bounded recording mode"),
-    date: str = Query(None, description="Date for the story (YYYY-MM-DD)")
-):
-    """Start recording for a story, optionally with bounded mode."""
-    try:
-        from services.obs_controller import OBSController
-        from services.story_state import StoryState
-        
-        # Initialize OBS controller
-        obs = OBSController()
-        state = StoryState()
-        
-        # Parse date parameter or use current date
-        if date:
-            try:
-                parsed_date = datetime.strptime(date, "%Y-%m-%d")
-                date_obj = parsed_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-        else:
-            # Get current date
-            now = datetime.now()
-            date_obj = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        
-        # Begin recording state
-        state.begin_recording(date_obj, story_id, assume_utc=True)
-        
-        if bounded:
-            # Get environment variables for timing
-            prep_delay = int(os.getenv("RECORDING_PREP_DELAY", "5"))
-            duration = int(os.getenv("RECORDING_DURATION", "15"))
-            
-            # Start bounded recording in background
-            import asyncio
-            asyncio.create_task(run_bounded_recording(obs, state, date_obj, story_id, duration))
-            
-            return {
-                "status": "started",
-                "mode": "bounded",
-                "story_id": story_id,
-                "prep_delay": prep_delay,
-                "duration": duration
-            }
-        else:
-            # Start regular recording
-            result = obs.start_recording()
-            if not result.ok:
-                raise HTTPException(status_code=500, detail=f"Failed to start recording: {result.error}")
-            
-            return {
-                "status": "started",
-                "mode": "manual",
-                "story_id": story_id
-            }
-            
-    except Exception as e:
-        logger.error(f"Failed to start recording: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-async def run_bounded_recording(obs, state, date, story_id, duration):
+async def run_bounded_recording(obs, state, date, story_id, prep_delay, duration):
     """Run bounded recording in background."""
     try:
-        prep_delay = int(os.getenv("RECORDING_PREP_DELAY", "5"))
-        
         # Wait for prep delay
         await asyncio.sleep(prep_delay)
         
@@ -436,7 +373,6 @@ async def verify_control_auth(authorization: Optional[str] = Header(None)) -> No
             detail="Invalid authorization token",
             headers={"WWW-Authenticate": "Bearer"}
         )
->>>>>>> main
 
 
 @app.get("/health")
@@ -492,17 +428,56 @@ async def control_record_start(
     background_tasks: BackgroundTasks,
     _: None = Depends(verify_control_auth)
 ):
-    """Start recording for a story."""
+    """Start recording for a story, optionally with bounded mode."""
     
     try:
-        # Add task to background tasks with proper error handling
-        try:
-            background_tasks.add_task(_run_record_command_direct, payload.story_id, "start", payload.date)
-        except Exception as e:
-            logger.error(f"Failed to schedule recording start task: {e}")
-            raise HTTPException(status_code=500, detail="Failed to schedule recording task")
-        
-        return {"ok": True, "story_id": payload.story_id, "action": "start"}
+        if payload.bounded:
+            # Handle bounded recording with direct function calls
+            from services.obs_controller import OBSController
+            from services.story_state import StoryState
+            
+            # Initialize OBS controller
+            obs = OBSController()
+            state = StoryState()
+            
+            # Parse date parameter or use current date
+            if payload.date:
+                try:
+                    parsed_date = datetime.strptime(payload.date, "%Y-%m-%d")
+                    date_obj = parsed_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+            else:
+                # Get current date
+                now = datetime.now()
+                date_obj = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Begin recording state
+            state.begin_recording(date_obj, payload.story_id, assume_utc=True)
+            
+            # Get environment variables for timing
+            prep_delay = int(os.getenv("RECORDING_PREP_DELAY", "5"))
+            duration = int(os.getenv("RECORDING_DURATION", "15"))
+            
+            # Start bounded recording in background
+            asyncio.create_task(run_bounded_recording(obs, state, date_obj, payload.story_id, prep_delay, duration))
+            
+            return {
+                "status": "started",
+                "mode": "bounded",
+                "story_id": payload.story_id,
+                "prep_delay": prep_delay,
+                "duration": duration
+            }
+        else:
+            # Handle regular recording with background tasks
+            try:
+                background_tasks.add_task(_run_record_command_direct, payload.story_id, "start", payload.date)
+            except Exception as e:
+                logger.error(f"Failed to schedule recording start task: {e}")
+                raise HTTPException(status_code=500, detail="Failed to schedule recording task")
+            
+            return {"ok": True, "story_id": payload.story_id, "action": "start"}
         
     except HTTPException:
         # Re-raise HTTP exceptions as-is

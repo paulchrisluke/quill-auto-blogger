@@ -152,8 +152,6 @@ def test_obs_bounded_recording_dry_run(monkeypatch, tmp_path):
     monkeypatch.setenv("OBS_PORT", "4455")
     monkeypatch.setenv("OBS_PASSWORD", "test_password")
     monkeypatch.setenv("OBS_SCENE", "test_scene")
-    monkeypatch.setenv("RECORDING_PREP_DELAY", "1")
-    monkeypatch.setenv("RECORDING_DURATION", "2")
     
     # Mock Path.home() to return our temporary directory
     monkeypatch.setattr(Path, "home", mock_home)
@@ -162,9 +160,9 @@ def test_obs_bounded_recording_dry_run(monkeypatch, tmp_path):
     c = OBSController()
     
     # Test bounded recording
-    start_time = time.time()
+    start_time = time.perf_counter()
     result = asyncio.run(c.record_bounded("test_story", 1, 2))
-    end_time = time.time()
+    end_time = time.perf_counter()
     
     # Verify the result
     assert result.ok, f"Bounded recording failed: {result.error}"
@@ -204,9 +202,9 @@ def test_obs_bounded_recording_timing(monkeypatch, tmp_path):
     prep_delay = 0.1
     duration = 0.2
     
-    start_time = time.time()
+    start_time = time.perf_counter()
     result = asyncio.run(c.record_bounded("test_story", prep_delay, duration))
-    end_time = time.time()
+    end_time = time.perf_counter()
     
     # Verify the result
     assert result.ok, f"Bounded recording failed: {result.error}"
