@@ -109,7 +109,7 @@ def record_bounded(story_id: str, date: datetime | None):
         click.echo(f"[ERR] Failed to begin recording for story {story_id}: {e}")
         raise SystemExit(1) from e
     
-    # Run the bounded recording
+    # Run the bounded recording with proper cleanup
     try:
         import asyncio
         result = asyncio.run(obs.record_bounded(story_id, prep_delay, duration))
@@ -119,6 +119,23 @@ def record_bounded(story_id: str, date: datetime | None):
     except Exception as e:
         click.echo(f"[ERR] Bounded recording failed: {e}")
         raise SystemExit(1) from e
+    finally:
+        # Always perform cleanup and rollback regardless of success or failure
+        # This ensures OBS is properly stopped and story state is rolled back
+        
+        # OBS cleanup - stop recording and disconnect
+        try:
+            obs.stop_recording()
+            click.echo(f"[INFO] OBS recording stopped during cleanup for {story_id}")
+        except Exception as cleanup_error:
+            click.echo(f"[WARN] OBS stop recording failed during cleanup: {cleanup_error}")
+        
+        # Story state rollback - clear the "in-progress" flag
+        try:
+            state.end_recording(date, story_id, assume_utc=True)
+            click.echo(f"[INFO] Recording state rolled back for {story_id}")
+        except Exception as rollback_error:
+            click.echo(f"[WARN] Failed to rollback recording state: {rollback_error}")
     
     # Complete the bounded recording state
     try:
@@ -126,6 +143,12 @@ def record_bounded(story_id: str, date: datetime | None):
         click.echo(f"[OK] Bounded recording completed for {story_id} ({duration}s)")
     except Exception as e:
         click.echo(f"[ERR] Failed to complete bounded recording for story {story_id}: {e}")
+        # Clean up recording state on failure
+        try:
+            state.end_recording(date, story_id, assume_utc=True)
+            click.echo(f"[INFO] Recording state cleaned up for {story_id}")
+        except Exception as cleanup_error:
+            click.echo(f"[WARN] Failed to cleanup recording state: {cleanup_error}")
         raise SystemExit(1) from e
 
 

@@ -123,19 +123,50 @@ class OBSController:
             duration: Seconds to record
             
         Returns:
-            ObsResult from the stop recording operation
+            ObsResult from the start or stop recording operation
         """
-        # Wait for prep delay
-        await asyncio.sleep(prep_delay)
+        # Validate parameters
+        if not isinstance(prep_delay, int) or prep_delay < 0:
+            return ObsResult(ok=False, error=f"prep_delay must be a non-negative integer, got {prep_delay}")
+        if not isinstance(duration, int) or duration < 0:
+            return ObsResult(ok=False, error=f"duration must be a non-negative integer, got {duration}")
         
-        # Start recording
-        start = self.start_recording()
-        if not start.ok:
-            return start
-        
-        # Wait for duration
-        await asyncio.sleep(duration)
-        
-        # Stop recording
-        stop = self.stop_recording()
-        return stop
+        started = False
+        try:
+            # Wait for prep delay
+            await asyncio.sleep(prep_delay)
+            
+            # Start recording using asyncio.to_thread to avoid blocking
+            start = await asyncio.to_thread(self.start_recording)
+            if not start.ok:
+                return start
+            
+            started = True
+            
+            # Wait for duration
+            await asyncio.sleep(duration)
+            
+            # Stop recording using asyncio.to_thread to avoid blocking
+            stop = await asyncio.to_thread(self.stop_recording)
+            return stop
+            
+        except asyncio.CancelledError:
+            # If cancelled, stop recording if we started it
+            if started:
+                try:
+                    await asyncio.to_thread(self.stop_recording)
+                except Exception:
+                    # Ignore errors during cleanup
+                    pass
+            # Re-raise CancelledError after cleanup
+            raise
+        except Exception as e:
+            # If any other error occurs, stop recording if we started it
+            if started:
+                try:
+                    await asyncio.to_thread(self.stop_recording)
+                except Exception:
+                    # Ignore errors during cleanup
+                    pass
+            # Return error result
+            return ObsResult(ok=False, error=f"Recording failed: {e}")
