@@ -130,6 +130,68 @@ class StoryState:
         self._save_digest(normalized_date, digest, file_path)
         return packet
 
+    def complete_bounded_recording(self, date: datetime, story_id: str, duration: int, assume_utc: bool = False) -> Dict[str, Any]:
+        """
+        Complete a bounded recording and update video status.
+        
+        Args:
+            date: Timezone-aware datetime for the story date
+            story_id: Identifier for the story
+            duration: Duration of the recording in seconds
+            assume_utc: If True and date is naive, assume it's UTC. 
+                       If False (default), raise ValueError for naive datetimes.
+        
+        Returns:
+            Updated story packet
+            
+        Raises:
+            ValueError: If date is naive and assume_utc is False, or if duration is not a positive integer
+        """
+        # Validate duration is a positive integer
+        if not isinstance(duration, int) or duration <= 0:
+            raise ValueError(f"duration must be a positive integer, got {duration}")
+        
+        # Normalize date to UTC first
+        normalized_date = self._normalize_date(date, assume_utc)
+        digest, file_path = self._load_digest(normalized_date)
+        packet = self._find_story(digest, story_id)
+        
+        # Use current UTC time for ended_at
+        now = datetime.now(timezone.utc).isoformat()
+        
+        # Ensure explainer dict exists and update status
+        packet.setdefault("explainer", {})
+        packet["explainer"]["status"] = "recorded"
+        packet["explainer"]["completed_at"] = now
+        
+        # Ensure video dict exists and update status
+        packet.setdefault("video", {})
+        packet["video"]["status"] = "recorded"
+        packet["video"]["duration_s"] = duration
+        packet["video"]["started_at"] = packet["explainer"].get("started_at")
+        packet["video"]["ended_at"] = now
+        
+        self._save_digest(normalized_date, digest, file_path)
+        return packet
+
+    def fail_recording(self, date: datetime, story_id: str, reason: str | None = None, assume_utc: bool = False) -> Dict[str, Any]:
+        """
+        Mark a recording as failed without flipping to recorded/completed.
+        """
+        normalized_date = self._normalize_date(date, assume_utc)
+        digest, file_path = self._load_digest(normalized_date)
+        packet = self._find_story(digest, story_id)
+        now = datetime.now(timezone.utc).isoformat()
+        packet.setdefault("explainer", {})
+        packet["explainer"]["status"] = "failed"
+        packet["explainer"]["failed_at"] = now
+        if reason:
+            packet["explainer"]["failure_reason"] = reason
+        packet.setdefault("video", {})
+        packet["video"]["status"] = "failed"
+        self._save_digest(normalized_date, digest, file_path)
+        return packet
+
     @staticmethod
     def _find_story(digest: Dict[str, Any], story_id: str) -> Dict[str, Any]:
         for p in digest.get("story_packets", []):

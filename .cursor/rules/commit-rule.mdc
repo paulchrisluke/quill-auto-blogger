@@ -1,0 +1,25 @@
+---
+description: Append a short explainer paragraph (in Paul Chris Luke's voice) to commit messages without changing their content or the files list.
+alwaysApply: false
+---
+
+# Commit Voice Add-on — Explainer Paragraph (Paul Chris Luke)
+
+**Behavior (append-only):**
+- Do **not** edit the existing subject/body.
+- Append the explainer **after the body and before** any "Files changed" block.
+- If there's nothing substantive to teach, skip the explainer.
+
+## Explainer spec (one paragraph, blog-style)
+- **Length:** ~80–140 words (3–6 sentences).
+- **Open with a concrete artifact** from this commit (PR #, error text, param, file/class name).
+- **Explain what changed and why it mattered** in plain language.
+- Add **one practical takeaway or gotcha** (how to use, edge case, env impact).
+- **Close with forward motion** (what this unlocks or what's next).
+- First person, conversational, specific; no buzzwords, no invented events.
+
+## Template (insert verbatim header, then write the paragraph) 
+```
+Explainer (Paul Chris Luke)
+
+```
