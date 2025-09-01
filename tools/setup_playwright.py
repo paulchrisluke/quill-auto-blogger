@@ -23,7 +23,7 @@ def main():
         print("Playwright is ready for HTML→PNG rendering.")
         
     except subprocess.TimeoutExpired as e:
-        print(f"❌ Playwright browser installation timed out after 120 seconds")
+        print(f"❌ Playwright browser installation timed out after 300 seconds")
         if e.stdout:
             print(f"Partial stdout: {e.stdout.decode()}")
         if e.stderr:

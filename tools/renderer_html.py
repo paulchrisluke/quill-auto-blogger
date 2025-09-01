@@ -236,11 +236,7 @@ def render_html_to_png(html_str: str, out_path: Path) -> None:
         # Clean up resources even if browser crashes
         if temp_html_path:
             Path(temp_html_path).unlink(missing_ok=True)
-        if browser:
-            try:
-                browser.close()
-            except Exception as cleanup_error:
-                logger.warning(f"Failed to close browser during cleanup: {cleanup_error}")
+        # Note: browser is automatically closed by the sync_playwright() context manager
 
 
 class HtmlSlideRenderer:

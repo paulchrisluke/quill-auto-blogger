@@ -4,6 +4,7 @@ Tests for HTML→PNG renderer (M3).
 """
 
 import pytest
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -366,6 +367,12 @@ class TestRendererIntegration:
         except Exception:
             pytest.skip("Playwright/Chromium not available - skipping end-to-end test")
         
+        # Check if FFmpeg is available
+        try:
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pytest.skip("FFmpeg not available - skipping end-to-end test")
+        
         # Create test packet
         test_packet = {
             "id": "integration_test_story",
@@ -421,6 +428,12 @@ class TestRendererIntegration:
         except Exception:
             pytest.skip("Playwright/Chromium not available - skipping theme test")
         
+        # Check if FFmpeg is available
+        try:
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pytest.skip("FFmpeg not available - skipping theme test")
+        
         test_packet = {
             "id": "theme_test_story",
             "title_human": "Theme Test",
@@ -457,6 +470,12 @@ class TestRendererIntegration:
         except Exception:
             pytest.skip("Playwright/Chromium not available - skipping fallback test")
         
+        # Check if FFmpeg is available
+        try:
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pytest.skip("FFmpeg not available - skipping fallback test")
+        
         # Test packet with minimal content
         minimal_packet = {
             "id": "minimal_test",
@@ -491,6 +510,12 @@ class TestRendererIntegration:
                 browser.close()
         except Exception:
             pytest.skip("Playwright/Chromium not available - skipping idempotent test")
+        
+        # Check if FFmpeg is available
+        try:
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pytest.skip("FFmpeg not available - skipping idempotent test")
         
         test_packet = {
             "id": "idempotent_test",
