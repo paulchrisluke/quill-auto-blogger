@@ -179,16 +179,27 @@ def _generate_human_title(title_raw: str) -> str:
             title = title[len(prefix):].strip()
             break
     
+    # Remove common path prefixes first (before converting slashes)
+    path_prefixes = ["feature/", "fix/", "security/", "docs/", "perf/", "infra/"]
+    title_lower = title.lower()
+    for prefix in path_prefixes:
+        if title_lower.startswith(prefix):
+            title = title[len(prefix):].strip()
+            break
+    
+    # Clean up remaining slashes and paths - convert to spaces and normalize
+    title = title.replace("/", " ").replace("\\", " ")
+    title = title.replace("-", " ").replace("_", " ")
+    
     # Handle special cases for technical terms
     title = _normalize_technical_terms(title)
     
     # Convert to title case and clean up
-    title = title.replace("-", " ").replace("_", " ")
     title = " ".join(word.capitalize() for word in title.split())
     
     # Create stable, human-readable titles
     title_lower = title.lower()
-    if "twitch clips" in title_lower and "download" in title_lower and "transcribe" in title_lower:
+    if "twitch clips" in title_lower and ("download" in title_lower or "convert" in title_lower) and "transcribe" in title_lower:
         title = "Twitch Clips → Audio → Transcribe"
     elif "security" in title_lower and "implementation" in title_lower:
         title = "Security Implementation"
@@ -200,6 +211,8 @@ def _generate_human_title(title_raw: str) -> str:
         title = "Content Generation Schema"
     elif "ai blog generation" in title_lower:
         title = "AI Blog Generation"
+    elif "feature/cloudflare" in title_lower and "whisper" in title_lower:
+        title = "Cloudflare Whisper Transcription"
     
     # Add "Shipped:" prefix for features
     if any(word in title_raw.lower() for word in ["feat", "feature", "add", "implement"]):
@@ -379,7 +392,7 @@ def _extract_why_and_highlights(pr_event: Dict[str, Any]) -> tuple[str, List[str
         why = first_commit.split("\n")[0] if first_commit else ""  # First line only
     
     if not why:
-        # Try to extract from CodeRabbit summary
+        # Try to extract from CodeRabbit summary - look for actual feature descriptions
         if body and "Summary by CodeRabbit" in body:
             lines = body.split("\n")
             in_summary = False
@@ -398,8 +411,10 @@ def _extract_why_and_highlights(pr_event: Dict[str, Any]) -> tuple[str, List[str
                         feature = line[4:]
                     else:
                         feature = line[2:]
-                    why = f"Added {feature.lower()}"
-                    break
+                    # Only use if it's a real feature description, not a generic header
+                    if len(feature) > 10 and not feature.lower() in ["improvements", "documentation", "chores", "tests"]:
+                        why = f"Added {feature.lower()}"
+                        break
                 if in_summary and line.startswith("<!-- end of auto-generated comment"):
                     break
         
@@ -414,13 +429,17 @@ def _extract_why_and_highlights(pr_event: Dict[str, Any]) -> tuple[str, List[str
                 why = "Automated content processing from clips to searchable transcripts"
             elif 'cloudflare' in title and 'whisper' in title:
                 why = "Integrated AI-powered transcription for audio content"
+            elif 'content generation' in title and 'schema' in title:
+                why = "Implemented unified content generation schema for better data organization"
+            elif 'ai blog generation' in title:
+                why = "Added AI-powered blog generation with automated content creation"
             else:
                 why = "Delivered new functionality to improve the system"
     
     # Extract highlights from commit messages and PR body
     highlights = []
     
-    # First try to get highlights from CodeRabbit summary
+    # First try to get highlights from CodeRabbit summary - but filter out generic headers
     if body and "Summary by CodeRabbit" in body:
         lines = body.split("\n")
         in_summary = False
@@ -439,7 +458,8 @@ def _extract_why_and_highlights(pr_event: Dict[str, Any]) -> tuple[str, List[str
                     feature = line[4:]
                 else:
                     feature = line[2:]
-                if len(feature) > 10 and len(feature) < 100:
+                # Only include if it's a real feature description, not a generic header
+                if len(feature) > 10 and len(feature) < 100 and not feature.lower() in ["improvements", "documentation", "chores", "tests"]:
                     highlights.append(feature)
             if in_summary and line.startswith("<!-- end of auto-generated comment"):
                 break
@@ -462,17 +482,75 @@ def _extract_why_and_highlights(pr_event: Dict[str, Any]) -> tuple[str, List[str
             highlights = ["Audio processing", "Cloud storage", "Background tasks"]
         elif 'cloudflare' in title and 'whisper' in title:
             highlights = ["AI transcription", "Validation", "Automated scheduling"]
+        elif 'content generation' in title and 'schema' in title:
+            highlights = ["Unified data schema", "Content API", "Job processing"]
+        elif 'ai blog generation' in title:
+            highlights = ["AI-powered drafting", "Automated metadata", "Idempotent generation"]
         else:
             highlights = ["New feature implementation"]
     
-    # Clean up highlights - remove "Documentation" as a lone bullet and generic text
-    highlights = [h for h in highlights if h != "Documentation" and len(h) > 5 and not h.lower().startswith("feature/")]
+    # Clean up highlights - remove generic headers and improve quality
+    filtered_highlights = []
+    generic_headers = ["improvements", "documentation", "chores", "tests", "feature/", "fix/", "security/"]
+    generic_phrases = [
+        "transcripts and github context", 
+        "secrets and local dev overrides",
+        "new test/run scripts",
+        "added runtime deps",
+        "db migration for persistent jobs",
+        "stronger production guards",
+        "updated env examples",
+        "secret placeholder",
+        "secrets, local dev overrides",
+        "migration workflow",
+        "failure-tracking docs"
+    ]
     
-    # Clean up why text - remove filler phrases
+    for h in highlights:
+        h_lower = h.lower()
+        # Skip if it's a generic header, too short, or contains generic content
+        if (len(h) > 5 and 
+            not any(header in h_lower for header in generic_headers) and
+            not h_lower.startswith("feature/") and
+            not h_lower.startswith("fix/") and
+            not h_lower.startswith("security/") and
+            not any(phrase in h_lower for phrase in generic_phrases)):
+            filtered_highlights.append(h)
+    
+    # If we filtered out everything, provide better defaults
+    if not filtered_highlights:
+        title = pr_event.get("title", "").lower()
+        if 'content generation' in title and 'schema' in title:
+            filtered_highlights = ["Content API with background queue", "Daily manifest builder", "Blog generator with AI judging"]
+        elif 'ai blog generation' in title:
+            filtered_highlights = ["AI-powered blog drafting", "Production blog generation", "Automated metadata and idempotent drafts"]
+        else:
+            filtered_highlights = ["New feature implementation"]
+    
+    # Clean up why text - make it more polished
     why = why.replace("Added added", "Added").replace("Completed work on", "Delivered")
     why = why.replace("Delivered Feature/", "Delivered ").replace("Delivered feature/", "Delivered ")
     
-    return why, highlights[:3]  # Max 3 highlights
+    # Ensure why ends with a period
+    if why and not why.endswith('.'):
+        why = why + '.'
+    
+    # Filter highlights to be more action-oriented and specific
+    final_highlights = []
+    for highlight in filtered_highlights:
+        # Skip single words or very short phrases
+        if len(highlight.split()) < 2:
+            continue
+        # Skip generic phrases
+        if any(generic in highlight.lower() for generic in ["added", "updated", "improved", "enhanced", "fixed"]):
+            continue
+        final_highlights.append(highlight)
+    
+    # If we filtered out too much, add some defaults
+    if not final_highlights and filtered_highlights:
+        final_highlights = filtered_highlights[:2]
+    
+    return why, final_highlights[:3]  # Max 3 highlights
 
 
 def pair_with_clip(
