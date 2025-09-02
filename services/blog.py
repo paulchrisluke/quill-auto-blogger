@@ -936,8 +936,15 @@ class BlogDigestBuilder:
                                 filename = video_path.split('/')[-1]  # Get filename
                                 # Convert to YYYY/MM/DD format
                                 date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                                public_path = f"/stories/{date_obj.strftime('%Y/%m/%d')}/{filename}"
+                                public_path = f"stories/{date_obj.strftime('%Y/%m/%d')}/{filename}"
                                 video_path = public_path
+                            
+                            # Convert to Cloudflare R2 URL for API consumption
+                            if video_path.startswith('stories/') or video_path.startswith('/stories/'):
+                                # Remove leading slash if present
+                                clean_path = video_path.lstrip('/')
+                                cloudflare_url = self._get_cloudflare_url(clean_path)
+                                video_path = cloudflare_url
                             
                             # Add video embed for website preview (only for secure paths)
                             if video_path.startswith(('https://', '/stories/')):
@@ -1312,3 +1319,200 @@ class BlogDigestBuilder:
             tags=unique_types,
             lead=lead
         )
+    
+    def get_blog_api_data(self, target_date: str) -> Dict[str, Any]:
+        """
+        Get complete blog data for API consumption with Cloudflare URLs.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Dictionary containing complete blog data for API
+        """
+        try:
+            # Build the digest
+            digest = self.build_digest(target_date)
+            
+            # Update story packets with Cloudflare URLs
+            updated_story_packets = []
+            for story in digest.get("story_packets", []):
+                updated_story = story.copy()
+                
+                # Update video path to Cloudflare URL
+                if story.get("video", {}).get("path"):
+                    video_path = story["video"]["path"]
+                    if video_path.startswith('/stories/') or video_path.startswith('stories/'):
+                        clean_path = video_path.lstrip('/')
+                        cloudflare_url = self._get_cloudflare_url(clean_path)
+                        updated_story["video"]["path"] = cloudflare_url
+                
+                updated_story_packets.append(updated_story)
+            
+            # Create updated digest with Cloudflare URLs for markdown generation
+            updated_digest = digest.copy()
+            updated_digest["story_packets"] = updated_story_packets
+            
+            # Regenerate markdown with updated digest (so video URLs are Cloudflare URLs)
+            markdown = self.generate_markdown(updated_digest)
+            
+            # Get assets
+            assets = self.get_blog_assets(target_date)
+            
+            # Build the complete final blog structure
+            final_blog_data = {
+                "date": target_date,
+                "version": "2",
+                "twitch_clips": digest.get("twitch_clips", []),
+                "github_events": digest.get("github_events", []),
+                "metadata": digest.get("metadata", {}),
+                "frontmatter": digest.get("frontmatter", {}),
+                "story_packets": updated_story_packets,
+                "markdown": markdown,
+                "assets": assets,
+                "api_metadata": {
+                    "generated_at": datetime.now().isoformat(),
+                    "version": "1.0",
+                    "api_endpoint": f"/api/blog/{target_date}"
+                }
+            }
+            
+            return final_blog_data
+            
+        except Exception as e:
+            logger.error(f"Failed to get blog API data for {target_date}: {e}")
+            raise
+    
+    def get_blog_markdown(self, target_date: str) -> str:
+        """
+        Get raw markdown content for a date.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Raw markdown content as string
+        """
+        # Check if markdown exists in drafts
+        draft_path = Path("drafts") / f"{target_date}.md"
+        if draft_path.exists():
+            with open(draft_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        # If no draft exists, generate it
+        try:
+            digest = self.build_digest(target_date)
+            markdown = self.generate_markdown(digest)
+            return markdown
+        except Exception as e:
+            logger.error(f"Failed to generate markdown for {target_date}: {e}")
+            raise
+    
+    def get_blog_assets(self, target_date: str) -> Dict[str, List[str]]:
+        """
+        Get all assets for a blog post with Cloudflare R2 URLs.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Dictionary mapping asset types to lists of asset URLs
+        """
+        assets = {
+            "stories": [],
+            "images": [],
+            "videos": []
+        }
+        
+        try:
+            # Get story assets from story_packets
+            digest = self.build_digest(target_date)
+            for story in digest.get("story_packets", []):
+                story_id = story.get("id")
+                if story_id:
+                    story_assets = self._get_story_assets(target_date, story_id)
+                    if story_assets:
+                        assets["stories"].append(story_id)
+                        # Add images and videos from story assets
+                        assets["images"].extend(story_assets.get("images", []))
+                        if story_assets.get("video"):
+                            assets["videos"].append(story_assets["video"])
+                        assets["images"].extend(story_assets.get("highlights", []))
+            
+            # Convert to Cloudflare R2 URLs
+            cloudflare_assets = {
+                "stories": assets["stories"],
+                "images": [self._get_cloudflare_url(path) for path in assets["images"]],
+                "videos": [self._get_cloudflare_url(path) for path in assets["videos"]]
+            }
+            
+            return cloudflare_assets
+            
+        except Exception as e:
+            logger.error(f"Failed to get blog assets for {target_date}: {e}")
+            return assets
+    
+    def _get_story_assets(self, target_date: str, story_id: str) -> Dict[str, List[str]]:
+        """
+        Get assets for a specific story.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            story_id: Story identifier
+            
+        Returns:
+            Dictionary mapping asset types to lists of asset paths
+        """
+        story_assets = {
+            "images": [],
+            "video": None,
+            "highlights": []
+        }
+        
+        try:
+            # Check for story assets in public directory
+            # Assets are stored directly in the date directory, not in story subdirectories
+            date_path = Path("public/stories") / target_date.replace("-", "/")
+            if date_path.exists():
+                for asset_file in date_path.iterdir():
+                    if asset_file.is_file() and asset_file.name.startswith(story_id):
+                        rel_path = str(asset_file.relative_to(Path("public")))
+                        if asset_file.name.endswith('.mp4'):
+                            story_assets["video"] = rel_path
+                        elif asset_file.name.endswith('.png'):
+                            if 'hl_' in asset_file.name:
+                                story_assets["highlights"].append(rel_path)
+                            else:
+                                story_assets["images"].append(rel_path)
+            
+            return story_assets
+            
+        except Exception as e:
+            logger.error(f"Failed to get story assets for {story_id}: {e}")
+            return story_assets
+    
+    def _get_cloudflare_url(self, asset_path: str) -> str:
+        """
+        Convert local asset path to Cloudflare R2 custom domain URL.
+        
+        Args:
+            asset_path: Local asset path (e.g., "stories/2025/08/29/story_123.mp4")
+            
+        Returns:
+            Full Cloudflare R2 custom domain URL
+        """
+        try:
+            # Get Cloudflare custom domain from environment
+            import os
+            custom_domain = os.getenv("CLOUDFLARE_R2_CUSTOM_DOMAIN", "media.paulchrisluke.com")
+            
+            if custom_domain:
+                # Use custom domain for clean, professional URLs
+                return f"https://{custom_domain}/{asset_path}"
+            else:
+                # Fallback to local path if no custom domain config
+                return f"/{asset_path}"
+                
+        except Exception as e:
+            logger.error(f"Failed to generate Cloudflare URL for {asset_path}: {e}")
+            return f"/{asset_path}"

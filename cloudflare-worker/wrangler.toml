@@ -1,0 +1,30 @@
+name = "quill-blog-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Environment variables
+[vars]
+LOCAL_API_URL = "http://localhost:8000"
+
+# R2 bucket binding for blog assets
+[[r2_buckets]]
+binding = "BLOG_BUCKET"
+bucket_name = "quill-auto-blogger"
+
+# Secrets (set these with: wrangler secret put WORKER_BEARER_TOKEN)
+# WORKER_BEARER_TOKEN = "your-secret-token-here"
+
+# Development settings
+[dev]
+port = 8787
+local = true
+
+# Production settings
+[env.production]
+name = "quill-blog-api-prod"
+vars = { LOCAL_API_URL = "https://your-production-api.com" }
+
+# Staging environment
+[env.staging]
+name = "quill-blog-api-staging"
+vars = { LOCAL_API_URL = "https://your-staging-api.com" }

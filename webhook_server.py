@@ -390,6 +390,211 @@ async def control_record_stop(
         raise HTTPException(status_code=500, detail="Failed to stop recording")
 
 
+# ============================================================================
+# Blog API Endpoints for Cloudflare Integration
+# ============================================================================
+
+@app.get("/api/blog/{date}")
+async def get_blog_post(date: str):
+    """
+    Get complete blog post data for a specific date.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        Complete blog data including digest, markdown, and assets
+    """
+    try:
+        from services.blog import BlogDigestBuilder
+        
+        # Validate date format
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Get blog data
+        builder = BlogDigestBuilder()
+        blog_data = builder.get_blog_api_data(date)
+        
+        return blog_data
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No blog post found for date: {date}")
+    except Exception as e:
+        logger.error(f"Error getting blog post for {date}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/blog/{date}/markdown")
+async def get_blog_markdown(date: str):
+    """
+    Get raw markdown content for a specific date.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        Raw markdown content
+    """
+    try:
+        from services.blog import BlogDigestBuilder
+        
+        # Validate date format
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Get markdown
+        builder = BlogDigestBuilder()
+        markdown = builder.get_blog_markdown(date)
+        
+        return {"date": date, "markdown": markdown}
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No blog post found for date: {date}")
+    except Exception as e:
+        logger.error(f"Error getting blog markdown for {date}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/blog/{date}/digest")
+async def get_blog_digest(date: str):
+    """
+    Get digest data for a specific date.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        Digest data
+    """
+    try:
+        from services.blog import BlogDigestBuilder
+        
+        # Validate date format
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Get digest
+        builder = BlogDigestBuilder()
+        digest = builder.build_digest(date)
+        
+        return {"date": date, "digest": digest}
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No blog post found for date: {date}")
+    except Exception as e:
+        logger.error(f"Error getting blog digest for {date}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/assets/stories/{date}")
+async def list_story_assets(date: str):
+    """
+    List all story assets for a date.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        List of story assets for the date
+    """
+    try:
+        from services.blog import BlogDigestBuilder
+        
+        # Validate date format
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Get assets
+        builder = BlogDigestBuilder()
+        assets = builder.get_blog_assets(date)
+        
+        return {"date": date, "assets": assets}
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No assets found for date: {date}")
+    except Exception as e:
+        logger.error(f"Error listing story assets for {date}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/assets/stories/{date}/{story_id}")
+async def get_story_assets(date: str, story_id: str):
+    """
+    Get all assets for a specific story.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        story_id: Story identifier
+        
+    Returns:
+        All assets for the story
+    """
+    try:
+        from services.publisher import Publisher
+        
+        # Validate date format
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Validate story ID
+        if not _validate_story_id(story_id):
+            raise HTTPException(status_code=400, detail="Invalid story ID")
+        
+        # Get story assets
+        publisher = Publisher()
+        assets = publisher.list_story_assets(date, story_id)
+        
+        return {"date": date, "story_id": story_id, "assets": assets}
+        
+    except Exception as e:
+        logger.error(f"Error getting story assets for {date}/{story_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/assets/blog/{date}")
+async def get_blog_assets(date: str):
+    """
+    Get all assets for a blog post.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        All assets for the blog post
+    """
+    try:
+        from services.blog import BlogDigestBuilder
+        
+        # Validate date format
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Get blog assets
+        builder = BlogDigestBuilder()
+        assets = builder.get_blog_assets(date)
+        
+        return {"date": date, "assets": assets}
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No blog post found for date: {date}")
+    except Exception as e:
+        logger.error(f"Error getting blog assets for {date}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 if __name__ == "__main__":
     import uvicorn
     

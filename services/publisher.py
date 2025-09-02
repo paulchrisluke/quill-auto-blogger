@@ -7,7 +7,7 @@ import logging
 import shutil
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List
 from datetime import datetime
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -214,6 +214,154 @@ class Publisher:
         except Exception as e:
             logger.error(f"Unexpected error uploading {local_path} to R2 key {r2_key}: {e}")
             raise RuntimeError(f"Failed to upload to R2: {e}")
+    
+    def get_asset_url(self, date: str, story_id: str, asset_type: str = "video") -> Optional[str]:
+        """
+        Get public URL for a story asset.
+        
+        Args:
+            date: Date in YYYY-MM-DD format
+            story_id: Story identifier
+            asset_type: Type of asset (video, image, highlight)
+            
+        Returns:
+            Public URL for the asset, or None if not found
+        """
+        try:
+            # Parse date
+            date_obj = datetime.strptime(date, "%Y-%m-%d")
+            year = str(date_obj.year)
+            month = f"{date_obj.month:02d}"
+            day = f"{date_obj.day:02d}"
+            
+            # Sanitize story ID
+            safe_story_id = sanitize_story_id(story_id)
+            
+            if asset_type == "video":
+                # Get video URL
+                if self.publish_target == "r2":
+                    r2_key = f"stories/{year}/{month}/{day}/{safe_story_id}.mp4"
+                    if self._r2_file_exists(r2_key):
+                        if self.r2_credentials.public_base_url:
+                            return f"{self.r2_credentials.public_base_url.rstrip('/')}/{r2_key}"
+                        else:
+                            # Generate presigned URL
+                            return self.s3_client.generate_presigned_url(
+                                'get_object',
+                                Params={'Bucket': self.r2_credentials.bucket, 'Key': r2_key},
+                                ExpiresIn=3600
+                            )
+                else:
+                    # Local storage
+                    local_path = self.public_root / "stories" / year / month / day / f"{safe_story_id}.mp4"
+                    if local_path.exists():
+                        if self.public_base_url:
+                            return f"{self.public_base_url.rstrip('/')}/stories/{year}/{month}/{day}/{safe_story_id}.mp4"
+                        else:
+                            return f"/stories/{year}/{month}/{day}/{safe_story_id}.mp4"
+            
+            elif asset_type in ["image", "highlight"]:
+                # For images, we need to check what's available
+                if self.publish_target == "r2":
+                    # Check for different image types
+                    for img_type in ["intro", "why", "outro"]:
+                        r2_key = f"stories/{year}/{month}/{day}/{safe_story_id}_{img_type}.png"
+                        if self._r2_file_exists(r2_key):
+                            if self.r2_credentials.public_base_url:
+                                return f"{self.r2_credentials.public_base_url.rstrip('/')}/{r2_key}"
+                            else:
+                                return self.s3_client.generate_presigned_url(
+                                    'get_object',
+                                    Params={'Bucket': self.r2_credentials.bucket, 'Key': r2_key},
+                                    ExpiresIn=3600
+                                )
+                else:
+                    # Local storage
+                    for img_type in ["intro", "why", "outro"]:
+                        local_path = self.public_root / "stories" / year / month / day / f"{safe_story_id}_{img_type}.png"
+                        if local_path.exists():
+                            if self.public_base_url:
+                                return f"{self.public_base_url.rstrip('/')}/stories/{year}/{month}/{day}/{safe_story_id}_{img_type}.png"
+                            else:
+                                return f"/stories/{year}/{month}/{day}/{safe_story_id}_{img_type}.png"
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get asset URL for {date}/{story_id}/{asset_type}: {e}")
+            return None
+    
+    def list_story_assets(self, date: str, story_id: str) -> Dict[str, List[str]]:
+        """
+        List all available assets for a story.
+        
+        Args:
+            date: Date in YYYY-MM-DD format
+            story_id: Story identifier
+            
+        Returns:
+            Dictionary mapping asset types to lists of asset URLs
+        """
+        assets = {
+            "video": None,
+            "images": [],
+            "highlights": []
+        }
+        
+        try:
+            # Get video
+            video_url = self.get_asset_url(date, story_id, "video")
+            if video_url:
+                assets["video"] = video_url
+            
+            # Get images
+            date_obj = datetime.strptime(date, "%Y-%m-%d")
+            year = str(date_obj.year)
+            month = f"{date_obj.month:02d}"
+            day = f"{date_obj.day:02d}"
+            safe_story_id = sanitize_story_id(story_id)
+            
+            if self.publish_target == "r2":
+                # Check R2 for images
+                for img_type in ["intro", "why", "outro"]:
+                    r2_key = f"stories/{year}/{month}/{day}/{safe_story_id}_{img_type}.png"
+                    if self._r2_file_exists(r2_key):
+                        if self.r2_credentials.public_base_url:
+                            assets["images"].append(f"{self.r2_credentials.public_base_url.rstrip('/')}/{r2_key}")
+                        else:
+                            assets["images"].append(self.s3_client.generate_presigned_url(
+                                'get_object',
+                                Params={'Bucket': self.r2_credentials.bucket, 'Key': r2_key},
+                                ExpiresIn=3600
+                            ))
+                
+                # Check for highlights
+                for i in range(1, 10):  # Check for up to 9 highlights
+                    r2_key = f"stories/{year}/{month}/{day}/{safe_story_id}_hl_{i:02d}.png"
+                    if self._r2_file_exists(r2_key):
+                        if self.r2_credentials.public_base_url:
+                            assets["highlights"].append(f"{self.r2_credentials.public_base_url.rstrip('/')}/{r2_key}")
+                        else:
+                            assets["highlights"].append(self.s3_client.generate_presigned_url(
+                                'get_object',
+                                Params={'Bucket': self.r2_credentials.bucket, 'Key': r2_key},
+                                ExpiresIn=3600
+                            ))
+            else:
+                # Local storage
+                story_path = self.public_root / "stories" / year / month / day
+                if story_path.exists():
+                    for asset_file in story_path.glob(f"{safe_story_id}_*.png"):
+                        if self.public_base_url:
+                            assets["images"].append(f"{self.public_base_url.rstrip('/')}/stories/{year}/{month}/{day}/{asset_file.name}")
+                        else:
+                            assets["images"].append(f"/stories/{year}/{month}/{day}/{asset_file.name}")
+            
+            return assets
+            
+        except Exception as e:
+            logger.error(f"Failed to list story assets for {date}/{story_id}: {e}")
+            return assets
 
 
 def publish_video(local_path: str, target_date: str, story_id: str) -> str:
