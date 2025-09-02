@@ -322,20 +322,40 @@ def blog_preview(target_date: str):
         # Get first ~10 lines of content (skip frontmatter)
         lines = markdown.split('\n')
         content_start = 0
+        
+        # Find first '---' marker
+        first_dash = -1
         for i, line in enumerate(lines):
             if line.strip() == '---':
-                content_start = i + 1
+                first_dash = i
                 break
+        
+        if first_dash != -1:
+            # Find second '---' marker
+            second_dash = -1
+            for i in range(first_dash + 1, len(lines)):
+                if lines[i].strip() == '---':
+                    second_dash = i
+                    break
+            
+            if second_dash != -1:
+                # Set content_start to line after second '---'
+                content_start = second_dash + 1
+            else:
+                # Only one '---' found, treat everything after first as content
+                content_start = first_dash + 1
+        # If no '---' found, treat whole markdown as body
         
         content_lines = lines[content_start:]
         # Find first non-empty line after frontmatter
+        first_content_line = 0
         for i, line in enumerate(content_lines):
             if line.strip():
-                content_start = i
+                first_content_line = i
                 break
         
-        # Get preview lines
-        preview_lines = content_lines[content_start:content_start + 10]
+        # Get preview lines starting from first non-empty content line
+        preview_lines = content_lines[first_content_line:first_content_line + 10]
         
         # Display preview
         click.echo(f"Title: {title}")

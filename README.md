@@ -320,6 +320,15 @@ The blog publishing system automatically generates markdown blog posts from your
    DISCORD_WEBHOOK_URL=your_discord_webhook_url
    ```
 
+   **GitHub Token Setup**: Create a fine-grained personal access token with these minimal permissions:
+   - **Repository permissions**: 
+     - Contents: Read & write
+     - Pull requests: Read & write  
+     - Metadata: Read
+   - **Repository access**: Target repository or All repositories
+   
+   This prevents 403 permission errors when publishing blog posts.
+
 2. **Generate a blog post**:
    ```bash
    # Generate for latest date

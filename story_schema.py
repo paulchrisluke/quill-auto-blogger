@@ -179,6 +179,11 @@ def _generate_human_title(title_raw: str) -> str:
             title = title[len(prefix):].strip()
             break
     
+    # Handle feature branch patterns before slash normalization
+    title_lower = title.lower()
+    if "feature/cloudflare" in title_lower and "whisper" in title_lower:
+        title = "Cloudflare Whisper Transcription"
+    
     # Remove common path prefixes first (before converting slashes)
     path_prefixes = ["feature/", "fix/", "security/", "docs/", "perf/", "infra/"]
     title_lower = title.lower()
@@ -211,8 +216,6 @@ def _generate_human_title(title_raw: str) -> str:
         title = "Content Generation Schema"
     elif "ai blog generation" in title_lower:
         title = "AI Blog Generation"
-    elif "feature/cloudflare" in title_lower and "whisper" in title_lower:
-        title = "Cloudflare Whisper Transcription"
     
     # Add "Shipped:" prefix for features
     if any(word in title_raw.lower() for word in ["feat", "feature", "add", "implement"]):

@@ -117,11 +117,59 @@ class GitHubPublisher:
             logger.error(f"Network error checking file existence: {e}")
             raise RuntimeError(f"Network error: {e}")
         
+        # Initialize feature branch variable
+        feature_branch = None
+        
+        # Determine target branch for commit
+        target_branch = branch
+        if create_pr:
+            # Create feature branch name
+            feature_branch = f"blog/{path.replace('/', '_').replace('.md', '')}"
+            target_branch = feature_branch
+            
+            # Ensure feature branch exists before committing
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    # Get the latest commit SHA from base branch
+                    response = client.get(
+                        f"{self.base_url}/repos/{owner}/{repo}/git/refs/heads/{branch}",
+                        headers=self.headers
+                    )
+                    response.raise_for_status()
+                    base_sha = response.json()["object"]["sha"]
+                    
+                    # Create feature branch from base branch
+                    branch_data = {
+                        "ref": f"refs/heads/{feature_branch}",
+                        "sha": base_sha
+                    }
+                    
+                    response = client.post(
+                        f"{self.base_url}/repos/{owner}/{repo}/git/refs",
+                        headers=self.headers,
+                        json=branch_data
+                    )
+                    
+                    if response.status_code == 422:
+                        # Branch might already exist, try to get it
+                        response = client.get(
+                            f"{self.base_url}/repos/{owner}/{repo}/git/refs/heads/{feature_branch}",
+                            headers=self.headers
+                        )
+                        if response.status_code != 200:
+                            response.raise_for_status()
+                    else:
+                        response.raise_for_status()
+                        
+            except Exception as e:
+                logger.error(f"Failed to create/verify feature branch: {e}")
+                raise RuntimeError(f"Failed to create feature branch: {e}")
+        
         # Prepare commit data
         commit_data = {
             "message": commit_message,
             "content": content_b64,
-            "branch": branch
+            "branch": target_branch
         }
         
         # Add SHA if updating existing file
@@ -160,7 +208,7 @@ class GitHubPublisher:
                 # Create PR if requested
                 if create_pr:
                     pr_result = self._create_pull_request(
-                        owner, repo, branch, path, 
+                        owner, repo, feature_branch, path, 
                         pr_title or commit_message, pr_body
                     )
                     result["pr_url"] = pr_result["html_url"]
@@ -185,53 +233,22 @@ class GitHubPublisher:
         self, 
         owner: str, 
         repo: str, 
-        branch: str, 
+        feature_branch: str, 
         path: str,
         title: str,
         body: Optional[str]
     ) -> Dict[str, Any]:
         """Create a pull request for the published content."""
-        # Create feature branch name
-        feature_branch = f"blog/{path.replace('/', '_').replace('.md', '')}"
-        
-        # Get the latest commit SHA from main branch
+        # The feature branch is already created and committed to by publish_markdown
+        # We need the base branch (e.g., 'main') to create the PR against it.
+        base_branch_name = "main"  # Assuming 'main' as the base branch for the PR
+
         try:
             with httpx.Client(timeout=30.0) as client:
-                response = client.get(
-                    f"{self.base_url}/repos/{owner}/{repo}/git/refs/heads/{branch}",
-                    headers=self.headers
-                )
-                response.raise_for_status()
-                main_sha = response.json()["object"]["sha"]
-                
-                # Create feature branch
-                branch_data = {
-                    "ref": f"refs/heads/{feature_branch}",
-                    "sha": main_sha
-                }
-                
-                response = client.post(
-                    f"{self.base_url}/repos/{owner}/{repo}/git/refs",
-                    headers=self.headers,
-                    json=branch_data
-                )
-                
-                if response.status_code == 422:
-                    # Branch might already exist, try to get it
-                    response = client.get(
-                        f"{self.base_url}/repos/{owner}/{repo}/git/refs/heads/{feature_branch}",
-                        headers=self.headers
-                    )
-                    if response.status_code != 200:
-                        response.raise_for_status()
-                else:
-                    response.raise_for_status()
-                
-                # Create PR
                 pr_data = {
                     "title": title,
                     "head": feature_branch,
-                    "base": branch
+                    "base": base_branch_name
                 }
                 
                 if body:

@@ -152,6 +152,7 @@ More content here."""
         mock_response.json.return_value = {
             "sha": "existing_sha",
             "content": content_b64,
+            "encoding": "base64",
             "html_url": "https://github.com/owner/repo/blob/main/path/file.md"
         }
         
@@ -251,8 +252,8 @@ More content here."""
         mock_client_instance = Mock()
         mock_client_instance.get.side_effect = [
             mock_response_404,  # File check
-            mock_response_ref,  # Branch reference
-            mock_response_pr  # PR creation
+            mock_response_ref,  # Branch reference for feature branch creation
+            mock_response_ref,  # Branch reference for PR creation
         ]
         mock_client_instance.put.return_value = mock_response_201
         mock_client_instance.post.side_effect = [
@@ -274,6 +275,10 @@ More content here."""
         
         assert result["action"] == "created"
         assert result["pr_url"] == "https://github.com/owner/repo/pull/123"
+        
+        # Verify PUT was called with feature branch
+        put_call = mock_client_instance.put.call_args
+        assert put_call[1]['json']['branch'] == "blog/path_file"
     
     @patch('httpx.Client')
     def test_publish_markdown_authentication_error(self, mock_client, publisher, sample_markdown):
