@@ -196,11 +196,11 @@ def _generate_human_title(title_raw: str) -> str:
     title = title.replace("/", " ").replace("\\", " ")
     title = title.replace("-", " ").replace("_", " ")
     
-    # Handle special cases for technical terms
-    title = _normalize_technical_terms(title)
-    
-    # Convert to title case and clean up
+    # Convert to title case first
     title = " ".join(word.capitalize() for word in title.split())
+    
+    # Then normalize technical terms to restore correct casing
+    title = _normalize_technical_terms(title)
     
     # Create stable, human-readable titles
     title_lower = title.lower()
@@ -347,8 +347,20 @@ def _normalize_technical_terms(title: str) -> str:
     # Replace technical terms
     for term, replacement in tech_terms.items():
         # Use word boundaries to avoid partial matches
+        # Handle cases where terms might be followed by punctuation
         pattern = r'\b' + re.escape(term) + r'\b'
         title = re.sub(pattern, replacement, title, flags=re.IGNORECASE)
+        
+        # Also handle cases where terms are followed by common punctuation
+        # This makes the function more robust and idempotent
+        if term.lower() in title.lower():
+            # Double-check we didn't miss any cases due to punctuation
+            title = re.sub(
+                r'\b' + re.escape(term) + r'([^\w]|$)', 
+                replacement + r'\1', 
+                title, 
+                flags=re.IGNORECASE
+            )
     
     return title
 

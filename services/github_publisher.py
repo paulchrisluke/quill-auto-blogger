@@ -172,6 +172,30 @@ class GitHubPublisher:
             "branch": target_branch
         }
         
+        # Re-check file SHA on target branch before committing
+        # This prevents 422 errors when the file differs on the feature branch
+        if current_sha and target_branch != branch:
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    response = client.get(
+                        f"{self.base_url}/repos/{owner}/{repo}/contents/{path}",
+                        headers=self.headers,
+                        params={"ref": target_branch}
+                    )
+                    
+                    if response.status_code == 200:
+                        # File exists on target branch, use its SHA
+                        file_data = response.json()
+                        current_sha = file_data["content"]["sha"]
+                    elif response.status_code == 404:
+                        # File doesn't exist on target branch, don't include SHA
+                        current_sha = None
+                    else:
+                        response.raise_for_status()
+            except Exception as e:
+                logger.warning(f"Failed to re-check file SHA on target branch: {e}")
+                # Continue with original SHA if re-check fails
+        
         # Add SHA if updating existing file
         if current_sha:
             commit_data["sha"] = current_sha
@@ -208,7 +232,7 @@ class GitHubPublisher:
                 # Create PR if requested
                 if create_pr:
                     pr_result = self._create_pull_request(
-                        owner, repo, feature_branch, path, 
+                        owner, repo, feature_branch, branch, 
                         pr_title or commit_message, pr_body
                     )
                     result["pr_url"] = pr_result["html_url"]
@@ -234,21 +258,18 @@ class GitHubPublisher:
         owner: str, 
         repo: str, 
         feature_branch: str, 
-        path: str,
+        base_branch: str,
         title: str,
         body: Optional[str]
     ) -> Dict[str, Any]:
         """Create a pull request for the published content."""
-        # The feature branch is already created and committed to by publish_markdown
-        # We need the base branch (e.g., 'main') to create the PR against it.
-        base_branch_name = "main"  # Assuming 'main' as the base branch for the PR
 
         try:
             with httpx.Client(timeout=30.0) as client:
                 pr_data = {
                     "title": title,
                     "head": feature_branch,
-                    "base": base_branch_name
+                    "base": base_branch
                 }
                 
                 if body:
