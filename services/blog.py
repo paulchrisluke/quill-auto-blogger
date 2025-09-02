@@ -8,6 +8,7 @@ import html
 import json
 import logging
 import os
+import sys
 from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
@@ -167,11 +168,17 @@ class BlogDigestBuilder:
             frontmatter_data = digest["frontmatter"]
             # Force long descriptions to be inline to prevent weird wrapping
             if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
-                frontmatter_data["og"]["og:description"] = f'"{frontmatter_data["og"]["og:description"]}"'
+                desc = frontmatter_data["og"]["og:description"]
+                # Only add quotes if not already quoted
+                if not (desc.startswith('"') and desc.endswith('"')):
+                    frontmatter_data["og"]["og:description"] = f'"{desc}"'
             if "description" in frontmatter_data:
-                frontmatter_data["description"] = f'"{frontmatter_data["description"]}"'
+                desc = frontmatter_data["description"]
+                # Only add quotes if not already quoted
+                if not (desc.startswith('"') and desc.endswith('"')):
+                    frontmatter_data["description"] = f'"{desc}"'
             
-            yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=float('inf'))
+            yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=sys.maxsize)
             frontmatter = f"---\n{yaml_content}---\n"
         else:
             # Fall back to v1 frontmatter generation
@@ -196,11 +203,17 @@ class BlogDigestBuilder:
                 # Force long descriptions to be inline to prevent weird wrapping
                 frontmatter_data = digest["frontmatter"].copy()
                 if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
-                    frontmatter_data["og"]["og:description"] = f'"{frontmatter_data["og"]["og:description"]}"'
+                    desc = frontmatter_data["og"]["og:description"]
+                    # Only add quotes if not already quoted
+                    if not (desc.startswith('"') and desc.endswith('"')):
+                        frontmatter_data["og"]["og:description"] = f'"{desc}"'
                 if "description" in frontmatter_data:
-                    frontmatter_data["description"] = f'"{frontmatter_data["description"]}"'
+                    desc = frontmatter_data["description"]
+                    # Only add quotes if not already quoted
+                    if not (desc.startswith('"') and desc.endswith('"')):
+                        frontmatter_data["description"] = f'"{desc}"'
                 
-                yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=float('inf'))
+                yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=sys.maxsize)
                 new_frontmatter = f"---\n{yaml_content}---\n"
                 # Replace the old frontmatter with the new one
                 markdown = re.sub(r'^---\n.*?\n---\n', new_frontmatter, markdown, flags=re.DOTALL)
@@ -285,8 +298,8 @@ class BlogDigestBuilder:
                 best_image = self._select_best_image(story_packets)
                 if "og" in frontmatter:
                     frontmatter["og"]["og:image"] = best_image
-                if "schema_data" in frontmatter and "article" in frontmatter["schema_data"]:
-                    frontmatter["schema_data"]["article"]["image"] = best_image
+                if "schema" in frontmatter and "article" in frontmatter["schema"]:
+                    frontmatter["schema"]["article"]["image"] = best_image
                 
                 # Generate holistic intro paragraph (store for later insertion)
                 holistic_intro = ai_service.make_holistic_intro(target_date, inputs, force_ai)
@@ -300,8 +313,8 @@ class BlogDigestBuilder:
                     frontmatter["tags"] = list(existing_tags)
                     
                     # Also update schema keywords
-                    if "schema_data" in frontmatter and "article" in frontmatter["schema_data"]:
-                        frontmatter["schema_data"]["article"]["keywords"] = list(existing_tags)
+                    if "schema" in frontmatter and "article" in frontmatter["schema"]:
+                        frontmatter["schema"]["article"]["keywords"] = list(existing_tags)
                 
                 # 2. Title punch-up (optional)
                 current_title = frontmatter.get("title", "")
@@ -313,8 +326,8 @@ class BlogDigestBuilder:
                     # Also update og:title and headline in frontmatter
                     if "og" in frontmatter:
                         frontmatter["og"]["og:title"] = improved_title
-                    if "schema_data" in frontmatter and "article" in frontmatter["schema_data"]:
-                        frontmatter["schema_data"]["article"]["headline"] = improved_title
+                    if "schema" in frontmatter and "article" in frontmatter["schema"]:
+                        frontmatter["schema"]["article"]["headline"] = improved_title
                     markdown = self._update_title_in_markdown(markdown, improved_title)
                 
                 # 3. Story micro-intros
@@ -417,7 +430,7 @@ class BlogDigestBuilder:
         replacement = f"  og:title: {new_title}"
         markdown = re.sub(og_title_pattern, replacement, markdown, flags=re.MULTILINE)
         
-        # Update schema_data.article.headline (exact format: 4 spaces + headline:)
+        # Update schema.article.headline (exact format: 4 spaces + headline:)
         headline_pattern = r"^    headline:\s*.+$"
         replacement = f"    headline: {new_title}"
         markdown = re.sub(headline_pattern, replacement, markdown, flags=re.MULTILINE)
@@ -464,10 +477,11 @@ class BlogDigestBuilder:
         for i, line in enumerate(lines):
             if line.strip() == "## Related posts":
                 # Insert wrap-up section before Related posts
-                lines.insert(i, '')
-                lines.insert(i, wrap_up)
-                lines.insert(i, '')
+                # Insert in correct order: header, blank, content, blank
                 lines.insert(i, "## Wrap-Up")
+                lines.insert(i + 1, '')
+                lines.insert(i + 2, wrap_up)
+                lines.insert(i + 3, '')
                 break
         else:
             # If no Related posts section, append at the end
@@ -725,12 +739,18 @@ class BlogDigestBuilder:
         
         # Force long descriptions to be inline to prevent weird wrapping
         if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
-            frontmatter_data["og"]["og:description"] = f'"{frontmatter_data["og"]["og:description"]}"'
+            desc = frontmatter_data["og"]["og:description"]
+            # Only add quotes if not already quoted
+            if not (desc.startswith('"') and desc.endswith('"')):
+                frontmatter_data["og"]["og:description"] = f'"{desc}"'
         if "description" in frontmatter_data:
-            frontmatter_data["description"] = f'"{frontmatter_data["description"]}"'
+            desc = frontmatter_data["description"]
+            # Only add quotes if not already quoted
+            if not (desc.startswith('"') and desc.endswith('"')):
+                frontmatter_data["description"] = f'"{desc}"'
         
         # Convert to YAML
-        yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=float('inf'))
+        yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=sys.maxsize)
         
         return f"---\n{yaml_content}---\n"
     
@@ -832,23 +852,8 @@ class BlogDigestBuilder:
         
         return self.blog_default_image
     
-    def collect_assets_for_publishing(self, date: str) -> Dict[str, Dict[str, Any]]:
-        """
-        Collect all assets needed for publishing a blog post.
-        
-        Args:
-            date: Date in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary mapping asset paths to asset information
-        """
-        assets = {}
-        
-        # Find the digest file for this date
-        digest_path = Path(f"blogs/{date}/PRE-CLEANED-{date}_digest.json")
-        if not digest_path.exists():
-            logger.warning(f"Digest file not found: {digest_path}")
-            return assets
+
+
         
         try:
             with open(digest_path, 'r') as f:
@@ -862,22 +867,18 @@ class BlogDigestBuilder:
                     video_path = packet["video"]["path"]
                     
                     # The digest has public paths like /stories/2025/08/29/story_20250829_pr42.mp4
-                    # But we need to find the actual published files in public/stories/
+                    # Assets are now in public/stories/YYYY/MM/DD/ directory
                     if video_path.startswith("/stories/"):
                         # Extract date and filename from /stories/2025/08/29/story_20250829_pr42.mp4
                         parts = video_path.split("/")
                         if len(parts) >= 5:
                             year, month, day, filename = parts[2], parts[3], parts[4], parts[5]
-                            # Look for the file in the public/stories directory where it's actually published
+                            # Look for the file in public/stories directory
                             local_video_path = Path(f"public/stories/{year}/{month}/{day}/{filename}")
                         else:
                             continue
-                    elif video_path.startswith("public/stories/"):
-                        # Already in public format
-                        local_video_path = Path(video_path)
                     elif video_path.startswith("out/videos/"):
-                        # Convert from out/videos to public/stories
-                        # out/videos/2025-08-29/story_20250829_pr42.mp4 -> public/stories/2025/08/29/story_20250829_pr42.mp4
+                        # Convert from out/videos to public/stories path
                         parts = video_path.split("/")
                         if len(parts) >= 4:
                             date_part = parts[2]  # 2025-08-29
@@ -914,8 +915,19 @@ class BlogDigestBuilder:
                                 local_intro_png_path = Path(f"public/stories/{year}/{month}/{day}/{filename.replace('.mp4', '_01_intro.png')}")
                             else:
                                 continue
-                        elif video_path.startswith("public/stories/"):
-                            local_intro_png_path = local_video_path.parent / (local_video_path.stem + "_01_intro.png")
+                        elif video_path.startswith("out/videos/"):
+                            parts = video_path.split("/")
+                            if len(parts) >= 4:
+                                date_part = parts[2]  # 2025-08-29
+                                filename = parts[3]  # story_20250829_pr42.mp4
+                                try:
+                                    date_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                                    year, month, day = date_obj.strftime("%Y"), date_obj.strftime("%m"), date_obj.strftime("%d")
+                                    local_intro_png_path = Path(f"public/stories/{year}/{month}/{day}/{filename.replace('.mp4', '_01_intro.png')}")
+                                except ValueError:
+                                    continue
+                            else:
+                                continue
                         else:
                             local_intro_png_path = local_video_path.parent / (local_video_path.stem + "_01_intro.png")
                         
@@ -1322,25 +1334,7 @@ class BlogDigestBuilder:
         logger.info(f"Saved markdown to {file_path}")
         return file_path
     
-    def compute_target_path(self, date: str) -> str:
-        """
-        Compute the target path for publishing to pcl-labs repository.
-        
-        Args:
-            date: Date in YYYY-MM-DD format
-            
-        Returns:
-            Target path in the repository (e.g., "content/blog/2025/08/27.md")
-        """
-        # Parse date
-        date_obj = datetime.strptime(date, "%Y-%m-%d").date()
-        year = str(date_obj.year)
-        month = f"{date_obj.month:02d}"
-        day = f"{date_obj.day:02d}"
-        
-        # Target directory structure: content/blog/YYYY/MM/DD.md
-        target_dir = os.getenv("BLOG_TARGET_DIR", "content/blog")
-        return f"{target_dir}/{year}/{month}/{day}.md"
+
     
     def _generate_frontmatter_v3(
         self, 

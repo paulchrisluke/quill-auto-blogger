@@ -3,6 +3,7 @@ AI-assisted content generation for M5 surgical inserts.
 Handles caching, prompts, fallbacks, and output sanitization.
 """
 
+import ast
 import hashlib
 import json
 import logging
@@ -270,33 +271,47 @@ class AIInsertsService:
         key_data = f"{operation}:{model}:{compact_json}"
         return hashlib.sha256(key_data.encode()).hexdigest()[:16]
     
+    def _validate_cache_date(self, date: str) -> Path:
+        """Validate date format and return safe cache path."""
+        import re
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', date):
+            raise ValueError(f"Invalid date format: {date}. Expected YYYY-MM-DD")
+        return self.cache_dir / date
+    
     def _get_cached_result(self, date: str, cache_key: str) -> Optional[str]:
         """Get cached result if available."""
-        cache_file = self.cache_dir / date / f"{cache_key}.txt"
-        if cache_file.exists():
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    return f.read().strip()
-            except (OSError, UnicodeDecodeError) as e:
-                logger.warning(f"Failed to read cache file {cache_file}: {e}")
+        try:
+            date_cache_dir = self._validate_cache_date(date)
+            cache_file = date_cache_dir / f"{cache_key}.txt"
+            if cache_file.exists():
+                try:
+                    with open(cache_file, 'r', encoding='utf-8') as f:
+                        return f.read().strip()
+                except (OSError, UnicodeDecodeError) as e:
+                    logger.warning(f"Failed to read cache file {cache_file}: {e}")
+        except ValueError as e:
+            logger.warning(f"Invalid date format for cache: {e}")
         return None
     
     def _cache_result(self, date: str, cache_key: str, result: str) -> None:
         """Cache successful AI result."""
-        date_cache_dir = self.cache_dir / date
-        date_cache_dir.mkdir(exist_ok=True)
-        
-        cache_file = date_cache_dir / f"{cache_key}.txt"
         try:
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                f.write(result)
-        except OSError as e:
-            logger.warning(f"Failed to write cache file {cache_file}: {e}")
+            date_cache_dir = self._validate_cache_date(date)
+            date_cache_dir.mkdir(exist_ok=True)
+            
+            cache_file = date_cache_dir / f"{cache_key}.txt"
+            try:
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    f.write(result)
+            except OSError as e:
+                logger.warning(f"Failed to write cache file {cache_file}: {e}")
+        except ValueError as e:
+            logger.warning(f"Invalid date format for cache: {e}")
     
     def _sanitize_text(
         self, 
         text: str, 
-        max_length: int, 
+        max_length: Optional[int] = None, 
         ensure_period: bool = True
     ) -> str:
         """
@@ -304,7 +319,7 @@ class AIInsertsService:
         
         Args:
             text: Raw AI output
-            max_length: Maximum allowed length
+            max_length: Maximum allowed length (None for no limit)
             ensure_period: Whether to ensure text ends with a period
             
         Returns:
@@ -333,13 +348,14 @@ class AIInsertsService:
             words = cleaned.split()
             truncated = ""
             for word in words:
-                if len(truncated + " " + word) <= max_length - 1:  # -1 for period
+                # Calculate length with space, but avoid leading space
+                test_length = len(truncated + (" " if truncated else "") + word)
+                if test_length <= max_length:
                     truncated += (" " if truncated else "") + word
                 else:
                     break
             
             if truncated:
-                truncated = truncated.rstrip()
                 if ensure_period and not truncated.endswith('.'):
                     truncated += '.'
                 cleaned = truncated
@@ -418,9 +434,14 @@ class AIInsertsService:
         cached_result = self._get_cached_result(date, cache_key)
         if cached_result and not force_ai:
             try:
-                return eval(cached_result)
-            except:
-                pass
+                # Try JSON first, fall back to ast.literal_eval for legacy formats
+                return json.loads(cached_result)
+            except (ValueError, json.JSONDecodeError, SyntaxError) as e:
+                try:
+                    return ast.literal_eval(cached_result)
+                except (ValueError, SyntaxError) as e2:
+                    logger.warning(f"Failed to parse cached tag suggestions: {e2}")
+                    pass
         if self.ai_enabled and self.ai_client:
             try:
                 system_prompt = "You are a content analyst. Extract 3-5 relevant keywords from the content. Focus on technical terms like 'ai', 'content generation', 'blog automation', 'scalability', 'automation'. Return only a comma-separated list, no explanations or formatting."
@@ -429,10 +450,7 @@ class AIInsertsService:
                 sanitized = self._sanitize_text(result, max_length=100, ensure_period=False)
                 if sanitized:
                     tags = [tag.strip().lower() for tag in sanitized.split(',') if tag.strip()]
-                    existing_tags = set(inputs.get('tags_csv', '').lower().split(','))
-                if sanitized:
-                    tags = [tag.strip().lower() for tag in sanitized.split(',') if tag.strip()]
-                    existing_tags = set(inputs.get('tags_csv', '').lower().split(','))
+                    existing_tags = set([t for t in (s.strip().lower() for s in inputs.get('tags_csv', '').split(',')) if t])
                     filtered_tags = [tag for tag in tags if tag not in existing_tags and len(tag) > 2]
                     if filtered_tags:
                         self._cache_result(date, cache_key, str(filtered_tags))
@@ -448,9 +466,9 @@ class AIInsertsService:
         
         if lead and story_titles:
             story_part = ', '.join(story_titles).strip()
-            fallback = f"{lead} Today's work marks a turning point for this project — moving from building infrastructure to building the content engine itself. I shipped two big features: a schema and backend pipeline for generating and managing content at scale, and an AI-powered blog generator that can draft, enrich, and publish posts automatically. Together, these upgrades lay the foundation for a system that doesn't just capture development work but actively turns it into polished, production-ready content."
+            fallback = f"{lead} Today's work marks a turning point for this project — moving from building infrastructure to building the content engine itself. I shipped two big features: a schema and backend pipeline for generating and managing content at scale, and an AI-powered blog generator that can draft and enrich posts automatically. Together, these upgrades lay the foundation for a system that doesn't just capture development work but actively turns it into polished, production-ready content."
         else:
-            fallback = "Today's work marks a turning point for this project — moving from building infrastructure to building the content engine itself. I shipped two big features: a schema and backend pipeline for generating and managing content at scale, and an AI-powered blog generator that can draft, enrich, and publish posts automatically. Together, these upgrades lay the foundation for a system that doesn't just capture development work but actively turns it into polished, production-ready content."
+            fallback = "Today's work marks a turning point for this project — moving from building infrastructure to building the content engine itself. I shipped two big features: a schema and backend pipeline for generating and managing content at scale, and an AI-powered blog generator that can draft and enrich posts automatically. Together, these upgrades lay the foundation for a system that doesn't just capture development work but actively turns it into polished, production-ready content."
         
         # No character limit needed for body content
         return fallback

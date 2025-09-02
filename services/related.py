@@ -80,15 +80,16 @@ class RelatedPostsService:
                         logger.info(f"No remote posts found in {remote_repo} - this may be a new repo or no blogs published yet")
                         # When working on a PR, be conservative and don't include local posts
                         # that might not exist on the target branch
-                        published_posts = []
+                        # But preserve local posts as fallback instead of clearing them
+                        logger.info("Preserving local posts as fallback")
                     else:
                         # No repo specified, safe to use local posts
                         logger.info("No remote posts found, using local posts")
             except Exception as e:
                 logger.warning(f"Failed to fetch remote posts from {remote_repo}: {e}")
-                # Continue with local posts only if no repo specified
+                # Continue with local posts as fallback instead of clearing them
                 if repo:
-                    published_posts = []
+                    logger.info("Remote fetch failed, preserving local posts as fallback")
         
         if not published_posts:
             return []
@@ -220,21 +221,26 @@ class RelatedPostsService:
                         try:
                             digest_response = client.get(digest_url, headers=headers)
                             if digest_response.status_code == 200:
-                                digest = digest_response.json()
-                                
-                                # Extract post information
-                                if digest.get("version") == "2" and "frontmatter" in digest:
-                                    frontmatter = digest["frontmatter"]
-                                    post_info = {
-                                        "date": digest["date"],
-                                        "title": frontmatter.get("title", ""),
-                                        "tags": frontmatter.get("tags", []),
-                                        "path": f"/blog/{digest['date']}"
-                                    }
-                                    posts.append(post_info)
-                                    logger.info(f"Found remote post: {date_str} - {post_info['title']}")
-                                else:
-                                    logger.debug(f"Skipping digest {date_str} - not v2 or missing frontmatter")
+                                # Parse the raw JSON content from the response
+                                try:
+                                    digest = digest_response.json()
+                                    
+                                    # Extract post information
+                                    if digest.get("version") == "2" and "frontmatter" in digest:
+                                        frontmatter = digest["frontmatter"]
+                                        post_info = {
+                                            "date": digest["date"],
+                                            "title": frontmatter.get("title", ""),
+                                            "tags": frontmatter.get("tags", []),
+                                            "path": f"/blog/{digest['date']}"
+                                        }
+                                        posts.append(post_info)
+                                        logger.info(f"Found remote post: {date_str} - {post_info['title']}")
+                                    else:
+                                        logger.debug(f"Skipping digest {date_str} - not v2 or missing frontmatter")
+                                except json.JSONDecodeError as e:
+                                    logger.debug(f"Failed to parse digest JSON for {date_str}: {e}")
+                                    continue
                             elif digest_response.status_code == 404:
                                 logger.debug(f"No digest found for {date_str}")
                             else:

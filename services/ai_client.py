@@ -98,8 +98,6 @@ class CloudflareAIClient:
         except requests.exceptions.Timeout:
             raise AIClientError(f"Request timed out after {self.timeout_ms}ms")
         except requests.exceptions.RequestException as e:
-            raise AIClientError(f"Request failed: {e}")
+            raise AIClientError(f"Request failed: {e}") from e
         except (KeyError, ValueError) as e:
-            raise AIClientError(f"Failed to parse response: {e}")
-        except Exception as e:
-            raise AIClientError(f"Unexpected error: {e}")
+            raise AIClientError(f"Failed to parse response: {e}") from e

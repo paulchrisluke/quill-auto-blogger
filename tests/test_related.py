@@ -501,9 +501,9 @@ class TestRelatedPostsService:
                 current_date, current_tags, current_title, repo="test/repo"
             )
             
-            # When remote API fails and repo is specified, should return empty list
-            # to avoid broken links to local posts that might not exist on target branch
-            assert len(related_posts) == 0
+            # When remote API fails and repo is specified, should preserve local posts as fallback
+            # instead of returning empty list, to avoid CI breakage
+            assert len(related_posts) > 0
             
             # Should log the error but continue
             mock_remote.assert_called_once_with("test/repo")
@@ -540,4 +540,4 @@ class TestRelatedPostsService:
             )
             
             # Should filter out invalid posts
-            assert len(related_posts) >= 0  # May be 0 if all posts are invalid
+            assert len(related_posts) == 0  # Both posts are invalid (empty title, empty tags)
