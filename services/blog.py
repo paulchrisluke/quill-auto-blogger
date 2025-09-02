@@ -19,7 +19,7 @@ from models import TwitchClip, GitHubEvent
 from story_schema import (
     StoryPacket, FrontmatterInfo, DigestV2, 
     make_story_packet, pair_with_clip, StoryType,
-    _extract_why_and_highlights
+    _extract_why_and_highlights, VideoStatus
 )
 
 if TYPE_CHECKING:
@@ -47,6 +47,7 @@ class BlogDigestBuilder:
     def build_digest(self, target_date: str) -> Dict[str, Any]:
         """
         Build a digest for a specific date with story packets (v2).
+        First tries to load existing pre-cleaned digest, falls back to building from raw data.
         
         Args:
             target_date: Date in YYYY-MM-DD format
@@ -59,6 +60,19 @@ class BlogDigestBuilder:
             datetime.strptime(target_date, "%Y-%m-%d")
         except ValueError as exc:
             raise ValueError(f"target_date must be YYYY-MM-DD, got: {target_date}") from exc
+        
+        # First try to load existing pre-cleaned digest
+        pre_cleaned_path = self.blogs_dir / target_date / f"PRE-CLEANED-{target_date}_digest.json"
+        if pre_cleaned_path.exists():
+            try:
+                with open(pre_cleaned_path, 'r', encoding='utf-8') as f:
+                    digest = json.load(f)
+                logger.info(f"Loaded existing pre-cleaned digest for {target_date}")
+                return digest
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to load pre-cleaned digest for {target_date}: {e}")
+        
+        # Fall back to building from raw data
         date_path = self.data_dir / target_date
         
         if not date_path.exists():
@@ -76,7 +90,7 @@ class BlogDigestBuilder:
         events_data = [event.model_dump(mode="json") for event in github_events]
         
         # Generate story packets from merged PRs
-        story_packets = self._generate_story_packets(events_data, clips_data)
+        story_packets = self._generate_story_packets(events_data, clips_data, target_date)
         
         # Generate pre-computed frontmatter
         frontmatter = self._generate_frontmatter_v2(target_date, clips_data, events_data, story_packets)
@@ -417,20 +431,30 @@ class BlogDigestBuilder:
                                 content_parts.append(f"- {highlight}")
                             content_parts.append("")
                         
-                        # Add video embed and link if available
-                        if packet.get('video', {}).get('path'):
+                        # Add video if available and rendered
+                        if (packet.get('video', {}).get('path') and 
+                            packet.get('video', {}).get('status') != 'pending'):
                             video_path = packet['video']['path']
-                            # Only embed https:// and /stories/ paths to avoid mixed-content issues
+                            
+                            # Convert relative video paths to public URLs
+                            if video_path.startswith('out/videos/'):
+                                # Convert to public stories URL with consistent format
+                                date_part = video_path.split('/')[2]  # Get date from out/videos/YYYY-MM-DD/
+                                filename = video_path.split('/')[-1]  # Get filename
+                                # Convert to YYYY/MM/DD format
+                                date_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                                public_path = f"/stories/{date_obj.strftime('%Y/%m/%d')}/{filename}"
+                                video_path = public_path
+                            
+                            # Add video embed for website preview (only for secure paths)
                             if video_path.startswith(('https://', '/stories/')):
                                 # Escape video path for HTML attribute to prevent XSS
                                 escaped_video_path = html.escape(video_path, quote=True)
-                                # Add video embed for website preview
                                 content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
                                 content_parts.append("")
-                            
-                            # Always add link for feed readers (including http:// URLs)
-                            if video_path.startswith(('http://', 'https://', '/stories/')):
-                                content_parts.append(f"**Video:** [Watch Story](<{video_path}>)")
+                            else:
+                                # For non-secure paths, just show the link
+                                content_parts.append(f"**Video:** [Watch Story]({video_path})")
                                 content_parts.append("")
                         
                         # Add PR link
@@ -494,7 +518,8 @@ class BlogDigestBuilder:
     def _generate_story_packets(
         self, 
         events_data: List[Dict[str, Any]], 
-        clips_data: List[Dict[str, Any]]
+        clips_data: List[Dict[str, Any]],
+        target_date: str
     ) -> List[StoryPacket]:
         """Generate story packets from merged PRs."""
         story_packets = []
@@ -537,6 +562,13 @@ class BlogDigestBuilder:
                 pr_event = pr_events[0]
                 pairing = pair_with_clip(pr_event, deduplicated_clips)
                 packet = make_story_packet(pr_event, pairing, deduplicated_clips)
+                
+                # Check for existing video file
+                video_path = self._find_video_for_story(packet, target_date)
+                if video_path:
+                    packet.video.path = video_path
+                    packet.video.status = VideoStatus.RENDERED
+                
                 story_packets.append(packet)
             else:
                 # Multiple PRs with similar titles - merge into one story
@@ -563,9 +595,39 @@ class BlogDigestBuilder:
                         unique_highlights.append(highlight)
                 
                 packet.highlights = unique_highlights[:4]  # Max 4 highlights
+                
+                # Check for existing video file
+                video_path = self._find_video_for_story(packet, target_date)
+                if video_path:
+                    packet.video.path = video_path
+                    packet.video.status = VideoStatus.RENDERED
+                
                 story_packets.append(packet)
         
         return story_packets
+    
+    def _find_video_for_story(self, packet: StoryPacket, target_date: str) -> Optional[str]:
+        """Find existing video file for a story packet."""
+        # Check for video file in the expected location
+        video_dir = Path("out/videos") / target_date
+        if not video_dir.exists():
+            return None
+        
+        # Look for video file matching the story ID
+        story_id = packet.id
+        video_file = video_dir / f"{story_id}.mp4"
+        
+        if video_file.exists():
+            return str(video_file)
+        
+        # Fallback: look for video file by PR number
+        pr_number = packet.pr_number
+        video_file = video_dir / f"story_{target_date.replace('-', '')}_pr{pr_number}.mp4"
+        
+        if video_file.exists():
+            return str(video_file)
+        
+        return None
     
     def _generate_frontmatter_v2(
         self, 
@@ -658,3 +720,46 @@ class BlogDigestBuilder:
             return f"Enhanced security with {type_counts['security']} improvement{'s' if type_counts['security'] > 1 else ''}."
         else:
             return f"Completed {total_stories} development task{'s' if total_stories > 1 else ''} today."
+    
+    def save_markdown(self, date: str, markdown: str) -> Path:
+        """
+        Save markdown content to drafts directory.
+        
+        Args:
+            date: Date in YYYY-MM-DD format
+            markdown: Markdown content to save
+            
+        Returns:
+            Path to the saved markdown file
+        """
+        # Create drafts directory if it doesn't exist
+        drafts_dir = Path("drafts")
+        drafts_dir.mkdir(exist_ok=True)
+        
+        # Save markdown file
+        file_path = drafts_dir / f"{date}.md"
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(markdown)
+        
+        logger.info(f"Saved markdown to {file_path}")
+        return file_path
+    
+    def compute_target_path(self, date: str) -> str:
+        """
+        Compute the target path for publishing to pcl-labs repository.
+        
+        Args:
+            date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Target path in the repository (e.g., "content/blog/2025/08/27.md")
+        """
+        # Parse date
+        date_obj = datetime.strptime(date, "%Y-%m-%d").date()
+        year = str(date_obj.year)
+        month = f"{date_obj.month:02d}"
+        day = f"{date_obj.day:02d}"
+        
+        # Target directory structure: content/blog/YYYY/MM/DD.md
+        target_dir = os.getenv("BLOG_TARGET_DIR", "content/blog")
+        return f"{target_dir}/{year}/{month}/{day}.md"
