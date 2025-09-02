@@ -476,6 +476,23 @@ class TestRelatedPostsService:
         current_tags = ["feat", "fix"]
         current_title = "Daily Devlog — Jan 15, 2025"
         
+        # Create a local blog post for testing
+        local_blog_dir = related_service.blogs_dir / "2025-01-10"
+        local_blog_dir.mkdir(exist_ok=True)
+        
+        local_digest = local_blog_dir / "PRE-CLEANED-2025-01-10_digest.json"
+        local_data = {
+            "date": "2025-01-10",
+            "version": "2",
+            "frontmatter": {
+                "title": "Local Test Post",
+                "tags": ["feat", "test"]
+            }
+        }
+        
+        with open(local_digest, 'w') as f:
+            json.dump(local_data, f)
+        
         # Mock the remote posts fetching to fail
         with patch.object(related_service, '_fetch_published_posts_from_remote') as mock_remote:
             mock_remote.side_effect = Exception("API Error")
@@ -484,11 +501,16 @@ class TestRelatedPostsService:
                 current_date, current_tags, current_title, repo="test/repo"
             )
             
-            # Should still return local posts
-            assert len(related_posts) > 0
+            # When remote API fails and repo is specified, should return empty list
+            # to avoid broken links to local posts that might not exist on target branch
+            assert len(related_posts) == 0
             
             # Should log the error but continue
             mock_remote.assert_called_once_with("test/repo")
+            
+        # Clean up
+        import shutil
+        shutil.rmtree(local_blog_dir)
     
     def test_find_related_posts_validation(self, related_service):
         """Test that posts without required fields are filtered out."""

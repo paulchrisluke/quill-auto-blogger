@@ -157,20 +157,32 @@ class TestAIInsertsService:
         assert len(result) <= 80
     
     def test_punch_up_title_guardrail_violation(self, ai_service):
-        """Test title punch-up with guardrail violation."""
+        """Test title punch-up with guardrail violation (only length)."""
         date = "2025-01-15"
         title = "Daily Devlog — Jan 15, 2025"
+    
+        # Test the validation directly with a title that's too long
+        long_title = "This is a very long title that exceeds the maximum allowed length of eighty characters exactly"
+        assert len(long_title) > 80
         
-        # Mock AI client to return invalid title
-        mock_client = Mock()
-        mock_client.model = "test-model"
-        mock_client.generate.return_value = "Just Some Title Without Daily Devlog"
-        ai_service.ai_client = mock_client
+        # The validation should fail for titles over 80 characters
+        validation_result = ai_service._validate_title_guardrails(long_title, title)
+        assert validation_result is False
         
-        result = ai_service.punch_up_title(date, title)
+        # Now test the full method with a title that gets truncated but still fails validation
+        # We need to mock the sanitization to return a title that's still too long
+        with patch.object(ai_service, '_sanitize_text') as mock_sanitize:
+            mock_sanitize.return_value = long_title
+            
+            mock_client = Mock()
+            mock_client.model = "test-model"
+            mock_client.generate.return_value = long_title
+            ai_service.ai_client = mock_client
         
-        # Should return None due to guardrail violation
-        assert result is None
+            result = ai_service.punch_up_title(date, title)
+        
+            # Should return None due to length guardrail violation
+            assert result is None
     
     def test_make_story_micro_intro_success(self, ai_service):
         """Test story micro-intro generation with AI success."""
@@ -251,22 +263,24 @@ class TestAIInsertsService:
         assert result is True
     
     def test_validate_title_guardrails_missing_daily_devlog(self, ai_service):
-        """Test title guardrail validation with missing 'Daily Devlog'."""
+        """Test title guardrail validation without 'Daily Devlog' requirement."""
         new_title = "Just Some Title — Jan 15, 2025"
         original_title = "Daily Devlog — Jan 15, 2025"
-        
+    
         result = ai_service._validate_title_guardrails(new_title, original_title)
-        
-        assert result is False
+    
+        # Should pass since we no longer require "Daily Devlog" in titles
+        assert result is True
     
     def test_validate_title_guardrails_missing_date(self, ai_service):
-        """Test title guardrail validation with missing date."""
+        """Test title guardrail validation without date requirement."""
         new_title = "Daily Devlog — Some Description"
         original_title = "Daily Devlog — Jan 15, 2025"
-        
+    
         result = ai_service._validate_title_guardrails(new_title, original_title)
-        
-        assert result is False
+    
+        # Should pass since we no longer require dates in titles
+        assert result is True
     
     def test_validate_title_guardrails_too_long(self, ai_service):
         """Test title guardrail validation with title too long."""

@@ -126,9 +126,13 @@ class AIInsertsService:
                 result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=60)
                 sanitized = self._sanitize_text(result, max_length=80, ensure_period=False)
                 
-                if sanitized and self._validate_title_guardrails(sanitized, title):
-                    self._cache_result(date, cache_key, sanitized)
-                    return sanitized
+                if sanitized:
+                    if self._validate_title_guardrails(sanitized, title):
+                        self._cache_result(date, cache_key, sanitized)
+                        return sanitized
+                    else:
+                        # Guardrail validation failed, return None to use fallback
+                        return None
                     
             except AIClientError as e:
                 logger.warning(f"AI generation failed for title punch-up: {e}")
@@ -200,7 +204,7 @@ class AIInsertsService:
             story_inputs: Dictionary with title, why, highlights_csv
             
         Returns:
-            Story intro string (≤300 chars)
+            Story intro string
         """
         cache_key = self._compute_cache_key("story_comprehensive_intro", story_inputs)
         cached_result = self._get_cached_result(date, cache_key)
@@ -222,8 +226,8 @@ class AIInsertsService:
                     f"Write a 3-sentence intro explaining what, why, and benefits."
                 )
                 
-                result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=400)
-                sanitized = self._sanitize_text(result, max_length=500, ensure_period=True)
+                result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=600)
+                sanitized = self._sanitize_text(result, max_length=None, ensure_period=True)
                 
                 if sanitized:
                     self._cache_result(date, cache_key, sanitized)
@@ -254,13 +258,7 @@ class AIInsertsService:
             else:
                 intro = f"This feature improves {highlights_part}."
         
-        # Clamp to 300 chars and ensure period
-        if len(intro) > 300:
-            intro = intro[:297] + "..."
-        
-        if not intro.endswith('.'):
-            intro += '.'
-        
+        # No character limit needed for body content
         return intro
     
     def _compute_cache_key(self, operation: str, inputs: Dict[str, Any]) -> str:
@@ -330,7 +328,7 @@ class AIInsertsService:
             cleaned += '.'
         
         # Check length
-        if len(cleaned) > max_length:
+        if max_length is not None and len(cleaned) > max_length:
             # Truncate at word boundary
             words = cleaned.split()
             truncated = ""
@@ -405,8 +403,8 @@ class AIInsertsService:
             try:
                 system_prompt = "You are Paul Chris Luke. Write a 3-4 sentence intro explaining today's work theme and how features connect. Use your voice: thoughtful, technical but accessible. Return plain text only."
                 user_prompt = f"Title: {inputs.get('title', '')} Stories: {inputs.get('story_titles_csv', '')} Write a holistic intro explaining today's theme and how features connect."
-                result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=600)
-                sanitized = self._sanitize_text(result, max_length=600, ensure_period=True)
+                result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=800)
+                sanitized = self._sanitize_text(result, max_length=None, ensure_period=True)
                 if sanitized:
                     self._cache_result(date, cache_key, sanitized)
                     return sanitized
@@ -454,8 +452,7 @@ class AIInsertsService:
         else:
             fallback = "Today's work marks a turning point for this project — moving from building infrastructure to building the content engine itself. I shipped two big features: a schema and backend pipeline for generating and managing content at scale, and an AI-powered blog generator that can draft, enrich, and publish posts automatically. Together, these upgrades lay the foundation for a system that doesn't just capture development work but actively turns it into polished, production-ready content."
         
-        if len(fallback) > 400:
-            fallback = fallback[:397] + "..."
+        # No character limit needed for body content
         return fallback
 
     def _fallback_tag_suggestions(self, inputs: Dict[str, Any]) -> List[str]:
@@ -485,8 +482,8 @@ class AIInsertsService:
             try:
                 system_prompt = "You are Paul Chris Luke. Write a 2-3 sentence wrap-up explaining how today's features work together and what they enable. Use your voice: thoughtful, technical but accessible. Return plain text only."
                 user_prompt = f"Title: {inputs.get('title', '')} Stories: {inputs.get('story_titles_csv', '')} Write a wrap-up explaining how today's features connect and what they enable."
-                result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=400)
-                sanitized = self._sanitize_text(result, max_length=500, ensure_period=True)
+                result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=600)
+                sanitized = self._sanitize_text(result, max_length=None, ensure_period=True)
                 if sanitized:
                     self._cache_result(date, cache_key, sanitized)
                     return sanitized
@@ -502,6 +499,4 @@ class AIInsertsService:
             fallback = f"Today's work focused on {story_part}. Together these features move the project forward."
         else:
             fallback = "Today's development work adds new capabilities to the platform."
-        if len(fallback) > 300:
-            fallback = fallback[:297] + "..."
         return fallback

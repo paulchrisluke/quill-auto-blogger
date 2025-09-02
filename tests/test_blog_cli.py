@@ -187,7 +187,9 @@ class TestBlogCLI:
             author_email="test@example.com",
             create_pr=False,
             pr_title=None,
-            pr_body=None
+            pr_body=None,
+            include_assets=False,
+            assets_info=None
         )
     
     @patch('services.blog.BlogDigestBuilder')
@@ -206,6 +208,7 @@ class TestBlogCLI:
         mock_builder.build_digest.return_value = sample_digest
         mock_builder.generate_markdown.return_value = "# Test Blog Post\n\nContent here."
         mock_builder.compute_target_path.return_value = "content/blog/2025/01/15.md"
+        mock_builder.collect_assets_for_publishing.return_value = {}  # No assets for this test
         mock_builder_class.return_value = mock_builder
         
         # Mock the publisher with PR
@@ -235,7 +238,9 @@ class TestBlogCLI:
             author_email="test@example.com",
             create_pr=True,
             pr_title="Daily Devlog — 2025-01-15",
-            pr_body="Automated blog post for 2025-01-15"
+            pr_body="Automated blog post for 2025-01-15",
+            include_assets=True,
+            assets_info={}
         )
     
     @patch('services.blog.BlogDigestBuilder')

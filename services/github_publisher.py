@@ -84,10 +84,12 @@ class GitHubPublisher:
         content_bytes = content_md.encode('utf-8')
         content_b64 = base64.b64encode(content_bytes).decode('utf-8')
         
-        # Check if file exists and get current SHA
+        # Initialize variables
+        feature_branch = None
+        target_branch = branch
         current_sha = None
         
-        # Skip file existence check when creating PR (we're creating new content)
+        # Check if file exists and get current SHA (only for direct commits, not PRs)
         if not create_pr:
             try:
                 with httpx.Client(timeout=30.0) as client:
@@ -122,14 +124,11 @@ class GitHubPublisher:
                 logger.error(f"Network error checking file existence: {e}")
                 raise RuntimeError(f"Network error: {e}")
         
-        # Initialize feature branch variable
-        feature_branch = None
-        
-        # Determine target branch for commit
-        target_branch = branch
+        # Handle PR creation logic
         if create_pr:
-            # Check for existing PR first
             pr_title = pr_title or commit_message
+            
+            # Check for existing PR first
             existing_pr = self._find_existing_pr(owner, repo, pr_title)
             
             if existing_pr:
@@ -137,31 +136,31 @@ class GitHubPublisher:
                 feature_branch = existing_pr["head"]["ref"]
                 target_branch = feature_branch
                 logger.info(f"Found existing PR #{existing_pr['number']}, using branch: {feature_branch}")
+                
+                # Get SHA from existing branch if file exists
+                try:
+                    with httpx.Client(timeout=30.0) as client:
+                        response = client.get(
+                            f"{self.base_url}/repos/{owner}/{repo}/contents/{path}",
+                            headers=self.headers,
+                            params={"ref": target_branch}
+                        )
+                        
+                        if response.status_code == 200:
+                            file_data = response.json()
+                            current_sha = file_data["sha"]
+                        elif response.status_code != 404:
+                            response.raise_for_status()
+                except Exception as e:
+                    logger.warning(f"Failed to get SHA from existing branch: {e}")
+                    # Continue without SHA, will create new file
             else:
                 # Create new feature branch name
                 feature_branch = f"blog/{path.replace('/', '_').replace('.md', '')}"
                 target_branch = feature_branch
                 logger.info(f"Creating new PR with feature branch: {feature_branch}")
-            
-            logger.info(f"Target branch for commit: {target_branch}")
-        
-        # Publish assets if requested
-        asset_results = []
-        if include_assets and assets_info:
-            asset_results = self._publish_assets(
-                owner=owner,
-                repo=repo,
-                branch=target_branch,
-                assets_info=assets_info
-            )
-            
-            # Ensure feature branch exists before committing
-            # Check if we're using an existing PR branch
-            existing_pr = self._find_existing_pr(owner, repo, pr_title or commit_message)
-            if existing_pr and existing_pr["head"]["ref"] == feature_branch:
-                logger.info(f"Using existing branch {feature_branch} from PR #{existing_pr['number']}")
-            else:
-                # Create new branch
+                
+                # Create the feature branch
                 try:
                     with httpx.Client(timeout=30.0) as client:
                         # Get the latest commit SHA from base branch
@@ -199,36 +198,21 @@ class GitHubPublisher:
                     logger.error(f"Failed to create/verify feature branch: {e}")
                     raise RuntimeError(f"Failed to create feature branch: {e}")
         
+        # Publish assets if requested
+        if include_assets and assets_info:
+            asset_results = self._publish_assets(
+                owner=owner,
+                repo=repo,
+                branch=target_branch,
+                assets_info=assets_info
+            )
+        
         # Prepare commit data
         commit_data = {
             "message": commit_message,
             "content": content_b64,
             "branch": target_branch
         }
-        
-        # Re-check file SHA on target branch before committing
-        # This prevents 422 errors when the file differs on the feature branch
-        if current_sha and target_branch != branch:
-            try:
-                with httpx.Client(timeout=30.0) as client:
-                    response = client.get(
-                        f"{self.base_url}/repos/{owner}/{repo}/contents/{path}",
-                        headers=self.headers,
-                        params={"ref": target_branch}
-                    )
-                    
-                    if response.status_code == 200:
-                        # File exists on target branch, use its SHA
-                        file_data = response.json()
-                        current_sha = file_data["content"]["sha"]
-                    elif response.status_code == 404:
-                        # File doesn't exist on target branch, don't include SHA
-                        current_sha = None
-                    else:
-                        response.raise_for_status()
-            except Exception as e:
-                logger.warning(f"Failed to re-check file SHA on target branch: {e}")
-                # Continue with original SHA if re-check fails
         
         # Add SHA if updating existing file
         if current_sha:
@@ -256,7 +240,7 @@ class GitHubPublisher:
                 
                 result = {
                     "action": action,
-                    "branch": branch,
+                    "branch": target_branch,
                     "path": path,
                     "sha": file_data["content"]["sha"],
                     "html_url": file_data["content"]["html_url"],
@@ -269,7 +253,10 @@ class GitHubPublisher:
                         owner, repo, feature_branch, branch, 
                         pr_title or commit_message, pr_body
                     )
-                    result["pr_url"] = pr_result["html_url"]
+                    if pr_result and isinstance(pr_result, dict) and "html_url" in pr_result:
+                        result["pr_url"] = pr_result["html_url"]
+                    else:
+                        logger.warning("PR creation returned unexpected result format")
                 
                 return result
                 
@@ -299,8 +286,13 @@ class GitHubPublisher:
                 response.raise_for_status()
                 
                 prs = response.json()
+                # Ensure prs is a list and iterable
+                if not isinstance(prs, list):
+                    logger.warning(f"Expected list of PRs, got {type(prs)}")
+                    return None
+                    
                 for pr in prs:
-                    if pr["title"] == title:
+                    if isinstance(pr, dict) and pr.get("title") == title:
                         return pr
                 return None
         except Exception as e:
@@ -336,7 +328,13 @@ class GitHubPublisher:
                 )
                 response.raise_for_status()
                 
-                return response.json()
+                result = response.json()
+                # Ensure we have a valid response
+                if not isinstance(result, dict):
+                    logger.warning(f"Expected dict response from PR creation, got {type(result)}")
+                    return {"html_url": None}
+                    
+                return result
                 
         except httpx.HTTPStatusError as e:
             logger.error(f"Failed to create pull request: {e}")
@@ -344,6 +342,9 @@ class GitHubPublisher:
         except httpx.RequestError as e:
             logger.error(f"Network error creating pull request: {e}")
             raise RuntimeError(f"Network error: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error creating pull request: {e}")
+            raise RuntimeError(f"Unexpected error creating pull request: {e}")
     
     def _publish_assets(
         self,
