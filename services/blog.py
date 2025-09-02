@@ -862,19 +862,34 @@ class BlogDigestBuilder:
                     video_path = packet["video"]["path"]
                     
                     # The digest has public paths like /stories/2025/08/29/story_20250829_pr42.mp4
-                    # But actual files are in out/videos/2025-08-29/
-                    # Convert public path to local out/videos path
+                    # But we need to find the actual published files in public/stories/
                     if video_path.startswith("/stories/"):
                         # Extract date and filename from /stories/2025/08/29/story_20250829_pr42.mp4
                         parts = video_path.split("/")
                         if len(parts) >= 5:
                             year, month, day, filename = parts[2], parts[3], parts[4], parts[5]
-                            local_video_path = Path(f"out/videos/{year}-{month}-{day}/{filename}")
+                            # Look for the file in the public/stories directory where it's actually published
+                            local_video_path = Path(f"public/stories/{year}/{month}/{day}/{filename}")
                         else:
                             continue
-                    elif video_path.startswith("out/videos/"):
-                        # Already in local format
+                    elif video_path.startswith("public/stories/"):
+                        # Already in public format
                         local_video_path = Path(video_path)
+                    elif video_path.startswith("out/videos/"):
+                        # Convert from out/videos to public/stories
+                        # out/videos/2025-08-29/story_20250829_pr42.mp4 -> public/stories/2025/08/29/story_20250829_pr42.mp4
+                        parts = video_path.split("/")
+                        if len(parts) >= 4:
+                            date_part = parts[2]  # 2025-08-29
+                            filename = parts[3]  # story_20250829_pr42.mp4
+                            try:
+                                date_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                                year, month, day = date_obj.strftime("%Y"), date_obj.strftime("%m"), date_obj.strftime("%d")
+                                local_video_path = Path(f"public/stories/{year}/{month}/{day}/{filename}")
+                            except ValueError:
+                                continue
+                        else:
+                            continue
                     else:
                         local_video_path = Path(video_path)
                     
@@ -891,7 +906,18 @@ class BlogDigestBuilder:
                         
                         # Use existing PNG intro slide as thumbnail
                         intro_png_path = video_path.replace(".mp4", "_01_intro.png")
-                        local_intro_png_path = local_video_path.parent / (local_video_path.stem + "_01_intro.png")
+                        # Look for thumbnail in the same public/stories directory
+                        if video_path.startswith("/stories/"):
+                            parts = video_path.split("/")
+                            if len(parts) >= 5:
+                                year, month, day, filename = parts[2], parts[3], parts[4], parts[5]
+                                local_intro_png_path = Path(f"public/stories/{year}/{month}/{day}/{filename.replace('.mp4', '_01_intro.png')}")
+                            else:
+                                continue
+                        elif video_path.startswith("public/stories/"):
+                            local_intro_png_path = local_video_path.parent / (local_video_path.stem + "_01_intro.png")
+                        else:
+                            local_intro_png_path = local_video_path.parent / (local_video_path.stem + "_01_intro.png")
                         
                         if local_intro_png_path.exists():
                             # Remove leading slash for GitHub paths
