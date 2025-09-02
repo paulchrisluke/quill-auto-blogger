@@ -107,12 +107,22 @@ deploy_environment() {
 set_secrets() {
     print_status "Setting secrets..."
     
+    # Get environment from argument or use default
+    local env_flag=""
+    if [ -n "$1" ]; then
+        env_flag="--env $1"
+    fi
+    
     if [ -z "$WORKER_BEARER_TOKEN" ]; then
         print_warning "WORKER_BEARER_TOKEN not set. You may need to set it manually:"
-        echo "wrangler secret put WORKER_BEARER_TOKEN"
+        if [ -n "$env_flag" ]; then
+            echo "wrangler secret put WORKER_BEARER_TOKEN $env_flag"
+        else
+            echo "wrangler secret put WORKER_BEARER_TOKEN"
+        fi
     else
-        echo "$WORKER_BEARER_TOKEN" | wrangler secret put WORKER_BEARER_TOKEN
-        print_success "WORKER_BEARER_TOKEN secret set"
+        echo "$WORKER_BEARER_TOKEN" | wrangler secret put WORKER_BEARER_TOKEN $env_flag
+        print_success "WORKER_BEARER_TOKEN secret set $env_flag"
     fi
 }
 
@@ -123,23 +133,50 @@ run_tests() {
     # Test the worker locally
     if [ "$1" = "dev" ] || [ "$1" = "development" ]; then
         print_status "Starting local development server..."
+        
+        # Start wrangler in background and capture PID
         wrangler dev &
         local pid=$!
         
-        # Wait for server to start
-        sleep 5
+        # Set trap to ensure cleanup on exit
+        trap "kill $pid 2>/dev/null || true; exit 1" EXIT INT TERM
         
-        # Test health endpoint
-        if curl -s http://localhost:8787/health > /dev/null; then
+        # Wait for server to be ready with timeout
+        local max_attempts=30
+        local attempt=1
+        local server_ready=false
+        
+        print_status "Waiting for server to be ready..."
+        while [ $attempt -le $max_attempts ]; do
+            if curl -s http://localhost:8787/health > /dev/null 2>&1; then
+                server_ready=true
+                break
+            fi
+            sleep 1
+            attempt=$((attempt + 1))
+        done
+        
+        if [ "$server_ready" = true ]; then
             print_success "Local development server is running"
-        else
-            print_error "Local development server failed to start"
+            
+            # Test health endpoint
+            if curl -s http://localhost:8787/health > /dev/null; then
+                print_success "Health endpoint is responding"
+            else
+                print_error "Health endpoint failed to respond"
+                kill $pid 2>/dev/null || true
+                exit 1
+            fi
+            
+            # Stop local server and remove trap
             kill $pid 2>/dev/null || true
+            trap - EXIT INT TERM
+        else
+            print_error "Local development server failed to start within timeout"
+            kill $pid 2>/dev/null || true
+            trap - EXIT INT TERM
             exit 1
         fi
-        
-        # Stop local server
-        kill $pid 2>/dev/null || true
     fi
     
     print_success "Tests completed"
@@ -228,7 +265,7 @@ main() {
     validate_config
     
     if [ "$set_secrets_flag" = true ]; then
-        set_secrets
+        set_secrets "$environment"
     fi
     
     if [ "$test_flag" = true ]; then
