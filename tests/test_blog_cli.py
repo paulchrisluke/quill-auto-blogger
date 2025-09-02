@@ -94,7 +94,13 @@ class TestBlogCLI:
         
         # Verify the builder was called correctly
         mock_builder.build_digest.assert_called_once_with("2025-01-15")
-        mock_builder.generate_markdown.assert_called_once_with(sample_digest)
+        mock_builder.generate_markdown.assert_called_once_with(
+            sample_digest,
+            ai_enabled=True,
+            force_ai=False,
+            related_enabled=True,
+            jsonld_enabled=True
+        )
         mock_builder.save_markdown.assert_called_once_with("2025-01-15", "# Test Blog Post\n\nContent here.")
     
     @patch('services.blog.BlogDigestBuilder')

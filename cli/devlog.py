@@ -168,7 +168,11 @@ def blog():
 
 @blog.command("generate")
 @click.option("--date", "target_date", help="Date in YYYY-MM-DD format (defaults to latest)")
-def blog_generate(target_date: str):
+@click.option("--no-ai", is_flag=True, help="Skip AI-assisted content generation")
+@click.option("--force-ai", is_flag=True, help="Ignore cache and force AI regeneration")
+@click.option("--no-related", is_flag=True, help="Skip related posts block")
+@click.option("--no-jsonld", is_flag=True, help="Skip JSON-LD injection")
+def blog_generate(target_date: str, no_ai: bool, force_ai: bool, no_related: bool, no_jsonld: bool):
     """Generate markdown blog post for a specific date."""
     try:
         from services.blog import BlogDigestBuilder
@@ -192,7 +196,16 @@ def blog_generate(target_date: str):
         
         # Build digest and generate markdown
         digest = builder.build_digest(target_date)
-        markdown = builder.generate_markdown(digest)
+        
+        # Generate markdown with M5 options
+        ai_options = {
+            "ai_enabled": not no_ai,
+            "force_ai": force_ai,
+            "related_enabled": not no_related,
+            "jsonld_enabled": not no_jsonld
+        }
+        
+        markdown = builder.generate_markdown(digest, **ai_options)
         
         # Save to drafts
         file_path = builder.save_markdown(target_date, markdown)
@@ -268,6 +281,15 @@ def blog_publish(target_date: str, branch: str, create_pr: bool, use_draft: bool
             pr_title = f"Daily Devlog — {target_date}"
             pr_body = f"Automated blog post for {target_date}"
         
+        # Collect assets for publishing if creating PR
+        assets_info = None
+        if create_pr:
+            assets_info = builder.collect_assets_for_publishing(target_date)
+            if assets_info:
+                click.echo(f"[INFO] Found {len(assets_info)} assets to publish")
+            else:
+                click.echo("[INFO] No assets found for publishing")
+        
         # Publish to GitHub
         result = publish_markdown(
             owner=owner,
@@ -280,7 +302,9 @@ def blog_publish(target_date: str, branch: str, create_pr: bool, use_draft: bool
             author_email=author_email,
             create_pr=create_pr,
             pr_title=pr_title,
-            pr_body=pr_body
+            pr_body=pr_body,
+            include_assets=create_pr,  # Include assets when creating PR
+            assets_info=assets_info
         )
         
         # Display results
