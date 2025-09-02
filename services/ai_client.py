@@ -3,6 +3,7 @@ Thin Cloudflare Workers AI client for M5 surgical AI inserts.
 """
 
 import os
+import json
 import logging
 import requests
 from typing import Optional
@@ -25,7 +26,7 @@ class CloudflareAIClient:
     def __init__(self):
         self.account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
         self.api_token = os.getenv("CLOUDFLARE_API_TOKEN")
-        self.model = os.getenv("CLOUDFLARE_AI_MODEL", "llama-3.1-8b-instruct")
+        self.model = os.getenv("CLOUDFLARE_AI_MODEL", "openai/llama-3.1-8b-instruct")
         self.timeout_ms = int(os.getenv("AI_TIMEOUT_MS", "6000"))
         self.seed = int(os.getenv("AI_SEED", "42"))
         self.default_max_tokens = int(os.getenv("AI_MAX_TOKENS", "800"))
@@ -88,10 +89,23 @@ class CloudflareAIClient:
             if response.status_code != 200:
                 raise AIClientError(f"API request failed with status {response.status_code}: {response.text}")
             
-            data = response.json()
+            # Safely parse JSON response
+            try:
+                data = response.json()
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {e}. Raw response: {response.text}")
+                raise AIClientError("Invalid JSON response from API")
             
+            # Check for API success indicators
+            if data.get("success") is False:
+                error_msg = data.get("errors", "Unknown API error")
+                logger.error(f"API returned unsuccessful response: {error_msg}. Full response: {data}")
+                raise AIClientError("API returned unsuccessful response")
+            
+            # Check for expected response structure
             if "result" not in data or "response" not in data["result"]:
-                raise AIClientError(f"Unexpected API response format: {data}")
+                logger.error(f"Unexpected API response format. Full response: {data}")
+                raise AIClientError("Unexpected API response format")
             
             return data["result"]["response"]
             

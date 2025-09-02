@@ -58,11 +58,12 @@ class RelatedPostsService:
         Returns:
             List of (title, path, score) tuples, sorted by score descending
         """
-        if not self.blogs_dir.exists():
-            return []
-        
         # Find all published blog posts - try local first, then remote
-        published_posts = self._find_published_posts()
+        published_posts = []
+        if self.blogs_dir.exists():
+            published_posts = self._find_published_posts()
+        
+
         
         # If no local posts or we're working on a PR, check remote repo
         if not published_posts or repo:
