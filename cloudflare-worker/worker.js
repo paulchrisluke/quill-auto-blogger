@@ -14,11 +14,20 @@ export default {
     }
     
     try {
+      // Build context object with shared state
+      const requestCtx = {
+        request,
+        env,
+        path,
+        url,
+        waitUntil: ctx.waitUntil
+      };
+      
       // Route requests based on path
       if (path.startsWith('/api/blog/')) {
-        return await handleBlogAPI(request, env, path);
+        return await handleBlogAPI(request, env, requestCtx, path);
       } else if (path.startsWith('/api/assets/')) {
-        return await handleAssetsAPI(request, env, path);
+        return await handleAssetsAPI(request, env, requestCtx, path);
       } else if (path === '/health') {
         return new Response('OK', { status: 200 });
       } else {
@@ -77,7 +86,7 @@ function addCORSHeaders(response) {
 /**
  * Handle blog API requests with edge caching
  */
-async function handleBlogAPI(request, env, path) {
+async function handleBlogAPI(request, env, ctx, path) {
   const segments = path.split('/');
   const date = segments[3];
   
@@ -102,12 +111,20 @@ async function handleBlogAPI(request, env, path) {
   try {
     // Forward request to your local API server
     const apiUrl = env.LOCAL_API_URL || 'http://localhost:8000';
+    
+    // Build headers conditionally
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    // Only add Authorization header if token is defined and non-empty
+    if (env.WORKER_BEARER_TOKEN && env.WORKER_BEARER_TOKEN.trim() !== '') {
+      headers['Authorization'] = `Bearer ${env.WORKER_BEARER_TOKEN}`;
+    }
+    
     const response = await fetch(`${apiUrl}${path}`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${env.WORKER_BEARER_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
+      headers
     });
     
     if (!response.ok) {
@@ -142,7 +159,7 @@ async function handleBlogAPI(request, env, path) {
 /**
  * Handle assets API requests with edge caching
  */
-async function handleAssetsAPI(request, env, path) {
+async function handleAssetsAPI(request, env, ctx, path) {
   const segments = path.split('/');
   
   if (segments.length < 4) {
@@ -161,12 +178,20 @@ async function handleAssetsAPI(request, env, path) {
   try {
     // Forward request to your local API server
     const apiUrl = env.LOCAL_API_URL || 'http://localhost:8000';
+    
+    // Build headers conditionally
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    // Only add Authorization header if token is defined and non-empty
+    if (env.WORKER_BEARER_TOKEN && env.WORKER_BEARER_TOKEN.trim() !== '') {
+      headers['Authorization'] = `Bearer ${env.WORKER_BEARER_TOKEN}`;
+    }
+    
     const response = await fetch(`${apiUrl}${path}`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${env.WORKER_BEARER_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
+      headers
     });
     
     if (!response.ok) {

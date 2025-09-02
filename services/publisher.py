@@ -375,10 +375,19 @@ class Publisher:
                 story_path = self.public_root / "stories" / year / month / day
                 if story_path.exists():
                     for asset_file in story_path.glob(f"{safe_story_id}_*.png"):
-                        if self.public_base_url:
-                            assets["images"].append(f"{self.public_base_url.rstrip('/')}/stories/{year}/{month}/{day}/{asset_file.name}")
+                        # Separate highlights from regular images
+                        if "_hl_" in asset_file.name:
+                            # This is a highlight file
+                            if self.public_base_url:
+                                assets["highlights"].append(f"{self.public_base_url.rstrip('/')}/stories/{year}/{month}/{day}/{asset_file.name}")
+                            else:
+                                assets["highlights"].append(f"/stories/{year}/{month}/{day}/{asset_file.name}")
                         else:
-                            assets["images"].append(f"/stories/{year}/{month}/{day}/{asset_file.name}")
+                            # This is a regular image (intro, why, outro, etc.)
+                            if self.public_base_url:
+                                assets["images"].append(f"{self.public_base_url.rstrip('/')}/stories/{year}/{month}/{day}/{asset_file.name}")
+                            else:
+                                assets["images"].append(f"/stories/{year}/{month}/{day}/{asset_file.name}")
             
             return assets
             
