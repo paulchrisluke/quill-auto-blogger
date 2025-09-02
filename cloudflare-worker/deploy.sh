@@ -109,7 +109,7 @@ set_secrets() {
     
     # Get environment from argument or use default
     local env_flag=""
-    if [ -n "$1" ]; then
+    if [ -n "$1" ] && [ "$1" != "dev" ] && [ "$1" != "development" ]; then
         env_flag="--env $1"
     fi
     
@@ -121,7 +121,8 @@ set_secrets() {
             echo "wrangler secret put WORKER_BEARER_TOKEN"
         fi
     else
-        echo "$WORKER_BEARER_TOKEN" | wrangler secret put WORKER_BEARER_TOKEN $env_flag
+        # Disable xtrace to prevent token leakage, then set secret
+        (set +x; echo "$WORKER_BEARER_TOKEN") | wrangler secret put WORKER_BEARER_TOKEN $env_flag
         print_success "WORKER_BEARER_TOKEN secret set $env_flag"
     fi
 }

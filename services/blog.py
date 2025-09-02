@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 import yaml
@@ -1339,10 +1339,11 @@ class BlogDigestBuilder:
             for story in digest.get("story_packets", []):
                 updated_story = story.copy()
                 
-                # Update video path to Cloudflare URL
+                # Update video path to Cloudflare URL - handle all local asset patterns
                 if story.get("video", {}).get("path"):
                     video_path = story["video"]["path"]
-                    if video_path.startswith('/stories/') or video_path.startswith('stories/'):
+                    # Convert any local path (stories/, out/videos/, relative paths without http)
+                    if not video_path.startswith('http'):
                         clean_path = video_path.lstrip('/')
                         cloudflare_url = self._get_cloudflare_url(clean_path)
                         updated_story["video"]["path"] = cloudflare_url
@@ -1366,12 +1367,12 @@ class BlogDigestBuilder:
                 "twitch_clips": digest.get("twitch_clips", []),
                 "github_events": digest.get("github_events", []),
                 "metadata": digest.get("metadata", {}),
-                "frontmatter": digest.get("frontmatter", {}),
+                "frontmatter": updated_digest.get("frontmatter", {}),  # Use updated digest frontmatter
                 "story_packets": updated_story_packets,
                 "markdown": markdown,
                 "assets": assets,
                 "api_metadata": {
-                    "generated_at": datetime.now().isoformat(),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),  # UTC timestamp
                     "version": "1.0",
                     "api_endpoint": f"/api/blog/{target_date}"
                 }
@@ -1380,7 +1381,7 @@ class BlogDigestBuilder:
             return final_blog_data
             
         except Exception as e:
-            logger.error(f"Failed to get blog API data for {target_date}: {e}")
+            logger.exception(f"Failed to get blog API data for {target_date}")  # Log full traceback
             raise
     
     def get_blog_markdown(self, target_date: str) -> str:

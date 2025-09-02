@@ -260,10 +260,9 @@ class Publisher:
                         else:
                             return f"/stories/{year}/{month}/{day}/{safe_story_id}.mp4"
             
-            elif asset_type in ["image", "highlight"]:
-                # For images, we need to check what's available
+            elif asset_type == "image":
+                # For images, check intro first, then why, then outro
                 if self.publish_target == "r2":
-                    # Check for different image types
                     for img_type in ["intro", "why", "outro"]:
                         r2_key = f"stories/{year}/{month}/{day}/{safe_story_id}_{img_type}.png"
                         if self._r2_file_exists(r2_key):
@@ -284,6 +283,30 @@ class Publisher:
                                 return f"{self.public_base_url.rstrip('/')}/stories/{year}/{month}/{day}/{safe_story_id}_{img_type}.png"
                             else:
                                 return f"/stories/{year}/{month}/{day}/{safe_story_id}_{img_type}.png"
+            
+            elif asset_type == "highlight":
+                # For highlights, check hl_01, hl_02, etc.
+                if self.publish_target == "r2":
+                    for hl_num in range(1, 10):  # Check up to hl_09
+                        r2_key = f"stories/{year}/{month}/{day}/{safe_story_id}_hl_{hl_num:02d}.png"
+                        if self._r2_file_exists(r2_key):
+                            if self.r2_credentials.public_base_url:
+                                return f"{self.r2_credentials.public_base_url.rstrip('/')}/{r2_key}"
+                            else:
+                                return self.s3_client.generate_presigned_url(
+                                    'get_object',
+                                    Params={'Bucket': self.r2_credentials.bucket, 'Key': r2_key},
+                                    ExpiresIn=3600
+                                )
+                else:
+                    # Local storage
+                    for hl_num in range(1, 10):  # Check up to hl_09
+                        local_path = self.public_root / "stories" / year / month / day / f"{safe_story_id}_hl_{hl_num:02d}.png"
+                        if local_path.exists():
+                            if self.public_base_url:
+                                return f"{self.public_base_url.rstrip('/')}/stories/{year}/{month}/{day}/{safe_story_id}_hl_{hl_num:02d}.png"
+                            else:
+                                return f"/stories/{year}/{month}/{day}/{safe_story_id}_hl_{hl_num:02d}.png"
             
             return None
             
