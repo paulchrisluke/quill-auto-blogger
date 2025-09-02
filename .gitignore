@@ -197,6 +197,8 @@ blogs/
 !package.json
 !pytest.ini
 !env.example
+# Story assets (videos, images) - generated content not meant for version control
+public/stories/
 
 # Cache directories
 .cache/

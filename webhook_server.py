@@ -131,12 +131,7 @@ def _run_record_command_direct(story_id: str, action: str, date: Optional[str] =
         return False
 
 
-class GitHubWebhookPayload(BaseModel):
-    """GitHub webhook payload model."""
-    action: Optional[str] = None
-    pull_request: Optional[Dict[str, Any]] = None
-    repository: Optional[Dict[str, Any]] = None
-    sender: Optional[Dict[str, Any]] = None
+
 
 
 class RecordControlRequest(BaseModel):
@@ -174,134 +169,16 @@ class RecordControlRequest(BaseModel):
             raise ValueError('date must be in YYYY-MM-DD format')
 
 
-async def verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
-    """Verify GitHub webhook signature."""
-    if not WEBHOOK_SECRET:
-        if ALLOW_INSECURE_WEBHOOKS:
-            logger.warning("WEBHOOK_SECRET not configured but ALLOW_INSECURE_WEBHOOKS=1 - skipping verification for development only")
-            return True
-        else:
-            logger.error("WEBHOOK_SECRET not configured and ALLOW_INSECURE_WEBHOOKS not set to '1' - rejecting webhook for security")
-            return False
-    
-    if not signature:
-        logger.error("No signature header found")
-        return False
-    
-    # Calculate expected signature
-    expected_signature = "sha256=" + hmac.new(
-        WEBHOOK_SECRET.encode(),
-        raw_body,
-        hashlib.sha256
-    ).hexdigest()
-    
-    return hmac.compare_digest(signature, expected_signature)
 
 
-@app.post("/webhook/github")
-async def github_webhook(request: Request):
-    """Handle GitHub webhook events."""
-    
-    # Get raw body for signature verification
-    raw_body = await request.body()
-    signature = request.headers.get("X-Hub-Signature-256")
-    
-    # Verify signature
-    if not await verify_webhook_signature(raw_body, signature):
-        raise HTTPException(status_code=401, detail="Invalid signature")
-    
-    # Parse the JSON payload
-    try:
-        payload_data = json.loads(raw_body.decode('utf-8'))
-        payload = GitHubWebhookPayload(**payload_data)
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error(f"Invalid JSON payload: {e}")
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-    
-    # Check if this is a PR merge event
-    if (payload.action == "closed" and 
-        payload.pull_request and 
-        payload.pull_request.get("merged") is True):
-        
-        logger.info(f"PR #{payload.pull_request['number']} merged")
-        
-        try:
-            # Generate story packet immediately
-            story_packet = await generate_story_packet_from_pr(payload)
-            
-            # Save story packet
-            await save_story_packet(story_packet)
-            
-            logger.info(f"Story packet generated: {story_packet.id}")
-            
-            return JSONResponse({
-                "status": "success",
-                "message": "Story packet generated",
-                "story_id": story_packet.id,
-                "pr_number": story_packet.pr_number
-            })
-            
-        except Exception as e:
-            logger.error(f"Error generating story packet: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    return JSONResponse({"status": "ignored", "message": "Not a PR merge event"})
 
 
-async def generate_story_packet_from_pr(payload: GitHubWebhookPayload) -> StoryPacket:
-    """Generate a story packet from a merged PR webhook."""
-    
-    pr = payload.pull_request
-    repo = payload.repository
-    
-    # Create PR event structure similar to what we get from GitHub API
-    pr_event = {
-        "id": str(pr["id"]),
-        "type": "PullRequestEvent",
-        "repo": repo["full_name"],
-        "actor": payload.sender["login"],
-        "created_at": pr["merged_at"],
-        "details": {
-            "action": "closed",
-            "number": pr["number"],
-            "state": "closed",
-            "merged": True
-        },
-        "url": pr["html_url"],
-        "title": pr["title"],
-        "body": pr.get("body", "")
-    }
-    
-    # For now, we don't have clips available in webhook context
-    # In a real implementation, you'd fetch recent clips here
-    clips = []
-    
-    # Pair with clips (will return needs_broll=True since no clips)
-    pairing = pair_with_clip(pr_event, clips)
-    
-    # Create story packet
-    story_packet = make_story_packet(pr_event, pairing, clips)
-    
-    return story_packet
 
 
-async def save_story_packet(story_packet: StoryPacket):
-    """Save a story packet to disk."""
-    
-    # Create date directory
-    # Fix: merged_at is a string, need to parse it to datetime first
-    from datetime import datetime, timezone
-    dt = datetime.fromisoformat(story_packet.merged_at.replace("Z", "+00:00")).astimezone(timezone.utc)
-    date_str = dt.strftime("%Y-%m-%d")
-    date_dir = STORY_DIR / date_str
-    date_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save individual story packet
-    packet_file = date_dir / f"{story_packet.id}.json"
-    with open(packet_file, 'w') as f:
-        json.dump(story_packet.model_dump(), f, indent=2, default=str)
-    
-    logger.info(f"Story packet saved to {packet_file}")
+
+
+
+
 
 
 async def run_bounded_recording(obs, state, date, story_id, prep_delay, duration):

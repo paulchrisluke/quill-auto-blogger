@@ -11,13 +11,11 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 - **24h Reminders**: Gentle nudges for missing explainers
 - **Local-first**: Minimal dependencies, no external services required
 
-## M4 Features - Auto Blog PRs
+## M4 Features - Auto Blog Generation
 
-- **GitHub Publishing**: Automatically publish markdown blog posts to GitHub repositories
-- **Pull Request Workflow**: Create feature branches and PRs for review
-- **CLI Blog Commands**: Generate, preview, and publish blog posts
-- **Discord Notifications**: Get notified when blog posts are published
-- **Idempotent Publishing**: Skip updates when content is identical
+- **Blog Generation**: Automatically generate markdown blog posts from daily development data
+- **CLI Blog Commands**: Generate and preview blog posts
+- **Structured Content**: SEO-optimized frontmatter and content organization
 - **Environment Configuration**: Flexible target repository and path configuration
 
 ## Features
@@ -141,10 +139,9 @@ python main.py build-digest-for-date 2025-01-15
 # Build digest for the latest available date
 python main.py build-latest-digest
 
-# Blog generation and publishing (M4)
+# Blog generation (M4)
 devlog blog generate --date 2025-01-15
 devlog blog preview --date 2025-01-15
-devlog blog publish --date 2025-01-15 --pr
 ```
 
 ### Examples
@@ -180,10 +177,9 @@ python main.py build-digest --date 2025-01-15
 # Build digest for specific date (alternative command)
 python main.py build-digest-for-date 2025-01-15
 
-# Blog generation and publishing (M4)
+# Blog generation (M4)
 devlog blog generate --date 2025-01-15
 devlog blog preview --date 2025-01-15
-devlog blog publish --date 2025-01-15 --pr
 ```
 
 ## Data Storage
@@ -300,36 +296,13 @@ og:
   og:type: "article"
 ```
 
-## Blog Publishing Workflow (M4)
+## Blog Generation Workflow (M4)
 
-The blog publishing system automatically generates markdown blog posts from your daily development data and publishes them to GitHub repositories.
+The blog generation system automatically creates markdown blog posts from your daily development data.
 
 ### Quick Start
 
-1. **Set up environment variables**:
-   ```bash
-   # Required
-   BLOG_TARGET_REPO=paulchrisluke/pcl-labs
-   GITHUB_TOKEN=your_github_token
-   
-   # Optional
-   BLOG_TARGET_BRANCH=main
-   BLOG_TARGET_DIR=content/blog
-   BLOG_AUTHOR_NAME="Paul Chris Luke"
-   BLOG_AUTHOR_EMAIL="your-email@example.com"
-   DISCORD_WEBHOOK_URL=your_discord_webhook_url
-   ```
-
-   **GitHub Token Setup**: Create a fine-grained personal access token with these minimal permissions:
-   - **Repository permissions**: 
-     - Contents: Read & write
-     - Pull requests: Read & write  
-     - Metadata: Read
-   - **Repository access**: Target repository or All repositories
-   
-   This prevents 403 permission errors when publishing blog posts.
-
-2. **Generate a blog post**:
+1. **Generate a blog post**:
    ```bash
    # Generate for latest date
    devlog blog generate
@@ -338,21 +311,9 @@ The blog publishing system automatically generates markdown blog posts from your
    devlog blog generate --date 2025-01-15
    ```
 
-3. **Preview the content**:
+2. **Preview the content**:
    ```bash
    devlog blog preview --date 2025-01-15
-   ```
-
-4. **Publish to GitHub**:
-   ```bash
-   # Direct commit to main branch
-   devlog blog publish --date 2025-01-15
-   
-   # Create pull request
-   devlog blog publish --date 2025-01-15 --pr
-   
-   # Use existing draft file
-   devlog blog publish --date 2025-01-15 --use-draft
    ```
 
 ### Blog Commands
@@ -376,62 +337,13 @@ Preview the content of a blog post without generating files.
 **Output:**
 - Shows title, date, tags, and first ~10 lines of content
 
-#### `devlog blog publish`
-Publish a blog post to your GitHub repository.
 
-**Options:**
-- `--date YYYY-MM-DD`: Required date
-- `--branch BRANCH`: Target branch (default: main)
-- `--pr`: Create pull request instead of direct commit
-- `--use-draft`: Use existing draft file instead of regenerating
 
-**Output:**
-- Publishes to `content/blog/YYYY/MM/DD.md` in your target repository
-- Creates feature branch and PR if `--pr` flag is used
-- Sends Discord notification on success
 
-### Publishing Behavior
 
-- **Idempotent**: If content is identical, action is skipped
-- **Branch Strategy**: 
-  - Direct commit: Updates main branch directly
-  - PR mode: Creates `blog/YYYY-MM-DD` feature branch
-- **File Structure**: `content/blog/YYYY/MM/DD.md` (configurable via `BLOG_TARGET_DIR`)
-- **Commit Messages**: `Add daily devlog for YYYY-MM-DD`
-- **PR Titles**: `Daily Devlog — YYYY-MM-DD`
 
-### Discord Notifications
 
-When `DISCORD_WEBHOOK_URL` is set, the system sends notifications for:
-- Blog posts created/updated
-- Pull requests opened
-- No notifications for skipped actions (identical content)
 
-### Troubleshooting
-
-**Missing GITHUB_TOKEN:**
-```
-[ERR] GITHUB_TOKEN environment variable is required
-```
-→ Set your GitHub personal access token in `.env`
-
-**Repository not found:**
-```
-[ERR] Repository owner/repo not found or access denied
-```
-→ Check `BLOG_TARGET_REPO` format and repository permissions
-
-**Permission denied:**
-```
-[ERR] GitHub permission denied. Check repository access.
-```
-→ Ensure your GitHub token has repository write permissions
-
-**Invalid repo format:**
-```
-[ERR] BLOG_TARGET_REPO must be in format 'owner/repo'
-```
-→ Use format like `paulchrisluke/pcl-labs`
   og:site_name: "Daily Devlog"
 ---
 ```

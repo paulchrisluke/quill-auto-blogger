@@ -162,13 +162,17 @@ def record_bounded(story_id: str, date: datetime | None):
 
 @devlog.group()
 def blog():
-    """Blog generation and publishing commands."""
+    """Blog generation commands."""
     pass
 
 
 @blog.command("generate")
 @click.option("--date", "target_date", help="Date in YYYY-MM-DD format (defaults to latest)")
-def blog_generate(target_date: str):
+@click.option("--no-ai", is_flag=True, help="Skip AI-assisted content generation")
+@click.option("--force-ai", is_flag=True, help="Ignore cache and force AI regeneration")
+@click.option("--no-related", is_flag=True, help="Skip related posts block")
+@click.option("--no-jsonld", is_flag=True, help="Skip JSON-LD injection")
+def blog_generate(target_date: str, no_ai: bool, force_ai: bool, no_related: bool, no_jsonld: bool):
     """Generate markdown blog post for a specific date."""
     try:
         from services.blog import BlogDigestBuilder
@@ -192,7 +196,16 @@ def blog_generate(target_date: str):
         
         # Build digest and generate markdown
         digest = builder.build_digest(target_date)
-        markdown = builder.generate_markdown(digest)
+        
+        # Generate markdown with M5 options
+        ai_options = {
+            "ai_enabled": not no_ai,
+            "force_ai": force_ai,
+            "related_enabled": not no_related,
+            "jsonld_enabled": not no_jsonld
+        }
+        
+        markdown = builder.generate_markdown(digest, **ai_options)
         
         # Save to drafts
         file_path = builder.save_markdown(target_date, markdown)
@@ -206,100 +219,7 @@ def blog_generate(target_date: str):
         raise SystemExit(1)
 
 
-@blog.command("publish")
-@click.option("--date", "target_date", required=True, help="Date in YYYY-MM-DD format")
-@click.option("--branch", default="main", help="Target branch (default: main)")
-@click.option("--pr", "create_pr", is_flag=True, help="Create pull request")
-@click.option("--use-draft", is_flag=True, help="Use existing draft file instead of regenerating")
-def blog_publish(target_date: str, branch: str, create_pr: bool, use_draft: bool):
-    """Publish blog post to GitHub repository."""
-    try:
-        from services.blog import BlogDigestBuilder
-        from services.github_publisher import publish_markdown
-        
-        # Get environment variables
-        target_repo = os.getenv("BLOG_TARGET_REPO")
-        if not target_repo:
-            click.echo("[ERR] BLOG_TARGET_REPO environment variable is required")
-            raise SystemExit(1)
-        
-        # Parse owner/repo from BLOG_TARGET_REPO
-        if "/" not in target_repo:
-            click.echo("[ERR] BLOG_TARGET_REPO must be in format 'owner/repo'")
-            raise SystemExit(1)
-        
-        owner, repo = target_repo.split("/", 1)
-        
-        # Get author info
-        author_name = os.getenv("BLOG_AUTHOR_NAME")
-        author_email = os.getenv("BLOG_AUTHOR_EMAIL")
-        
-        # Initialize blog builder
-        builder = BlogDigestBuilder()
-        
-        # Get markdown content
-        if use_draft:
-            # Use existing draft file
-            draft_path = Path("drafts") / f"{target_date}.md"
-            if not draft_path.exists():
-                click.echo(f"[ERR] Draft file not found: {draft_path}")
-                raise SystemExit(1)
-            
-            with open(draft_path, 'r', encoding='utf-8') as f:
-                markdown = f.read()
-            
-            click.echo(f"[INFO] Using existing draft: {draft_path}")
-        else:
-            # Generate fresh markdown
-            digest = builder.build_digest(target_date)
-            markdown = builder.generate_markdown(digest)
-            click.echo(f"[INFO] Generated fresh markdown for {target_date}")
-        
-        # Compute target path
-        target_path = builder.compute_target_path(target_date)
-        
-        # Prepare commit message
-        commit_message = f"Add daily devlog for {target_date}"
-        
-        # Prepare PR info if creating PR
-        pr_title = None
-        pr_body = None
-        if create_pr:
-            pr_title = f"Daily Devlog — {target_date}"
-            pr_body = f"Automated blog post for {target_date}"
-        
-        # Publish to GitHub
-        result = publish_markdown(
-            owner=owner,
-            repo=repo,
-            branch=branch,
-            path=target_path,
-            content_md=markdown,
-            commit_message=commit_message,
-            author_name=author_name,
-            author_email=author_email,
-            create_pr=create_pr,
-            pr_title=pr_title,
-            pr_body=pr_body
-        )
-        
-        # Display results
-        action = result["action"]
-        if action == "skipped":
-            click.echo(f"[INFO] No changes needed - content is identical")
-        else:
-            click.echo(f"[OK] Blog {action}: {result['html_url']}")
-            
-            if result.get("pr_url"):
-                click.echo(f"[OK] Pull request created: {result['pr_url']}")
-        
-        # Send Discord notification
-        if action != "skipped":
-            _send_discord_notification(target_date, action, result)
-        
-    except Exception as e:
-        click.echo(f"[ERR] Failed to publish blog post: {e}")
-        raise SystemExit(1)
+
 
 
 @blog.command("preview")
@@ -372,45 +292,7 @@ def blog_preview(target_date: str):
         raise SystemExit(1)
 
 
-def _send_discord_notification(target_date: str, action: str, result: dict):
-    """Send Discord notification about blog publishing."""
-    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
-    if not webhook_url:
-        return
-    
-    try:
-        import httpx
-        
-        # Prepare message
-        if action == "created":
-            title = "Blog published"
-        elif action == "updated":
-            title = "Blog updated"
-        else:
-            title = "Blog action completed"
-        
-        message = f"**{title}**\n"
-        message += f"**Date:** {target_date}\n"
-        message += f"**Action:** {action}\n"
-        message += f"**Link:** {result['html_url']}"
-        
-        if result.get("pr_url"):
-            message += f"\n**PR:** {result['pr_url']}"
-        
-        # Send webhook
-        with httpx.Client(timeout=5) as client:
-            client.post(
-                webhook_url,
-                json={
-                    "content": message,
-                    "allowed_mentions": {"parse": []}
-                }
-            )
-        
-        click.echo(f"[INFO] Discord notification sent")
-        
-    except Exception as e:
-        click.echo(f"[WARN] Failed to send Discord notification: {e}")
+
 
 
 if __name__ == "__main__":
