@@ -41,7 +41,7 @@ export async function handleIndexRequest(
  * Generate HTML index of recent blog posts
  */
 async function generateBlogsIndex(request: Request, env: Env): Promise<Response> {
-  const config = getConfig(env);
+  const config = getConfig();
   const blogItems = await getRecentBlogItems(env, 20);
   
   const html = `<!DOCTYPE html>
@@ -129,7 +129,7 @@ async function generateBlogsJSON(request: Request, env: Env): Promise<Response> 
  */
 async function getRecentBlogItems(env: Env, maxItems: number): Promise<BlogListItem[]> {
   const items: BlogListItem[] = [];
-  const config = getConfig(env);
+  const config = getConfig();
   
   try {
     // List all blog objects to find recent posts
@@ -144,9 +144,10 @@ async function getRecentBlogItems(env: Env, maxItems: number): Promise<BlogListI
       }
     }
     
-    // Sort dates descending and take the most recent
-    dates.sort((a, b) => b.localeCompare(a));
-    const recentDates = dates.slice(0, maxItems);
+    // Deduplicate dates, sort descending, and take the most recent
+    const uniqueDates = Array.from(new Set(dates));
+    uniqueDates.sort((a, b) => b.localeCompare(a));
+    const recentDates = uniqueDates.slice(0, maxItems);
     
     // Fetch blog data for each date
     for (const date of recentDates) {
@@ -155,7 +156,7 @@ async function getRecentBlogItems(env: Env, maxItems: number): Promise<BlogListI
         const digestObject = await env.BLOG_BUCKET.get(digestKey);
         
         if (digestObject) {
-          const digestData = await digestObject.json();
+          const digestData = await digestObject.json() as any;
           
           items.push({
             date: digestData.date || date,

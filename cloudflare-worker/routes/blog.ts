@@ -3,7 +3,7 @@
  * Handles canonical URLs, conditional GET, and caching
  */
 
-import { makeETag, setCacheHeaders, setValidators, handleConditionalGet, getLastModified } from '../lib/cache';
+import { setCacheHeaders, setValidators, handleConditionalGet, getLastModified } from '../lib/cache';
 import { CACHE_CONFIG } from '../config';
 import { Env } from '../types';
 
@@ -44,35 +44,59 @@ export async function handleBlogRequest(
     
     let digestData: BlogData | null = null;
     let digestObject: any = null;
+    let lastModified: Date | null = null;
     
-    // Try to get the digest data
+    // First, try to get object metadata for conditional GET without reading the body
     try {
       digestObject = await env.BLOG_BUCKET.get(digestKey);
-      if (digestObject) {
-        digestData = await digestObject.json();
-      }
     } catch (error) {
-      console.log('Digest fetch failed', { 
+      console.log('Digest metadata fetch failed', { 
         date, 
         digestKey, 
         error: error instanceof Error ? error.message : String(error)
       });
     }
     
-    // If we have digest data, handle conditional GET and return it
-    if (digestData) {
-      // Generate ETag and get last modified time
-      const body = JSON.stringify(digestData);
-      const etag = await makeETag(body);
-      const lastModified = getLastModified(digestObject);
+    // If we have object metadata, handle conditional GET first
+    if (digestObject) {
+      // Use R2 object metadata for conditional GET (avoid reading body)
+      const r2Etag = digestObject.httpEtag;
+      lastModified = getLastModified(digestObject);
       
-      // Check conditional GET
-      const conditionalResponse = handleConditionalGet(request, { etag, lastModified });
-      if (conditionalResponse) {
-        return conditionalResponse;
+      // Check conditional GET using R2 metadata
+      if (r2Etag) {
+        const conditionalResponse = handleConditionalGet(request, { 
+          etag: `"${r2Etag}"`, 
+          lastModified 
+        });
+        if (conditionalResponse) {
+          // Set cache headers on 304 response
+          setCacheHeaders(conditionalResponse, CACHE_CONFIG.blog);
+          setValidators(conditionalResponse, { 
+            etag: `"${r2Etag}"`, 
+            lastModified 
+          });
+          return conditionalResponse;
+        }
       }
       
+      // Only read and parse the body if conditional GET is not satisfied
+      try {
+        digestData = await digestObject.json();
+      } catch (error) {
+        console.log('Digest body parsing failed', { 
+          date, 
+          digestKey, 
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    
+    // If we have digest data, return it
+    if (digestData && digestObject) {
+      
       // Build response with cache headers and validators
+      const body = JSON.stringify(digestData);
       const response = new Response(body, {
         status: 200,
         headers: {
@@ -81,9 +105,12 @@ export async function handleBlogRequest(
         }
       });
       
-      // Set cache headers and validators
+      // Set cache headers and validators using R2 metadata
       setCacheHeaders(response, CACHE_CONFIG.blog);
-      setValidators(response, { etag, lastModified });
+      setValidators(response, { 
+        etag: `"${digestObject.httpEtag || 'unknown'}"`, 
+        lastModified: lastModified || new Date()
+      });
       
       return response;
     }

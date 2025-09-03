@@ -5,11 +5,34 @@
 
 import { getConfig } from '../config';
 import { Env } from '../types';
+import { constantTimeCompare } from '../lib/cache';
 
 export interface PurgeResponse {
   ok: boolean;
   purged: string[];
   message?: string;
+}
+
+/**
+ * Verify Bearer token authentication using constant-time comparison
+ * Prevents timing attacks when comparing tokens
+ */
+export function verifyAuth(request: Request, env: Env): boolean {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader) {
+    return false;
+  }
+  
+  // Check for Bearer token format
+  if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    return false;
+  }
+  
+  // Extract token (remove "Bearer " prefix)
+  const token = authHeader.substring(7);
+  
+  // Use constant-time comparison to prevent timing attacks
+  return constantTimeCompare(token, env.CLOUDFLARE_API_TOKEN);
 }
 
 /**
@@ -20,19 +43,6 @@ export async function handleControlRequest(
   env: Env,
   path: string
 ): Promise<Response> {
-  const config = getConfig(env);
-  
-  // Verify authentication
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return createErrorResponse('Unauthorized', 401);
-  }
-  
-  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-  if (token !== config.controlApiToken) {
-    return createErrorResponse('Forbidden', 403);
-  }
-  
   // Route control requests
   if (path === '/control/purge') {
     return await handlePurgeRequest(request, env);
@@ -47,6 +57,11 @@ export async function handleControlRequest(
 async function handlePurgeRequest(request: Request, env: Env): Promise<Response> {
   if (request.method !== 'POST') {
     return createErrorResponse('Method not allowed', 405);
+  }
+  
+  // Verify authentication
+  if (!verifyAuth(request, env)) {
+    return createErrorResponse('Forbidden', 403);
   }
   
   try {

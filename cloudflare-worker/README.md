@@ -30,6 +30,24 @@ The worker follows a clean separation of concerns:
 
 ## Setup
 
+### Prerequisites
+1. **Install Wrangler CLI:**
+   ```bash
+   npm install -g wrangler
+   ```
+
+2. **Authenticate with Cloudflare:**
+   ```bash
+   wrangler login
+   ```
+
+### Configuration
+
+The worker uses the same `CLOUDFLARE_API_TOKEN` from your root `.env` file for authentication.
+No additional environment configuration is needed in the worker.
+
+### Deployment
+
 1. **Deploy the worker:**
    ```bash
    wrangler deploy
@@ -56,8 +74,11 @@ The worker follows a clean separation of concerns:
 
 ## Environment Variables
 
-- `BLOG_BUCKET` - R2 bucket containing blog data and index.html
-- `WORKER_BEARER_TOKEN` - Optional token for protected endpoints
+The worker uses the following from your root `.env` file:
+- `CLOUDFLARE_API_TOKEN` - Used for authentication and API access
+
+### R2 Bucket Binding
+- `BLOG_BUCKET` - R2 bucket containing blog data and index.html (configured in wrangler.toml)
 
 ## File Structure
 
@@ -79,6 +100,8 @@ cloudflare-worker/
 5. **Scalability** - Easy to add more static assets or modify the home page
 6. **Pure JSON API** - Serves FINAL digest data with AI enhancements for frontend consumption
 7. **Global Distribution** - R2-backed API with edge caching for fast global access
+8. **Simplified Configuration** - Uses existing root .env file, no duplication
+9. **Type Safe** - R2 bucket binding provides proper R2Bucket object type
 
 ## Future Enhancements
 

@@ -46,7 +46,7 @@ export async function handleSitemapRequest(
  * Generate sitemap index
  */
 async function generateSitemapIndex(request: Request, env: Env): Promise<Response> {
-  const config = getConfig(env);
+  const config = getConfig();
   const currentDate = new Date();
   
   // Generate monthly sitemap URLs for the last N months
@@ -133,7 +133,7 @@ ${blogUrls.map(url => `  <url>
  */
 async function getBlogUrlsForMonth(env: Env, year: string, month: string): Promise<SitemapUrl[]> {
   const urls: SitemapUrl[] = [];
-  const config = getConfig(env);
+  const config = getConfig();
   
   try {
     // List objects in the blogs directory for the month

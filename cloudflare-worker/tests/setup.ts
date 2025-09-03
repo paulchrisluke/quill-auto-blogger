@@ -3,17 +3,31 @@
  */
 
 import { vi } from 'vitest';
+import { TextDecoder as NodeTextDecoder } from 'util';
 
-// Mock TextDecoder for ArrayBuffer handling
+// Mock TextDecoder for ArrayBuffer handling with proper UTF-8 support
 global.TextDecoder = class TextDecoder {
+  private decoder: NodeTextDecoder;
+  
+  constructor(label: string = 'utf-8') {
+    this.decoder = new NodeTextDecoder(label);
+  }
+  
   decode(input: BufferSource): string {
+    // Normalize input to Uint8Array for consistent handling
+    let normalized: Uint8Array;
+    
     if (input instanceof ArrayBuffer) {
-      return String.fromCharCode.apply(null, new Uint8Array(input) as any);
+      normalized = new Uint8Array(input);
+    } else if (input instanceof Uint8Array) {
+      normalized = input;
+    } else {
+      // Handle other BufferSource types by converting to Uint8Array
+      normalized = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
     }
-    if (input instanceof Uint8Array) {
-      return String.fromCharCode.apply(null, input as any);
-    }
-    return '';
+    
+    // Use Node's TextDecoder for proper UTF-8 decoding
+    return this.decoder.decode(normalized);
   }
 } as any;
 
@@ -22,16 +36,53 @@ Object.defineProperty(global, 'crypto', {
   value: {
     subtle: {
       digest: vi.fn().mockImplementation(async (algorithm, data) => {
-        // Simple mock hash function for testing
-        const encoder = new TextEncoder();
-        const text = typeof data === 'string' ? data : encoder.encode(data).toString();
-        const hash = text.split('').reduce((acc, char) => {
-          return ((acc << 5) - acc + char.charCodeAt(0)) & 0xffffffff;
-        }, 0);
+        // Improved mock hash function for testing
+        let inputBytes: Uint8Array;
         
+        // Handle different input types properly
+        if (typeof data === 'string') {
+          inputBytes = new TextEncoder().encode(data);
+        } else if (data instanceof ArrayBuffer) {
+          inputBytes = new Uint8Array(data);
+        } else if (data instanceof Uint8Array) {
+          inputBytes = data;
+        } else {
+          // Handle other BufferSource types
+          inputBytes = new Uint8Array(data);
+        }
+        
+        // Use a more realistic hash algorithm (simplified SHA-256-like)
+        let hash = 0x6a09e667; // Initial hash value (first 32 bits of SHA-256)
+        
+        // Process input bytes in chunks
+        for (let i = 0; i < inputBytes.length; i++) {
+          const byte = inputBytes[i];
+          // Mix the byte into the hash using bit operations
+          hash = ((hash << 13) | (hash >>> 19)) + byte; // Rotate left and add
+          hash = hash ^ (hash >>> 16); // XOR with upper half
+          hash = hash * 0x85ebca6b; // Multiply by prime
+          hash = hash ^ (hash >>> 13); // XOR with upper half
+          hash = hash * 0xc2b2ae35; // Multiply by prime
+          hash = hash ^ (hash >>> 16); // Final XOR
+        }
+        
+        // Ensure hash is positive 32-bit integer
+        hash = hash >>> 0;
+        
+        // Create a 32-byte hash output (like SHA-256)
         const hashArray = new Uint8Array(32);
-        for (let i = 0; i < 32; i++) {
-          hashArray[i] = (hash >> (i * 8)) & 0xff;
+        
+        // Fill first 4 bytes with the 32-bit hash
+        hashArray[0] = (hash >>> 24) & 0xff;
+        hashArray[1] = (hash >>> 16) & 0xff;
+        hashArray[2] = (hash >>> 8) & 0xff;
+        hashArray[3] = hash & 0xff;
+        
+        // Fill remaining bytes with derived values for consistency
+        for (let i = 4; i < 32; i++) {
+          // Use the hash value to generate additional bytes
+          const derivedHash = ((hash * (i + 1)) ^ (hash >>> (i % 16))) >>> 0;
+          hashArray[i] = derivedHash & 0xff;
         }
         
         return hashArray;

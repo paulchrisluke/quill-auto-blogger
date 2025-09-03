@@ -37,7 +37,7 @@ export async function handleFeedRequest(
  * Generate RSS feed
  */
 async function generateRSSFeed(request: Request, env: Env): Promise<Response> {
-  const config = getConfig(env);
+  const config = getConfig();
   const feedItems = await getFeedItems(env, config.feedItems);
   
   const rss = generateRSS({
@@ -69,7 +69,7 @@ async function generateRSSFeed(request: Request, env: Env): Promise<Response> {
  * Generate Atom feed
  */
 async function generateAtomFeed(request: Request, env: Env): Promise<Response> {
-  const config = getConfig(env);
+  const config = getConfig();
   const feedItems = await getFeedItems(env, config.feedItems);
   
   const atom = generateAtom({
@@ -101,7 +101,7 @@ async function generateAtomFeed(request: Request, env: Env): Promise<Response> {
  * Generate JSON Feed response
  */
 async function generateJSONFeedResponse(request: Request, env: Env): Promise<Response> {
-  const config = getConfig(env);
+  const config = getConfig();
   const feedItems = await getFeedItems(env, config.feedItems);
   
   const jsonFeed = generateJSONFeed({
@@ -159,7 +159,7 @@ async function getFeedItems(env: Env, maxItems: number): Promise<FeedItem[]> {
         const digestObject = await env.BLOG_BUCKET.get(digestKey);
         
         if (digestObject) {
-          const digestData = await digestObject.json();
+          const digestData = await digestObject.json() as any;
           
           // Find first story with video for PR link
           let storyPrLink: string | undefined;
@@ -172,7 +172,7 @@ async function getFeedItems(env: Env, maxItems: number): Promise<FeedItem[]> {
           
           items.push({
             title: digestData.title || `Blog Post - ${date}`,
-            url: `${getConfig(env).siteBaseUrl}/blog/${date}`,
+            url: `${getConfig().siteBaseUrl}/blog/${date}`,
             datePublished: digestData.date || date,
             summary: truncateText(digestData.summary || digestData.description || 'Blog post content', 250),
             storyPrLink

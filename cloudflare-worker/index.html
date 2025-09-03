@@ -325,9 +325,19 @@
         <div class="nav-title">Blog</div>
         <a class="nav-link active" href="#ep-blog">/blog/{date}</a>
         <a class="nav-link" href="#ep-assets">/assets/*</a>
+        <a class="nav-link" href="#ep-blogs">/blogs</a>
 
         <div class="nav-title">Control</div>
         <a class="nav-link" href="#ep-start">/control/record/start</a>
+
+        <div class="nav-title">Discovery</div>
+        <a class="nav-link" href="#ep-sitemap">/sitemap.xml</a>
+        <a class="nav-link" href="#ep-feeds">/feed.*</a>
+        <a class="nav-link" href="#ep-robots">/robots.txt</a>
+
+        <div class="nav-title">System</div>
+        <a class="nav-link" href="#ep-index">/</a>
+        <a class="nav-link" href="#ep-health">/health</a>
 
         <div class="nav-title">Links</div>
         <a class="nav-link" href="https://github.com/paulchrisluke/quill-auto-blogger" target="_blank">
@@ -397,7 +407,7 @@
             <div class="subttl">Headers</div>
             <dl class="kv">
                 <dt>Authorization</dt>
-                <dd>Bearer &lt;CONTROL_API_TOKEN&gt;</dd>
+                <dd>Bearer &lt;CLOUDFLARE_API_TOKEN&gt;</dd>
             </dl>
             <div class="subttl">Request Body</div>
             <dl class="kv">
@@ -407,6 +417,113 @@
                 <dd>string (YYYY-MM-DD, optional)</dd>
                 <dt>bounded</dt>
                 <dd>boolean (default: false)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /blogs -->
+        <section id="ep-blogs" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/blogs"' data-json='{
+  "blogs": [
+    {
+      "date": "2025-08-29",
+      "title": "Daily Devlog — Aug 29, 2025",
+      "summary": "AI-enhanced description...",
+      "url": "/blog/2025-08-29"
+    }
+  ]
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/blogs</span></div>
+            <p class="desc">Retrieve a list of all available blog posts with metadata for discovery and navigation.</p>
+            <div class="subttl">Response</div>
+            <dl class="kv">
+                <dt>blogs</dt>
+                <dd>Array of blog post summaries with date, title, summary, and URL</dd>
+            </dl>
+        </section>
+
+        <!-- GET /sitemap.xml -->
+        <section id="ep-sitemap" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/sitemap.xml"' data-json='<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-08-29</loc>
+    <lastmod>2025-08-29</lastmod>
+  </url>
+</urlset>'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/sitemap.xml</span></div>
+            <p class="desc">XML sitemap for search engine indexing and content discovery.</p>
+            <div class="subttl">Format</div>
+            <dl class="kv">
+                <dt>Content-Type</dt>
+                <dd>application/xml</dd>
+            </dl>
+            <div class="subttl">Purpose</div>
+            <dl class="kv">
+                <dt>SEO</dt>
+                <dd>Helps search engines discover and index blog content</dd>
+            </dl>
+        </section>
+
+        <!-- GET /feed.* -->
+        <section id="ep-feeds" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/feed.rss"'
+            data-json='RSS/Atom feed content for content syndication and RSS readers'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/feed.*</span></div>
+            <p class="desc">RSS and Atom feeds for content syndication and RSS reader compatibility.</p>
+            <div class="subttl">Supported Formats</div>
+            <dl class="kv">
+                <dt>RSS</dt>
+                <dd>/feed.rss - RSS 2.0 format</dd>
+                <dt>Atom</dt>
+                <dd>/feed.atom - Atom 1.0 format</dd>
+            </dl>
+            <div class="subttl">Purpose</div>
+            <dl class="kv">
+                <dt>Content Syndication</dt>
+                <dd>Allows RSS readers and aggregators to subscribe to blog updates</dd>
+            </dl>
+        </section>
+
+        <!-- GET /robots.txt -->
+        <section id="ep-robots" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/robots.txt"' data-json='User-agent: *
+Allow: /
+Sitemap: https://quill-blog-api.paulchrisluke.workers.dev/sitemap.xml'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/robots.txt</span></div>
+            <p class="desc">Robots.txt file for search engine crawler instructions and sitemap location.</p>
+            <div class="subttl">Content</div>
+            <dl class="kv">
+                <dt>Instructions</dt>
+                <dd>Allows all crawlers and points to sitemap location</dd>
+            </dl>
+        </section>
+
+        <!-- GET / -->
+        <section id="ep-index" class="endpoint" data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/"'
+            data-json='Main index page with API overview and documentation'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/</span></div>
+            <p class="desc">Main index page providing API overview, documentation, and navigation.</p>
+            <div class="subttl">Content</div>
+            <dl class="kv">
+                <dt>Documentation</dt>
+                <dd>Complete API reference with examples and cURL commands</dd>
+            </dl>
+        </section>
+
+        <!-- GET /health -->
+        <section id="ep-health" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/health"' data-json='OK'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/health</span></div>
+            <p class="desc">Health check endpoint for monitoring and load balancer health checks.</p>
+            <div class="subttl">Response</div>
+            <dl class="kv">
+                <dt>Status</dt>
+                <dd>200 OK with "OK" response body</dd>
+            </dl>
+            <div class="subttl">Purpose</div>
+            <dl class="kv">
+                <dt>Monitoring</dt>
+                <dd>Used by monitoring systems to verify service availability</dd>
             </dl>
         </section>
     </main>

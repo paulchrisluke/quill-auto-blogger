@@ -19,7 +19,7 @@ export async function handleRobotsRequest(
   }
   
   try {
-    const config = getConfig(env);
+    const config = getConfig();
     
     const robotsTxt = `User-agent: *
 Allow: /

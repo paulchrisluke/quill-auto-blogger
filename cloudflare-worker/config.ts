@@ -2,24 +2,20 @@
  * Configuration for M6 Distribution & Discovery
  */
 
-import { Env } from './types';
-
 export interface Config {
   siteBaseUrl: string;
   feedItems: number;
   sitemapMonths: number;
-  controlApiToken: string;
 }
 
 /**
- * Get configuration from environment variables
+ * Get configuration with hardcoded values
  */
-export function getConfig(env: Env): Config {
+export function getConfig(): Config {
   return {
-    siteBaseUrl: env.SITE_BASE_URL || 'https://paulchrisluke.com',
-    feedItems: parseInt(env.FEED_ITEMS || '40'),
-    sitemapMonths: parseInt(env.SITEMAP_MONTHS || '12'),
-    controlApiToken: env.CONTROL_API_TOKEN || '',
+    siteBaseUrl: 'https://paulchrisluke.com',
+    feedItems: 40,
+    sitemapMonths: 12,
   };
 }
 

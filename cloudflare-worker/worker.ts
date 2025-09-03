@@ -1,3 +1,5 @@
+/// <reference types="@cloudflare/workers-types" />
+
 /**
  * Main Cloudflare Worker for M6 Distribution & Discovery
  * Routes requests to appropriate handlers with edge caching and conditional GET support
@@ -10,7 +12,7 @@ import { handleFeedRequest } from './routes/feeds';
 import { handleIndexRequest } from './routes/index';
 import { handleRobotsRequest } from './routes/robots';
 import { setContentTypeCacheHeaders } from './lib/cache';
-import { Env, ExecutionContext } from './types';
+import { Env } from './types';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -23,15 +25,6 @@ export default {
         return handleCORS();
       }
 
-      // Build context object with shared state
-      const requestCtx = {
-        request,
-        env,
-        path,
-        url,
-        waitUntil: ctx.waitUntil
-      };
-      
       // Route requests based on path
       
       // Canonical redirects (must come first)
@@ -56,9 +49,13 @@ export default {
       } else if (path === '/robots.txt') {
         return await handleRobotsRequest(request, env, path);
       } else if (path.startsWith('/assets/')) {
-        // Simple asset serving - just remove /assets/ prefix and serve from R2
-        const assetKey = path.substring(8); // Remove '/assets/' prefix
-        return await serveR2Asset(env, assetKey);
+        // Secure asset serving with path traversal protection
+        const assetKey = validateAssetKey(path);
+        if (assetKey) {
+          return await serveR2Asset(env, assetKey);
+        } else {
+          return createErrorResponse('Invalid asset path', 400);
+        }
       } else if (path === '/health') {
         return new Response('OK', { 
           status: 200,
@@ -104,6 +101,63 @@ function createErrorResponse(message: string, status: number): Response {
     status,
     headers: getCORSHeaders()
   });
+}
+
+/**
+ * Validate and normalize asset key to prevent path traversal attacks
+ */
+function validateAssetKey(path: string): string | null {
+  try {
+    // Decode the URL-encoded path
+    const decodedPath = decodeURIComponent(path);
+    
+    // Remove '/assets/' prefix
+    if (!decodedPath.startsWith('/assets/')) {
+      return null;
+    }
+    
+    let assetKey = decodedPath.substring(8); // Remove '/assets/' prefix
+    
+    // Handle empty keys
+    if (!assetKey || assetKey === '') {
+      assetKey = 'index.html';
+    }
+    
+    // Normalize the path using POSIX-style normalization
+    // Split by '/' and filter out empty segments and '..' segments
+    const segments = assetKey.split('/').filter(segment => 
+      segment !== '' && segment !== '.' && segment !== '..'
+    );
+    
+    // Reject if the normalized path contains any '..' segments
+    if (assetKey.includes('..')) {
+      return null;
+    }
+    
+    // Reject if the path starts with '/' or contains null bytes
+    if (assetKey.startsWith('/') || assetKey.includes('\0')) {
+      return null;
+    }
+    
+    // Reject if the path resolves outside the expected assets root
+    if (segments.length === 0) {
+      assetKey = 'index.html';
+    } else {
+      assetKey = segments.join('/');
+    }
+    
+    // Optional: Enforce allowlist for permitted characters
+    // Only allow alphanumeric, hyphens, underscores, dots, and forward slashes
+    if (!/^[a-zA-Z0-9\-_.\/]+$/.test(assetKey)) {
+      return null;
+    }
+    
+    return assetKey;
+    
+  } catch (error) {
+    console.error('Asset key validation error:', error);
+    return null;
+  }
 }
 
 /**
@@ -159,24 +213,30 @@ async function serveR2Asset(env: Env, key: string): Promise<Response> {
 }
 
 /**
- * Handle index page requests
+ * Handle index page requests - serve the existing index.html file
  */
 async function handleIndexPage(request: Request, env: Env): Promise<Response> {
   try {
-    // Serve the static index.html file
-    const indexObject = await env.BLOG_BUCKET.get('index.html');
+    // Serve the existing index.html file from the project
+    const htmlContent = await env.BLOG_BUCKET.get('index.html');
     
-    if (!indexObject) {
-      return createErrorResponse('Index page not found', 404);
+    if (!htmlContent) {
+      // Fallback to a simple response if file not found
+      return new Response('Quill Auto Blogger API', {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/plain',
+          ...getCORSHeaders()
+        }
+      });
     }
     
-    const htmlContent = await indexObject.text();
-    
-    const response = new Response(htmlContent, {
+    const response = new Response(htmlContent.body, {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Vary': 'Accept-Encoding',
+        ...getCORSHeaders()
       }
     });
     
