@@ -105,8 +105,8 @@ class TestSiteCLI:
                     result = runner.invoke(site, ['publish'])
                     
                     assert result.exit_code == 0
-                                assert '✓ index.html' in result.output
-            assert 'All files published successfully' in result.output
+                    assert '✓ index.html' in result.output
+                    assert 'All files published successfully' in result.output
     
     def test_site_publish_partial_failure(self, runner):
         """Test site publish with partial failure."""

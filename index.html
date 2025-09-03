@@ -365,20 +365,27 @@
             FINAL data.</div>
 
         <!-- GET /api/blog/{date} -->
-        <section id="ep-blog" class="endpoint" data-curl='curl "http://localhost:8000/api/blog/2025-08-27"' data-json='{
+        <section id="ep-blog" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-27"' data-json='{
   "version": "3",
   "date": "2025-08-27",
   "twitch_clips": [],
-  "github_events": [...],
+  "github_events": [
+    {
+      "id": 53966057469,
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "message": "feat: add new API endpoint"
+    }
+  ],
   "story_packets": [
     {
       "id": "story_20250827_pr34",
-      "title_human": "Shipped: Feature Name",
-      "ai_micro_intro": "This change enhances...",
-      "ai_comprehensive_intro": "In this feature..."
-    }
-  ]
-}'>
+      "title_human": "Shipped: New API Endpoint",
+      "ai_micro_intro": "This change enhances the developer experience by providing a cleaner interface for data retrieval.",
+      "ai_comprehensive_intro": "In this feature update, we' ve introduced a new API endpoint that streamlines the
+            process of fetching blog data. This improvement addresses several pain points identified in user feedback
+            and significantly reduces response times." } ] }'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/blog/{date}</span></div>
             <p class="desc">Retrieve complete AI-enhanced blog data including story packets, GitHub events, and
                 AI-generated content.</p>
@@ -395,10 +402,11 @@
 
         <!-- GET /api/blog/{date}/markdown -->
         <section id="ep-blog-markdown" class="endpoint"
-            data-curl='curl "http://localhost:8000/api/blog/2025-08-27/markdown"' data-json='{
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-27/markdown"'
+            data-json='{
   "date": "2025-08-27",
-  "markdown": "# Daily Devlog — Aug 27, 2025\n\nContent here..."
-}'>
+  "markdown": "# Daily Devlog — Aug 27, 2025\n\n## Shipped: New API Endpoint\n\nToday we launched a new API endpoint that significantly improves the developer experience. The new `/api/blog/{date}/markdown` endpoint provides raw markdown content for easier integration with external tools.\n\n## Key Improvements\n\n- **Faster Response Times**: Reduced from 2.3s to 0.8s average\n- **Cleaner Data Structure**: Simplified JSON response format\n- **Better Error Handling**: More descriptive error messages\n\n## Next Steps\n\nWe'
+            re planning to add support for custom date ranges and bulk operations in the next iteration." }'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/blog/{date}/markdown</span>
             </div>
             <p class="desc">Get raw markdown content for a specific date's blog post.</p>
@@ -508,12 +516,25 @@
 
         <!-- GET /api/assets/stories/{date} -->
         <section id="ep-assets-stories" class="endpoint"
-            data-curl='curl "http://localhost:8000/api/assets/stories/2025-08-27"' data-json='{
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/api/assets/stories/2025-08-27"' data-json='{
   "date": "2025-08-27",
   "assets": {
-    "stories": ["story_20250827_pr34.mp4"],
-    "images": ["story_20250827_pr34_01_intro.png"],
-    "videos": ["story_20250827_pr34.mp4"]
+    "stories": [
+      "story_20250827_pr34.mp4",
+      "story_20250827_pr35.mp4",
+      "story_20250827_pr36.mp4"
+    ],
+    "images": [
+      "story_20250827_pr34_01_intro.png",
+      "story_20250827_pr34_02_why.png",
+      "story_20250827_pr34_99_outro.png",
+      "story_20250827_pr34_hl_01.png"
+    ],
+    "videos": [
+      "story_20250827_pr34.mp4",
+      "story_20250827_pr35.mp4",
+      "story_20250827_pr36.mp4"
+    ]
   }
 }'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/assets/stories/{date}</span>
@@ -647,14 +668,32 @@
     <aside class="panel">
         <div class="label">cURL</div>
         <div class="code" id="code-curl"><button class="copy">Copy</button>
-            curl "http://localhost:8000/api/blog/2025-08-27"
+            curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-27"
         </div>
         <div class="label">200 Example</div>
         <div class="code" id="code-json"><button class="copy">Copy</button>
             {
             "version": "3",
             "date": "2025-08-27",
-            "story_packets": [...]
+            "github_events": [
+            {
+            "id": 53966057469,
+            "type": "PushEvent",
+            "repo": "paulchrisluke/pcl-labs",
+            "message": "feat: add new API endpoint"
+            }
+            ],
+            "story_packets": [
+            {
+            "id": "story_20250827_pr34",
+            "title_human": "Shipped: New API Endpoint",
+            "ai_micro_intro": "This change enhances the developer experience by providing a cleaner interface for data
+            retrieval.",
+            "ai_comprehensive_intro": "In this feature update, we've introduced a new API endpoint that streamlines the
+            process of fetching blog data. This improvement addresses several pain points identified in user feedback
+            and significantly reduces response times."
+            }
+            ]
             }
         </div>
     </aside>
@@ -671,33 +710,70 @@
             blockEl.textContent = '\n' + (text || '');
             if (btn) blockEl.prepend(btn);
         }
+
         function setExamplesFrom(el) {
             setBlock(curlEl, el.getAttribute('data-curl'));
             setBlock(jsonEl, el.getAttribute('data-json'));
             const id = '#' + el.id;
+
+            // Update sidebar active state
             sidebarLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === id));
+
+            // Update URL hash without triggering scroll
+            if (window.location.hash !== id) {
+                history.replaceState(null, null, id);
+            }
+        }
+
+        function navigateToSection(id, scroll = true) {
+            const target = document.getElementById(id);
+            if (target) {
+                setExamplesFrom(target);
+                if (scroll) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
         }
 
         // Sidebar clicks
         sidebarLinks.forEach(a => {
             a.addEventListener('click', e => {
                 const id = a.getAttribute('href').slice(1);
-                const target = document.getElementById(id);
-                if (target) {
-                    e.preventDefault();
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    setExamplesFrom(target);
-                }
+                e.preventDefault();
+                navigateToSection(id);
             });
         });
 
-        // Scroll spy
+        // Enhanced scroll spy with better threshold and debouncing
+        let scrollTimeout;
         const spy = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
-                if (entry.isIntersecting) { setExamplesFrom(entry.target); }
+                if (entry.isIntersecting) {
+                    // Debounce scroll events to prevent rapid updates
+                    clearTimeout(scrollTimeout);
+                    scrollTimeout = setTimeout(() => {
+                        setExamplesFrom(entry.target);
+                    }, 50);
+                }
             });
-        }, { root: document.querySelector('.main'), threshold: 0.45 });
+        }, {
+            root: document.querySelector('.main'),
+            threshold: 0.3,
+            rootMargin: '-20px 0px -20px 0px'
+        });
+
         sections.forEach(s => spy.observe(s));
+
+        // Handle initial load and URL hash
+        function initializePage() {
+            const hash = window.location.hash;
+            if (hash) {
+                const id = hash.slice(1);
+                navigateToSection(id, false);
+            } else {
+                setExamplesFrom(document.getElementById('ep-blog'));
+            }
+        }
 
         // Copy buttons
         document.querySelectorAll('.code .copy').forEach(btn => {
@@ -705,12 +781,14 @@
                 const parent = btn.parentElement;
                 const text = parent.textContent.replace('Copy', '').trim();
                 navigator.clipboard.writeText(text);
-                const old = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = old, 1100);
+                const old = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = old, 1100);
             });
         });
 
-        // Initial load
-        setExamplesFrom(document.getElementById('ep-blog'));
+        // Initialize page
+        initializePage();
     </script>
 </body>
 
