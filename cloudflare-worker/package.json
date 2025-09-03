@@ -1,7 +1,7 @@
 {
   "name": "quill-blog-api-worker",
   "version": "1.0.0",
-  "description": "Cloudflare Worker for Quill Auto Blogger API",
+  "description": "Cloudflare Worker for Quill Auto Blogger API - M6 Distribution & Discovery",
   "main": "worker.js",
   "scripts": {
     "dev": "wrangler dev",
@@ -10,10 +10,11 @@
     "deploy:staging": "wrangler deploy --env staging && ./upload-index.sh",
     "deploy:production": "wrangler deploy --env production && ./upload-index.sh",
     "upload": "./upload-index.sh",
-    "test": "node test-worker.js",
-    "test:local": "wrangler dev & sleep 5 && node test-worker.js && pkill -f 'wrangler dev'",
-    "format": "prettier --write *.js *.toml *.md",
-    "lint": "eslint *.js"
+    "test": "vitest",
+    "test:local": "wrangler dev & sleep 5 && npm test && pkill -f 'wrangler dev'",
+    "build": "tsc",
+    "format": "prettier --write *.ts *.js *.toml *.md",
+    "lint": "eslint *.ts *.js"
   },
   "keywords": [
     "cloudflare",
@@ -21,14 +22,20 @@
     "api",
     "blog",
     "r2",
-    "edge-computing"
+    "edge-computing",
+    "m6",
+    "distribution",
+    "discovery"
   ],
   "author": "Paul Chris Luke",
   "license": "MIT",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240901.0",
+    "@types/node": "^20.0.0",
     "eslint": "^8.57.0",
     "prettier": "^3.2.5",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
     "wrangler": "^3.0.0"
   },
   "dependencies": {

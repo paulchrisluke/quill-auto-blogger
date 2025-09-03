@@ -1,18 +1,21 @@
 name = "quill-blog-api"
-main = "worker.js"
+main = "worker.ts"
 compatibility_date = "2024-01-01"
 
-# Environment variables
+# Environment variables for M6 Distribution & Discovery
 [vars]
 LOCAL_API_URL = "http://localhost:8000"
+SITE_BASE_URL = "https://paulchrisluke.com"
+FEED_ITEMS = "40"
+SITEMAP_MONTHS = "12"
 
 # R2 bucket binding for blog assets
 [[r2_buckets]]
 binding = "BLOG_BUCKET"
 bucket_name = "quill-auto-blogger"
 
-# Secrets (set these with: wrangler secret put WORKER_BEARER_TOKEN)
-# WORKER_BEARER_TOKEN = "your-secret-token-here"
+# Secrets (set these with: wrangler secret put CONTROL_API_TOKEN)
+# CONTROL_API_TOKEN = "your-secret-token-here"
 
 # Development settings
 [dev]
@@ -21,7 +24,12 @@ port = 8787
 # Production settings
 [env.production]
 name = "quill-blog-api-prod"
-vars = { LOCAL_API_URL = "https://your-production-api.com" }
+vars = { 
+  LOCAL_API_URL = "https://your-production-api.com",
+  SITE_BASE_URL = "https://paulchrisluke.com",
+  FEED_ITEMS = "40",
+  SITEMAP_MONTHS = "12"
+}
 
 # R2 bucket binding for production
 [[env.production.r2_buckets]]
@@ -31,4 +39,9 @@ bucket_name = "quill-auto-blogger"
 # Staging environment
 [env.staging]
 name = "quill-blog-api-staging"
-vars = { LOCAL_API_URL = "https://your-staging-api.com" }
+vars = { 
+  LOCAL_API_URL = "https://your-staging-api.com",
+  SITE_BASE_URL = "https://paulchrisluke.com",
+  FEED_ITEMS = "40",
+  SITEMAP_MONTHS = "12"
+}
