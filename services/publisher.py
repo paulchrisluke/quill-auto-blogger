@@ -7,7 +7,7 @@ import logging
 import shutil
 import re
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, TypedDict
 from datetime import datetime
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+
+class StoryAssets(TypedDict):
+    """Type definition for story assets structure."""
+    video: Optional[str]
+    images: List[str]
+    highlights: List[str]
 
 
 def sanitize_story_id(story_id: str) -> str:
@@ -314,7 +321,7 @@ class Publisher:
             logger.error(f"Failed to get asset URL for {date}/{story_id}/{asset_type}: {e}")
             return None
     
-    def list_story_assets(self, date: str, story_id: str) -> Dict[str, List[str]]:
+    def list_story_assets(self, date: str, story_id: str) -> StoryAssets:
         """
         List all available assets for a story.
         
@@ -323,7 +330,7 @@ class Publisher:
             story_id: Story identifier
             
         Returns:
-            Dictionary mapping asset types to lists of asset URLs
+            StoryAssets object with video, images, and highlights
         """
         assets = {
             "video": None,
