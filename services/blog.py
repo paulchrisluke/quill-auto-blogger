@@ -84,6 +84,12 @@ class BlogDigestBuilder:
                 with open(pre_cleaned_path, 'r', encoding='utf-8') as f:
                     digest = json.load(f)
                 logger.info(f"Loaded existing pre-cleaned digest for {target_date}")
+                
+                # Enhance existing digest with thumbnail URLs
+                if digest.get("story_packets"):
+                    enhanced_packets = self._enhance_existing_digest_with_thumbnails(digest, target_date)
+                    digest["story_packets"] = enhanced_packets
+                
                 return digest
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load pre-cleaned digest for {target_date}: {e}")
@@ -975,6 +981,39 @@ class BlogDigestBuilder:
                     if not hasattr(enhanced_packet.video, '_custom_attrs'):
                         enhanced_packet.video._custom_attrs = {}
                     enhanced_packet.video._custom_attrs['thumbnail_url'] = thumbnail_url
+            
+            enhanced_packets.append(enhanced_packet)
+        
+        return enhanced_packets
+    
+    def _enhance_existing_digest_with_thumbnails(self, digest: Dict[str, Any], target_date: str) -> List[Dict[str, Any]]:
+        """
+        Enhance existing digest story packets with thumbnail URLs.
+        
+        Args:
+            digest: Existing digest dictionary
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            List of enhanced story packet dictionaries with thumbnail URLs
+        """
+        enhanced_packets = []
+        
+        for packet in digest.get("story_packets", []):
+            # Create a copy to avoid modifying the original
+            enhanced_packet = packet.copy()
+            
+            # Add thumbnail information to video info if video exists and is rendered
+            if (enhanced_packet.get('video') and 
+                enhanced_packet['video'].get('path') and 
+                enhanced_packet['video'].get('status') == 'rendered'):
+                
+                # Generate thumbnail URL
+                thumbnail_url = self._get_video_thumbnail_url(enhanced_packet['video']['path'], enhanced_packet.get('id', ''))
+                
+                # Add thumbnail URL to video info
+                if thumbnail_url:
+                    enhanced_packet['video']['thumbnail_url'] = thumbnail_url
             
             enhanced_packets.append(enhanced_packet)
         
