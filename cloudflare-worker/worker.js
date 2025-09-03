@@ -25,6 +25,10 @@ export default {
         return await handleBlogAPI(request, env, requestCtx, path);
       } else if (path.startsWith('/api/assets/')) {
         return await handleAssetsAPI(request, env, requestCtx, path);
+      } else if (path.startsWith('/assets/')) {
+        // Extract asset key from path (remove /assets/ prefix)
+        const assetKey = path.substring(8); // Remove '/assets/' prefix
+        return await serveR2Asset(env, assetKey);
       } else if (path === '/health') {
         return new Response('OK', { status: 200 });
       } else {
@@ -119,7 +123,11 @@ async function handleBlogAPI(request, env, ctx, path) {
       headers['Authorization'] = `Bearer ${env.WORKER_BEARER_TOKEN}`;
     }
     
-    const response = await fetch(`${apiUrl}${path}`, {
+    // Preserve query string from original request
+    const searchString = ctx.url.search;
+    const targetUrl = searchString ? `${apiUrl}${path}${searchString}` : `${apiUrl}${path}`;
+    
+    const response = await fetch(targetUrl, {
       method: 'GET',
       headers
     });
@@ -186,7 +194,11 @@ async function handleAssetsAPI(request, env, ctx, path) {
       headers['Authorization'] = `Bearer ${env.WORKER_BEARER_TOKEN}`;
     }
     
-    const response = await fetch(`${apiUrl}${path}`, {
+    // Preserve query string from original request
+    const searchString = ctx.url.search;
+    const targetUrl = searchString ? `${apiUrl}${path}${searchString}` : `${apiUrl}${path}`;
+    
+    const response = await fetch(targetUrl, {
       method: 'GET',
       headers
     });

@@ -119,7 +119,11 @@ async function handleBlogAPI(request, env, ctx, path) {
       headers['Authorization'] = `Bearer ${env.WORKER_BEARER_TOKEN}`;
     }
     
-    const response = await fetch(`${apiUrl}${path}`, {
+    // Preserve query string from original request
+    const searchString = ctx.url.search;
+    const targetUrl = searchString ? `${apiUrl}${path}${searchString}` : `${apiUrl}${path}`;
+    
+    const response = await fetch(targetUrl, {
       method: 'GET',
       headers
     });
@@ -186,7 +190,11 @@ async function handleAssetsAPI(request, env, ctx, path) {
       headers['Authorization'] = `Bearer ${env.WORKER_BEARER_TOKEN}`;
     }
     
-    const response = await fetch(`${apiUrl}${path}`, {
+    // Preserve query string from original request
+    const searchString = ctx.url.search;
+    const targetUrl = searchString ? `${apiUrl}${path}${searchString}` : `${apiUrl}${path}`;
+    
+    const response = await fetch(targetUrl, {
       method: 'GET',
       headers
     });

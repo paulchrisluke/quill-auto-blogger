@@ -1414,7 +1414,7 @@ class BlogDigestBuilder:
             markdown = self.generate_markdown(digest)
             return markdown
         except Exception as e:
-            logger.error(f"Failed to generate markdown for {target_date}: {e}")
+            logger.exception(f"Failed to generate markdown for {target_date}")
             raise
     
     def get_blog_assets(self, target_date: str) -> BlogAssets:
@@ -1458,8 +1458,8 @@ class BlogDigestBuilder:
             return BlogAssets(**cloudflare_assets)
             
         except Exception as e:
-            logger.error(f"Failed to get blog assets for {target_date}: {e}")
-            return BlogAssets(stories=[], images=[], videos=[])
+            logger.exception(f"Failed to get blog assets for {target_date}")
+            raise
     
     def _get_story_assets(self, target_date: str, story_id: str) -> StoryAssets:
         """
@@ -1497,7 +1497,7 @@ class BlogDigestBuilder:
             return StoryAssets(**story_assets)
             
         except Exception as e:
-            logger.error(f"Failed to get story assets for {story_id}: {e}")
+            logger.exception("Failed to get story assets for %s", story_id)
             return StoryAssets(video=None, images=[], highlights=[])
     
     def _get_cloudflare_url(self, asset_path: str) -> str:
@@ -1523,5 +1523,5 @@ class BlogDigestBuilder:
                 return f"/{asset_path}"
                 
         except Exception as e:
-            logger.error(f"Failed to generate Cloudflare URL for {asset_path}: {e}")
+            logger.exception("Failed to generate Cloudflare URL for %s", asset_path)
             return f"/{asset_path}"
