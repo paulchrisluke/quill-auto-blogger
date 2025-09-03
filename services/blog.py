@@ -1116,7 +1116,7 @@ class BlogDigestBuilder:
                     filename = parts[5]  # story_20250827_pr34.mp4
                     
                     # Convert filename to intro PNG
-                    base_name = filename.replace('.mp4', '')
+                    base_name = filename.rsplit('.', 1)[0]  # Safely strip .mp4 extension
                     intro_png = f"{base_name}_01_intro.png"
                     
                     # Generate Worker URL for the intro PNG
@@ -1170,10 +1170,10 @@ class BlogDigestBuilder:
                     year = parts[1]   # YYYY
                     month = parts[2]  # MM
                     day = parts[3]    # DD
-                    filename = parts[4]  # story_YYYYMMDD_prXX.mp4
+                    filename = parts[-1]  # Use last segment for filename
                     
                     # Generate intro PNG thumbnail path
-                    base_name = filename.replace('.mp4', '')
+                    base_name = filename.rsplit('.', 1)[0]  # Safely strip .mp4 extension
                     intro_png = f"{base_name}_01_intro.png"
                     
                     return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"

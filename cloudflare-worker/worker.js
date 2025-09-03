@@ -28,7 +28,10 @@ export default {
         const assetKey = path.substring(8); // Remove '/assets/' prefix
         return await serveR2Asset(env, assetKey);
       } else if (path === '/health') {
-        return new Response('OK', { status: 200 });
+        return new Response('OK', { 
+          status: 200,
+          headers: getCORSHeaders()
+        });
       } else {
         return createErrorResponse('Not Found', 404);
       }
@@ -195,7 +198,8 @@ async function handleIndexPage(request, env) {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
         'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
-        'Vary': 'Accept-Encoding'
+        'Vary': 'Accept-Encoding',
+        ...getCORSHeaders()
       }
     });
 

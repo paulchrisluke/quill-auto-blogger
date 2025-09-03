@@ -247,7 +247,7 @@ config.local.py
 settings.local.py
 
 # Cloudflare Workers
-wrangler.toml
+.wrangler/
 
 # Docker
 .dockerignore

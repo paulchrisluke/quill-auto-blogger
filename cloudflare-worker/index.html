@@ -7,13 +7,13 @@
     <title>Quill Auto Blogger API</title>
     <style>
         :root {
-            --bg: #ffffff;
-            --sidebar: #f6f8fa;
-            --panel: #f6f8fa;
-            --line: #d0d7de;
-            --text: #24292f;
-            --muted: #656d76;
-            --accent: #0969da;
+            --bg: #0d1117;
+            --sidebar: #161b22;
+            --panel: #161b22;
+            --line: #30363d;
+            --text: #f0f6fc;
+            --muted: #8b949e;
+            --accent: #58a6ff;
             --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
             --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
         }
@@ -68,11 +68,11 @@
         }
 
         .nav-link:hover {
-            background: #f3f4f6
+            background: #21262d
         }
 
         .nav-link.active {
-            background: #0969da;
+            background: #58a6ff;
             color: #ffffff
         }
 
@@ -126,22 +126,22 @@
         }
 
         .GET {
-            background: #ddf4d8;
-            color: #1a7f37;
-            border: 1px solid #1a7f37
+            background: #0a8f08;
+            color: #ffffff;
+            border: 1px solid #0a8f08
         }
 
         .POST {
-            background: #ffebe9;
-            color: #cf222e;
+            background: #cf222e;
+            color: #ffffff;
             border: 1px solid #cf222e
         }
 
         .path {
             font-family: var(--mono);
             font-size: 14px;
-            background: #f6f8fa;
-            border: 1px solid #d0d7de;
+            background: #21262d;
+            border: 1px solid #30363d;
             padding: 3px 8px;
             border-radius: 6px
         }
@@ -153,12 +153,12 @@
         }
 
         .notes {
-            background: #f6f8fa;
-            border: 1px solid #d0d7de;
+            background: #21262d;
+            border: 1px solid #30363d;
             border-radius: 6px;
             padding: 12px;
             margin: 12px 0;
-            color: #656d76;
+            color: #8b949e;
             font-size: 13px;
             font-style: italic
         }
@@ -179,18 +179,18 @@
 
         .kv dt {
             font-size: 13px;
-            color: #24292f
+            color: #f0f6fc
         }
 
         .kv dd {
             font-family: var(--mono);
             font-size: 13px;
-            background: #f6f8fa;
-            border: 1px solid #d0d7de;
+            background: #21262d;
+            border: 1px solid #30363d;
             border-radius: 6px;
             padding: 6px 8px;
             margin: 6px 0 10px;
-            color: #24292f
+            color: #f0f6fc
         }
 
         /* Right code panel */
@@ -214,15 +214,35 @@
 
         .code {
             position: relative;
-            background: #f6f8fa;
-            border: 1px solid #d0d7de;
+            background: #21262d;
+            border: 1px solid #30363d;
             border-radius: 6px;
             padding: 12px;
             font-family: var(--mono);
             font-size: 13px;
-            white-space: pre;
-            overflow: auto;
-            color: #24292f
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-x: auto;
+            color: #f0f6fc;
+            max-width: 100%;
+        }
+
+        .code::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .code::-webkit-scrollbar-track {
+            background: #161b22;
+            border-radius: 4px;
+        }
+
+        .code::-webkit-scrollbar-thumb {
+            background: #484f58;
+            border-radius: 4px;
+        }
+
+        .code::-webkit-scrollbar-thumb:hover {
+            background: #5a6169;
         }
 
         .copy {
@@ -232,9 +252,9 @@
             font-size: 12px;
             padding: 6px 8px;
             border-radius: 6px;
-            border: 1px solid #d0d7de;
-            background: #ffffff;
-            color: #656d76;
+            border: 1px solid #30363d;
+            background: #0d1117;
+            color: #8b949e;
             cursor: pointer
         }
 
@@ -263,8 +283,109 @@
             }
         }
 
+        /* Code block improvements */
+        .code {
+            position: relative;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-x: auto;
+            color: #f0f6fc;
+            max-width: 100%;
+        }
+
+        .code::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .code::-webkit-scrollbar-track {
+            background: #161b22;
+            border-radius: 4px;
+        }
+
+        .code::-webkit-scrollbar-thumb {
+            background: #484f58;
+            border-radius: 4px;
+        }
+
+        .code::-webkit-scrollbar-thumb:hover {
+            background: #5a6169;
+        }
+
+        /* Better mobile layout */
+        @media (max-width: 768px) {
+            .main {
+                padding: 20px 16px;
+            }
+
+            .endpoint {
+                padding: 20px 0;
+            }
+
+            .ep-head {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .method {
+                align-self: flex-start;
+            }
+
+            .path {
+                font-size: 13px;
+                word-break: break-all;
+            }
+
+            .kv dd {
+                word-break: break-all;
+                font-size: 12px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .main {
+                padding: 16px 12px;
+            }
+
+            .main h1 {
+                font-size: 24px;
+            }
+
+            .lead {
+                font-size: 14px;
+            }
+
+            .endpoint {
+                padding: 16px 0;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .main {
+                padding: 16px 12px;
+            }
+
+            .main h1 {
+                font-size: 24px;
+            }
+
+            .lead {
+                font-size: 14px;
+            }
+
+            .endpoint {
+                padding: 16px 0;
+            }
+        }
+
         a {
-            color: #0969da
+            color: #58a6ff
         }
     </style>
 </head>
@@ -272,7 +393,12 @@
 <body>
     <!-- LEFT SIDEBAR -->
     <aside class="sidebar">
-        <div class="brand">Quill Auto Blogger API</div>
+        <div class="brand">
+            <img src="https://www.paulchrisluke.com/pcl-labs-logo.svg" alt="PCL Labs"
+                style="width: 100%; max-width: 180px; height: auto; margin-bottom: 8px;">
+            <div style="font-size: 12px; color: var(--muted); text-align: center; font-style: italic;">made with ❤️ open
+                source</div>
+        </div>
         <div class="nav-title">Blog</div>
         <a class="nav-link active" href="#ep-blog">/blog/{date}</a>
         <a class="nav-link" href="#ep-assets">/assets/*</a>
@@ -293,11 +419,14 @@
     <!-- MAIN CONTENT (simple one column) -->
     <main class="main" id="content">
         <h1>API Reference</h1>
-        <p class="lead">Pure JSON API for AI-enhanced blog content. The Worker serves FINAL digest data with AI enhancements, structured SEO metadata, and complete story packets.</p>
-        
+        <p class="lead">Pure JSON API for AI-enhanced blog content. The Worker serves FINAL digest data with AI
+            enhancements, structured SEO metadata, and complete story packets.</p>
+
         <div class="notes">
-            <strong>Pipeline Structure:</strong> The system generates PRE-CLEANED (raw) and FINAL (AI-enhanced) digest versions. 
-            The API serves the FINAL version with AI-generated content including SEO descriptions, holistic intros, wrap-ups, and story intros.
+            <strong>Pipeline Structure:</strong> The system generates PRE-CLEANED (raw) and FINAL (AI-enhanced) digest
+            versions.
+            The API serves the FINAL version with AI-generated content including SEO descriptions, holistic intros,
+            wrap-ups, and story intros.
         </div>
 
         <!-- GET /blog/{date} -->
@@ -331,8 +460,10 @@
   ]
 }'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/blog/{date}</span></div>
-            <p class="desc">Retrieve complete AI-enhanced blog data including frontmatter, story packets, and structured SEO metadata.</p>
-            <div class="notes">Returns FINAL digest data with AI enhancements, JSON-LD schema, and complete story packets.</div>
+            <p class="desc">Retrieve complete AI-enhanced blog data including frontmatter, story packets, and structured
+                SEO metadata.</p>
+            <div class="notes">Returns FINAL digest data with AI enhancements, JSON-LD schema, and complete story
+                packets.</div>
             <div class="subttl">Path Parameters</div>
             <dl class="kv">
                 <dt>date</dt>
@@ -348,7 +479,8 @@
 
         <!-- GET /assets/* -->
         <section id="ep-assets" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png"' data-json='Direct asset serving from R2 bucket'>
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png"'
+            data-json='Direct asset serving from R2 bucket'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/assets/*</span>
             </div>
             <p class="desc">Serve static assets (images, videos, highlights) directly from R2 bucket.</p>
@@ -401,10 +533,10 @@
             "version": "2",
             "date": "2025-08-29",
             "frontmatter": {
-                "title": "Daily Devlog — Aug 29, 2025",
-                "description": "AI-enhanced description...",
-                "holistic_intro": "AI-generated holistic introduction...",
-                "wrap_up": "AI-generated wrap-up..."
+            "title": "Daily Devlog — Aug 29, 2025",
+            "description": "AI-enhanced description...",
+            "holistic_intro": "AI-generated holistic introduction...",
+            "wrap_up": "AI-generated wrap-up..."
             },
             "story_packets": [...]
             }
