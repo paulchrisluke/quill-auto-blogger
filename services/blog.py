@@ -59,6 +59,7 @@ class BlogDigestBuilder:
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
+        self.worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
     
     def build_digest(self, target_date: str) -> Dict[str, Any]:
         """
@@ -842,18 +843,13 @@ class BlogDigestBuilder:
                     base_name = filename.replace('.mp4', '')
                     intro_png = f"{base_name}_01_intro.png"
                     
-                    # Get Worker domain from environment
-                    worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
-                    
                     # Generate Worker URL for the intro PNG
-                    return f"https://{worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
             
             # Fallback: try to convert existing path format
             intro_png_path = video_path.replace(".mp4", "_01_intro.png")
             if intro_png_path.startswith('/stories/'):
-                # Get Worker domain from environment
-                worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
-                return f"https://{worker_domain}{intro_png_path.replace('.mp4', '_01_intro.png')}"
+                return f"https://{self.worker_domain}{intro_png_path.replace('.mp4', '_01_intro.png')}"
         
         return self.blog_default_image
     
@@ -887,10 +883,7 @@ class BlogDigestBuilder:
                     base_name = filename.replace('.mp4', '')
                     intro_png = f"{base_name}_01_intro.png"
                     
-                    # Get Worker domain from environment
-                    worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
-                    
-                    return f"https://{worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
             
             elif video_path.startswith('stories/') or video_path.startswith('/stories/'):
                 # Handle stories/YYYY/MM/DD/filename.mp4 format
@@ -907,25 +900,19 @@ class BlogDigestBuilder:
                     base_name = filename.replace('.mp4', '')
                     intro_png = f"{base_name}_01_intro.png"
                     
-                    # Get Worker domain from environment
-                    worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
-                    
-                    return f"https://{worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
             
             elif video_path.startswith('https://'):
-                # Handle Cloudflare R2 URLs
-                if '/stories/' in video_path:
-                    # Extract the stories path from the full URL
-                    stories_index = video_path.find('/stories/')
+                from urllib.parse import urlsplit
+                path = urlsplit(video_path).path
+                if '/stories/' in path:
+                    stories_index = path.find('/stories/')
                     if stories_index != -1:
-                        stories_path = video_path[stories_index:]
+                        stories_path = path[stories_index:]
                         # Convert video path to thumbnail path
                         thumbnail_path = stories_path.replace('.mp4', '_01_intro.png')
-                        
                         # Get Worker domain from environment
-                        worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
-                        
-                        return f"https://{worker_domain}/assets{thumbnail_path}"
+                        return f"https://{self.worker_domain}/assets{thumbnail_path}"
             
             # Fallback: try to generate from story_id if available
             if story_id and video_path:
@@ -936,10 +923,8 @@ class BlogDigestBuilder:
                     date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', video_path)
                     if date_match:
                         year, month, day = date_match.groups()
-                        # Get Worker domain from environment
-                        worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
                         
-                        return f"https://{worker_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
+                        return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
             
             return ""
             
@@ -947,7 +932,7 @@ class BlogDigestBuilder:
             logger.warning(f"Failed to generate thumbnail URL for {video_path}: {e}")
             return ""
     
-    def _enhance_story_packets_with_thumbnails(self, story_packets: List[Any], target_date: str) -> List[Any]:
+    def _enhance_story_packets_with_thumbnails(self, story_packets: List[Any], _target_date: str) -> List[Any]:
         """
         Enhance story packets with thumbnail URLs for API responses.
         
@@ -986,7 +971,7 @@ class BlogDigestBuilder:
         
         return enhanced_packets
     
-    def _enhance_existing_digest_with_thumbnails(self, digest: Dict[str, Any], target_date: str) -> List[Dict[str, Any]]:
+    def _enhance_existing_digest_with_thumbnails(self, digest: Dict[str, Any], _target_date: str) -> List[Dict[str, Any]]:
         """
         Enhance existing digest story packets with thumbnail URLs.
         
@@ -1677,15 +1662,12 @@ class BlogDigestBuilder:
             Full Worker API URL for the asset
         """
         try:
-            # Get Worker domain from environment, default to our deployed Worker
-            worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
-            
             # Convert the asset path to the Worker's asset format
             # Local path: stories/2025/08/29/story_123.mp4
             # Worker path: /assets/stories/2025/08/29/story_123.mp4
             worker_path = f"/assets/{asset_path}"
             
-            return f"https://{worker_domain}{worker_path}"
+            return f"https://{self.worker_domain}{worker_path}"
                 
         except Exception as e:
             logger.exception("Failed to generate Worker URL for %s", asset_path)
