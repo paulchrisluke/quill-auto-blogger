@@ -111,6 +111,9 @@ class BlogDigestBuilder:
         # Generate pre-computed frontmatter
         frontmatter = self._generate_frontmatter_v2(target_date, clips_data, events_data, story_packets)
         
+        # Enhance story packets with thumbnail URLs before serialization
+        enhanced_story_packets = self._enhance_story_packets_with_thumbnails(story_packets, target_date)
+        
         # Build v2 digest structure
         digest = {
             "version": "2",
@@ -119,7 +122,7 @@ class BlogDigestBuilder:
             "github_events": events_data,
             "metadata": self._generate_metadata(target_date, twitch_clips, github_events),
             "frontmatter": frontmatter.model_dump(mode="json", by_alias=True),
-            "story_packets": [packet.model_dump(mode="json") for packet in story_packets]
+            "story_packets": [packet.model_dump(mode="json") for packet in enhanced_story_packets]
         }
         
         return digest
@@ -848,6 +851,135 @@ class BlogDigestBuilder:
         
         return self.blog_default_image
     
+    def _get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
+        """
+        Generate thumbnail URL for a video based on its path.
+        
+        Args:
+            video_path: Path to the video file
+            story_id: Story identifier for fallback
+            
+        Returns:
+            URL string for the thumbnail, or empty string if not available
+        """
+        try:
+            # Handle different video path formats
+            if video_path.startswith('out/videos/'):
+                # Convert out/videos/YYYY-MM-DD/filename.mp4 to thumbnail
+                parts = video_path.split('/')
+                if len(parts) >= 4:
+                    date_part = parts[2]  # YYYY-MM-DD
+                    filename = parts[3]   # story_YYYYMMDD_prXX.mp4
+                    
+                    # Convert to YYYY/MM/DD format
+                    date_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                    year = str(date_obj.year)
+                    month = f"{date_obj.month:02d}"
+                    day = f"{date_obj.day:02d}"
+                    
+                    # Generate intro PNG thumbnail path
+                    base_name = filename.replace('.mp4', '')
+                    intro_png = f"{base_name}_01_intro.png"
+                    
+                    # Get Worker domain from environment
+                    worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+                    
+                    return f"https://{worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+            
+            elif video_path.startswith('stories/') or video_path.startswith('/stories/'):
+                # Handle stories/YYYY/MM/DD/filename.mp4 format
+                clean_path = video_path.lstrip('/')
+                parts = clean_path.split('/')
+                
+                if len(parts) >= 4:
+                    year = parts[1]   # YYYY
+                    month = parts[2]  # MM
+                    day = parts[3]    # DD
+                    filename = parts[4]  # story_YYYYMMDD_prXX.mp4
+                    
+                    # Generate intro PNG thumbnail path
+                    base_name = filename.replace('.mp4', '')
+                    intro_png = f"{base_name}_01_intro.png"
+                    
+                    # Get Worker domain from environment
+                    worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+                    
+                    return f"https://{worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+            
+            elif video_path.startswith('https://'):
+                # Handle Cloudflare R2 URLs
+                if '/stories/' in video_path:
+                    # Extract the stories path from the full URL
+                    stories_index = video_path.find('/stories/')
+                    if stories_index != -1:
+                        stories_path = video_path[stories_index:]
+                        # Convert video path to thumbnail path
+                        thumbnail_path = stories_path.replace('.mp4', '_01_intro.png')
+                        
+                        # Get Worker domain from environment
+                        worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+                        
+                        return f"https://{worker_domain}/assets{thumbnail_path}"
+            
+            # Fallback: try to generate from story_id if available
+            if story_id and video_path:
+                # Extract date from video path if possible
+                if '/stories/' in video_path:
+                    # Try to extract date from path
+                    import re
+                    date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', video_path)
+                    if date_match:
+                        year, month, day = date_match.groups()
+                        # Get Worker domain from environment
+                        worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+                        
+                        return f"https://{worker_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
+            
+            return ""
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate thumbnail URL for {video_path}: {e}")
+            return ""
+    
+    def _enhance_story_packets_with_thumbnails(self, story_packets: List[Any], target_date: str) -> List[Any]:
+        """
+        Enhance story packets with thumbnail URLs for API responses.
+        
+        Args:
+            story_packets: List of StoryPacket objects
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            List of enhanced StoryPacket objects with thumbnail URLs
+        """
+        enhanced_packets = []
+        
+        for packet in story_packets:
+            # Create a copy to avoid modifying the original
+            enhanced_packet = packet.model_copy() if hasattr(packet, 'model_copy') else packet.copy()
+            
+            # Add thumbnail information to video info if video exists and is rendered
+            if (hasattr(enhanced_packet, 'video') and 
+                enhanced_packet.video and 
+                enhanced_packet.video.path and 
+                enhanced_packet.video.status == 'rendered'):
+                
+                # Generate thumbnail URL
+                thumbnail_url = self._get_video_thumbnail_url(enhanced_packet.video.path, enhanced_packet.id)
+                
+                # Add thumbnail URL to video info
+                if hasattr(enhanced_packet.video, 'thumbnail_url'):
+                    enhanced_packet.video.thumbnail_url = thumbnail_url
+                else:
+                    # If VideoInfo model doesn't have thumbnail_url field, add it as a custom attribute
+                    if not hasattr(enhanced_packet.video, '_custom_attrs'):
+                        enhanced_packet.video._custom_attrs = {}
+                    enhanced_packet.video._custom_attrs['thumbnail_url'] = thumbnail_url
+            
+            enhanced_packets.append(enhanced_packet)
+        
+        return enhanced_packets
+    
 
     
     def _generate_content(self, digest: Dict[str, Any]) -> str:
@@ -946,7 +1078,14 @@ class BlogDigestBuilder:
                             if video_path.startswith(('https://', '/stories/')):
                                 # Escape video path for HTML attribute to prevent XSS
                                 escaped_video_path = html.escape(video_path, quote=True)
-                                content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
+                                
+                                # Generate thumbnail URL for the video
+                                thumbnail_url = self._get_video_thumbnail_url(video_path, packet.get('id', ''))
+                                
+                                if thumbnail_url:
+                                    content_parts.append(f'<video controls poster="{thumbnail_url}" src="{escaped_video_path}"></video>')
+                                else:
+                                    content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
                                 content_parts.append("")
                             else:
                                 # For non-secure paths, just show the link
