@@ -111,19 +111,19 @@ class TestR2Publisher:
         """Test headers for HTML files."""
         headers = publisher._headers_for(Path('test.html'))
         assert headers['ContentType'] == 'text/html; charset=utf-8'
-        assert headers['CacheControl'] == 'public, max-age=3600'
+        assert headers['CacheControl'] == 'public, max-age=3600, s-maxage=86400'
     
     def test_headers_for_json(self, publisher):
         """Test headers for JSON files."""
         headers = publisher._headers_for(Path('test.json'))
         assert headers['ContentType'] == 'application/json'
-        assert headers['CacheControl'] == 'public, max-age=300'
+        assert headers['CacheControl'] == 'public, max-age=300, s-maxage=1800'
     
     def test_headers_for_other(self, publisher):
         """Test headers for other file types."""
         headers = publisher._headers_for(Path('test.txt'))
         assert headers['ContentType'] == 'application/octet-stream'
-        assert headers['CacheControl'] == 'public, max-age=300'
+        assert headers['CacheControl'] == 'public, max-age=300, s-maxage=1800'
     
     def test_publish_site_success(self, publisher):
         """Test successful site publishing."""
@@ -162,16 +162,22 @@ class TestR2Publisher:
             Path('blogs/2025-01-16/API-v3-2025-01-16_digest.json')
         ]
         
+        # Mock valid JSON data
+        mock_json_data = '{"title": "Test Blog", "content": "Test content"}'
+        
         with patch('pathlib.Path.exists', return_value=True):
             with patch('pathlib.Path.rglob', return_value=mock_files):
-                with patch('builtins.open', mock_open(read_data=b"test content")):
+                with patch('builtins.open', mock_open(read_data=mock_json_data)):
                     with patch.object(publisher, '_hash_md5', return_value='test_hash'):
                         with patch.object(publisher, '_should_skip', return_value=False):
-                            results = publisher.publish_blogs(Path('blogs'))
-                            
-                            assert len(results) == 2
-                            assert all(results.values())
-                            assert publisher.s3_client.put_object.call_count == 2
+                            # Mock feed generation to avoid file system issues
+                            with patch.object(publisher, '_generate_and_publish_feeds'):
+                                results = publisher.publish_blogs(Path('blogs'))
+                                
+                                assert len(results) == 2
+                                assert all(results.values())
+                                # When feed generation is mocked, only blog uploads happen
+                                assert publisher.s3_client.put_object.call_count == 2
     
     def test_publish_blogs_no_files(self, publisher):
         """Test blog publishing when no API-v3 files found."""
