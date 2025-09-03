@@ -100,60 +100,70 @@ async function handleBlogAPI(request, env, ctx, path) {
     return createErrorResponse('Invalid date format. Use YYYY-MM-DD', 400);
   }
   
-  // Check cache first
-  const cache = caches.default;
-  const cacheKey = new Request(request.url);
-  const cachedResponse = await cache.match(cacheKey);
-  
-  if (cachedResponse) {
-    return addCORSHeaders(cachedResponse);
-  }
-  
   try {
-    // Forward request to your local API server
-    const apiUrl = env.LOCAL_API_URL || 'http://localhost:8000';
+    // Try to get blog content directly from R2 bucket
+    const blogKey = `blogs/${date}/FINAL-BLOG-${date}.md`;
+    const digestKey = `blogs/${date}/PRE-CLEANED-${date}_digest.json`;
     
-    // Build headers conditionally
-    const headers = {
-      'Content-Type': 'application/json'
-    };
+    let blogContent = null;
+    let digestData = null;
     
-    // Only add Authorization header if token is defined and non-empty
-    if (env.WORKER_BEARER_TOKEN && env.WORKER_BEARER_TOKEN.trim() !== '') {
-      headers['Authorization'] = `Bearer ${env.WORKER_BEARER_TOKEN}`;
-    }
-    
-    // Preserve query string from original request
-    const searchString = ctx.url.search;
-    const targetUrl = searchString ? `${apiUrl}${path}${searchString}` : `${apiUrl}${path}`;
-    
-    const response = await fetch(targetUrl, {
-      method: 'GET',
-      headers
-    });
-    
-    if (!response.ok) {
-      return createErrorResponse(`API Error: ${response.statusText}`, response.status);
-    }
-    
-    const data = await response.json();
-    
-    // Create response with caching headers
-    const cacheResponse = new Response(JSON.stringify(data), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=300, s-maxage=1800', // 5 min browser, 30 min edge
-        'CDN-Cache-Control': 'public, max-age=1800', // 30 min edge
-        'Vary': 'Accept-Encoding',
-        ...getCORSHeaders()
+    // Try to get the final blog first
+    try {
+      const blogObject = await env.BLOG_BUCKET.get(blogKey);
+      if (blogObject) {
+        blogContent = await blogObject.text();
       }
-    });
+    } catch (error) {
+      console.log(`Blog not found at ${blogKey}:`, error.message);
+    }
     
-    // Store in cache
-    ctx.waitUntil(cache.put(cacheKey, cacheResponse.clone()));
+    // If we have blog content, return it
+    if (blogContent) {
+      const response = new Response(blogContent, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/markdown',
+          'Cache-Control': 'public, max-age=300, s-maxage=1800',
+          'CDN-Cache-Control': 'public, max-age=1800',
+          'Vary': 'Accept-Encoding',
+          ...getCORSHeaders()
+        }
+      });
+      
+      return response;
+    }
     
-    return cacheResponse;
+    // If no blog, try to get digest data
+    if (!blogContent) {
+      try {
+        const digestObject = await env.BLOG_BUCKET.get(digestKey);
+        if (digestObject) {
+          digestData = await digestObject.json();
+        }
+      } catch (error) {
+        console.log(`Digest not found at ${digestKey}:`, error.message);
+      }
+    }
+    
+    // If we have digest data, return it
+    if (digestData) {
+      const response = new Response(JSON.stringify(digestData), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=300, s-maxage=1800',
+          'CDN-Cache-Control': 'public, max-age=1800',
+          'Vary': 'Accept-Encoding',
+          ...getCORSHeaders()
+        }
+      });
+      
+      return response;
+    }
+    
+    // If neither found, return 404
+    return createErrorResponse('Blog not found', 404);
     
   } catch (error) {
     console.error('Blog API error:', error);
