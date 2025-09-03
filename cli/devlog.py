@@ -321,7 +321,7 @@ def blog_regenerate_api(target_date: str):
         
         click.echo(f"[OK] Regenerated API v3 content for {target_date}")
         click.echo(f"[INFO] Title: {api_data['frontmatter']['title']}")
-        story_packets = api_data.get('content', {}).get('story_packets', [])
+        story_packets = api_data.get('story_packets', [])
         click.echo(f"[INFO] Stories: {len(story_packets)}")
         click.echo(f"[INFO] API v3 file saved to blogs/{target_date}/API-v3-{target_date}_digest.json")
         

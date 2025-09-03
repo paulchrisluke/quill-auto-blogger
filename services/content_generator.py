@@ -105,7 +105,7 @@ class ContentGenerator:
                         
                         # Add video if available and rendered
                         if (packet.get('video', {}).get('path') and 
-                            packet.get('video', {}).get('status') != 'pending'):
+                            packet.get('video', {}).get('status') == 'rendered'):
                             video_path = packet['video']['path']
                             
                             # Convert relative video paths to public URLs

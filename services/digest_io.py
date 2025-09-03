@@ -145,6 +145,8 @@ class DigestIO:
             
             # Save as FINAL version using atomic write
             final_path = self.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
+            from services.utils import CacheManager
+            cache_manager = CacheManager()
             cache_manager.atomic_write_json(final_path, enhanced_digest, overwrite=True)
             
             logger.info(f"Created FINAL digest: {final_path}")

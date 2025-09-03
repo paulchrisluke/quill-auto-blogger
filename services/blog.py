@@ -21,6 +21,7 @@ from story_schema import (
     _extract_why_and_highlights, VideoStatus
 )
 from services.publisher import StoryAssets
+from services.publisher_r2 import R2Publisher
 from .content_generator import ContentGenerator
 
 if TYPE_CHECKING:
@@ -250,8 +251,8 @@ class BlogDigestBuilder:
         if ai_enabled and digest.get("version") == "2":
             content = content_gen.post_process_markdown(content, ai_enabled, force_ai)
             
-            # Regenerate frontmatter after AI modifications
-            frontmatter_data = digest["frontmatter"].copy()
+            # Regenerate frontmatter after AI modifications using updated frontmatter
+            frontmatter_data = content_gen.frontmatter.copy()
             if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
                 desc = frontmatter_data["og"]["og:description"]
                 if not (desc.startswith('"') and desc.endswith('"')):
@@ -280,59 +281,7 @@ class BlogDigestBuilder:
     
 
     
-    def upload_api_v3_to_r2(self, target_date: str, api_data: Dict[str, Any]) -> bool:
-        """Upload the API v3 digest to R2 bucket for Worker API consumption."""
-        try:
-            from .auth import AuthService
-            
-            # Get R2 credentials
-            auth_service = AuthService()
-            r2_credentials = auth_service.get_r2_credentials()
-            
-            if not r2_credentials:
-                logger.warning("R2 credentials not found, skipping API v3 R2 upload")
-                return False
-            
-            # Create R2 key path - upload API v3 version for Worker consumption
-            r2_key = f"blogs/{target_date}/API-v3-{target_date}_digest.json"
-            
-            # Convert digest to JSON string
-            digest_json = json.dumps(api_data, indent=2, default=str)
-            
-            # Upload to R2 using boto3 directly
-            try:
-                import boto3
-                # Handle both Pydantic SecretStr and plain string types for secret_access_key
-                secret_key = r2_credentials.secret_access_key
-                if hasattr(secret_key, 'get_secret_value'):
-                    aws_secret_access_key = secret_key.get_secret_value()
-                else:
-                    aws_secret_access_key = str(secret_key) if secret_key is not None else ""
-                
-                s3_client = boto3.client(
-                    's3',
-                    aws_access_key_id=r2_credentials.access_key_id,
-                    aws_secret_access_key=aws_secret_access_key,
-                    endpoint_url=r2_credentials.endpoint,
-                    region_name=r2_credentials.region
-                )
-                
-                s3_client.put_object(
-                    Bucket=r2_credentials.bucket,
-                    Key=r2_key,
-                    Body=digest_json.encode('utf-8'),
-                    ContentType='application/json'
-                )
-                logger.info(f"Successfully uploaded API v3 to R2: {r2_key}")
-                return True
-                
-            except Exception as e:
-                logger.error(f"Failed to upload API v3 to R2: {e}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Failed to upload API v3 to R2: {e}")
-            return False
+
     
     def _generate_metadata(self, target_date: str, clips: List[TwitchClip], events: List[GitHubEvent]) -> Dict[str, Any]:
         """Generate metadata for the digest."""
@@ -546,7 +495,7 @@ class BlogDigestBuilder:
                 "content": {
                     "body": consolidated_content
                 },
-                "story_packets": digest.get("story_packets", []),  # Include story packets
+                "story_packets": updated_story_packets,  # Use updated story packets with Cloudflare URLs
                 "metadata": digest.get("metadata", {}),
                 "api_metadata": {
                     "generated_at": datetime.now(timezone.utc).isoformat(),  # UTC timestamp
@@ -558,11 +507,23 @@ class BlogDigestBuilder:
             # Save v3 API response to file for R2 serving
             self._save_v3_api_response(target_date, final_blog_data)
             
-            # Upload API v3 to R2 for Worker consumption
-            if self.upload_api_v3_to_r2(target_date, final_blog_data):
-                logger.info(f"Successfully uploaded API v3 to R2 for {target_date}")
-            else:
-                logger.warning(f"Failed to upload API v3 to R2 for {target_date}")
+            # Upload API v3 to R2 for Worker consumption using R2Publisher for consistency
+            try:
+                r2_publisher = R2Publisher()
+                # Save to temporary file for R2Publisher to process
+                temp_api_file = self.blogs_dir / target_date / f"API-v3-{target_date}_digest.json"
+                with open(temp_api_file, 'w', encoding='utf-8') as f:
+                    json.dump(final_blog_data, f, indent=2, ensure_ascii=False)
+                
+                # Use R2Publisher's publish_blogs method for idempotent upload with proper caching
+                results = r2_publisher.publish_blogs(self.blogs_dir)
+                if str(temp_api_file.relative_to(self.blogs_dir)) in results and results[str(temp_api_file.relative_to(self.blogs_dir))]:
+                    logger.info(f"Successfully uploaded API v3 to R2 for {target_date}")
+                else:
+                    logger.warning(f"Failed to upload API v3 to R2 for {target_date}")
+            except Exception as e:
+                logger.warning(f"Failed to upload API v3 to R2 for {target_date}: {e}")
+                # Don't fail the main operation for this
             
             return final_blog_data
             

@@ -75,6 +75,9 @@ class DigestUtils:
             # Delegate to the existing helper method for consistent thumbnail URL generation
             thumbnail_url = self.get_video_thumbnail_url(video_path, best_story.id if hasattr(best_story, 'id') else '')
             return thumbnail_url if thumbnail_url else self.blog_default_image
+        
+        # Fallback: return default blog image when no suitable video thumbnail is found
+        return self.blog_default_image
     
     def get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
         """
@@ -111,7 +114,8 @@ class DigestUtils:
                         logger.warning(f"Invalid date components in stories path: {video_path}")
                         return ""
                     
-                    # Construct intro PNG filename
+                    # Strip file extension before constructing intro PNG filename
+                    filename = filename.rsplit('.', 1)[0] if '.' in filename else filename
                     intro_png = f"{filename}_01_intro.png"
                     return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
                     
@@ -131,7 +135,8 @@ class DigestUtils:
                     month = f"{date_obj.month:02d}"
                     day = f"{date_obj.day:02d}"
                     
-                    # Construct intro PNG filename
+                    # Strip file extension before constructing intro PNG filename
+                    filename = filename.rsplit('.', 1)[0] if '.' in filename else filename
                     intro_png = f"{filename}_01_intro.png"
                     return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
                     
