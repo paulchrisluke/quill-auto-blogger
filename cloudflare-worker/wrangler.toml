@@ -23,6 +23,11 @@ port = 8787
 name = "quill-blog-api-prod"
 vars = { LOCAL_API_URL = "https://your-production-api.com" }
 
+# R2 bucket binding for production
+[[env.production.r2_buckets]]
+binding = "BLOG_BUCKET"
+bucket_name = "quill-auto-blogger"
+
 # Staging environment
 [env.staging]
 name = "quill-blog-api-staging"

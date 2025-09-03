@@ -817,46 +817,34 @@ class BlogDigestBuilder:
             else:  # Dict format
                 video_path = best_story["video"]["path"]
             
-            # Convert video path to the correct public stories URL format
-            # From: out/videos/2025-08-29/story_20250829_pr42.mp4
-            # To: /stories/2025/08/29/story_20250829_pr42_01_intro.png
-            if video_path.startswith('out/videos/'):
+            # Convert video path to the correct Worker URL format
+            # From: /stories/2025/08/27/story_20250827_pr34.mp4
+            # To: https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png
+            if video_path.startswith('/stories/'):
                 # Extract date and filename
                 parts = video_path.split('/')
-                if len(parts) >= 4:
-                    date_part = parts[2]  # 2025-08-29
-                    filename = parts[3]   # story_20250829_pr42.mp4
+                if len(parts) >= 5:
+                    year = parts[2]  # 2025
+                    month = parts[3]  # 08
+                    day = parts[4]    # 27
+                    filename = parts[5]  # story_20250827_pr34.mp4
                     
-                    # Parse date and convert to YYYY/MM/DD format
-                    try:
-                        date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                        year_month_day = date_obj.strftime("%Y/%m/%d")
-                        
-                        # Convert filename to intro PNG
-                        base_name = filename.replace('.mp4', '')
-                        intro_png = f"{base_name}_01_intro.png"
-                        
-                        return f"{self.blog_base_url}/stories/{year_month_day}/{intro_png}"
-                    except ValueError:
-                        pass
+                    # Convert filename to intro PNG
+                    base_name = filename.replace('.mp4', '')
+                    intro_png = f"{base_name}_01_intro.png"
+                    
+                    # Get Worker domain from environment
+                    worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+                    
+                    # Generate Worker URL for the intro PNG
+                    return f"https://{worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
             
             # Fallback: try to convert existing path format
             intro_png_path = video_path.replace(".mp4", "_01_intro.png")
             if intro_png_path.startswith('/stories/'):
-                return f"{self.blog_base_url}{intro_png_path}"
-            elif intro_png_path.startswith('out/videos/'):
-                # Convert out/videos path to public stories path
-                parts = intro_png_path.split('/')
-                if len(parts) >= 4:
-                    date_part = parts[2]  # 2025-08-29
-                    filename = parts[3]   # story_20250829_pr42_01_intro.png
-                    
-                    try:
-                        date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                        year_month_day = date_obj.strftime("%Y/%m/%d")
-                        return f"{self.blog_base_url}/stories/{year_month_day}/{filename}"
-                    except ValueError:
-                        pass
+                # Get Worker domain from environment
+                worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+                return f"https://{worker_domain}{intro_png_path.replace('.mp4', '_01_intro.png')}"
         
         return self.blog_default_image
     
@@ -1502,26 +1490,25 @@ class BlogDigestBuilder:
     
     def _get_cloudflare_url(self, asset_path: str) -> str:
         """
-        Convert local asset path to Cloudflare R2 custom domain URL.
+        Convert local asset path to Worker API URL.
         
         Args:
             asset_path: Local asset path (e.g., "stories/2025/08/29/story_123.mp4")
             
         Returns:
-            Full Cloudflare R2 custom domain URL
+            Full Worker API URL for the asset
         """
         try:
-            # Get Cloudflare custom domain from environment
-            import os
-            custom_domain = os.getenv("CLOUDFLARE_R2_CUSTOM_DOMAIN", "media.paulchrisluke.com")
+            # Get Worker domain from environment, default to our deployed Worker
+            worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
             
-            if custom_domain:
-                # Use custom domain for clean, professional URLs
-                return f"https://{custom_domain}/{asset_path}"
-            else:
-                # Fallback to local path if no custom domain config
-                return f"/{asset_path}"
+            # Convert the asset path to the Worker's asset format
+            # Local path: stories/2025/08/29/story_123.mp4
+            # Worker path: /assets/stories/2025/08/29/story_123.mp4
+            worker_path = f"/assets/{asset_path}"
+            
+            return f"https://{worker_domain}{worker_path}"
                 
         except Exception as e:
-            logger.exception("Failed to generate Cloudflare URL for %s", asset_path)
+            logger.exception("Failed to generate Worker URL for %s", asset_path)
             return f"/{asset_path}"

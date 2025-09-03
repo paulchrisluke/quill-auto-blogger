@@ -23,10 +23,8 @@ export default {
         return await handleIndexPage(request, env);
       } else if (path.startsWith('/api/blog/')) {
         return await handleBlogAPI(request, env, requestCtx, path);
-      } else if (path.startsWith('/api/assets/')) {
-        return await handleAssetsAPI(request, env, requestCtx, path);
       } else if (path.startsWith('/assets/')) {
-        // Extract asset key from path (remove /assets/ prefix)
+        // Simple asset serving - just remove /assets/ prefix and serve from R2
         const assetKey = path.substring(8); // Remove '/assets/' prefix
         return await serveR2Asset(env, assetKey);
       } else if (path === '/health') {
@@ -115,7 +113,11 @@ async function handleBlogAPI(request, env, ctx, path) {
         blogContent = await blogObject.text();
       }
     } catch (error) {
-      console.log(`Blog not found at ${blogKey}:`, error.message);
+      console.log('Blog fetch failed', { 
+        date, 
+        blogKey, 
+        error: error.message 
+      });
     }
     
     // If we have blog content, return it
@@ -135,15 +137,17 @@ async function handleBlogAPI(request, env, ctx, path) {
     }
     
     // If no blog, try to get digest data
-    if (!blogContent) {
-      try {
-        const digestObject = await env.BLOG_BUCKET.get(digestKey);
-        if (digestObject) {
-          digestData = await digestObject.json();
-        }
-      } catch (error) {
-        console.log(`Digest not found at ${digestKey}:`, error.message);
+    try {
+      const digestObject = await env.BLOG_BUCKET.get(digestKey);
+      if (digestObject) {
+        digestData = await digestObject.json();
       }
+    } catch (error) {
+      console.log('Digest fetch failed', { 
+        date, 
+        digestKey, 
+        error: error.message 
+      });
     }
     
     // If we have digest data, return it
@@ -280,6 +284,8 @@ async function serveR2Asset(env, key) {
     return createErrorResponse('Failed to serve asset', 500);
   }
 }
+
+
 
 /**
  * Handle index page requests
