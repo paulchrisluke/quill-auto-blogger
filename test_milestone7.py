@@ -53,8 +53,8 @@ def test_feed_generation():
     
     try:
         feed_gen = FeedGenerator(
-            frontend_domain="https://paulchrisluke.com",
-            api_domain="https://api.paulchrisluke.com"
+            frontend_domain="https://yourblog.com",
+            api_domain="https://api.yourblog.com"
         )
         
         # Generate RSS feed

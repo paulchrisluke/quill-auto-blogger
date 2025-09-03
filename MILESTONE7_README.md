@@ -7,8 +7,8 @@ Milestone 7 implements comprehensive feed generation, SEO optimization, content 
 ## 🎯 Goals Achieved
 
 ### ✅ Canonical & Domain Config
-- **Domain Separation**: Clear separation between API (`api.paulchrisluke.com`), media (`media.paulchrisluke.com`), and frontend (`paulchrisluke.com`) domains
-- **Canonical URLs**: All content now points to canonical Nuxt frontend URLs (`https://paulchrisluke.com/blog/{yyyy}/{mm}/{slug}`)
+- **Domain Separation**: Clear separation between API (`api.yourblog.com`), media (`media.yourblog.com`), and frontend (`yourblog.com`) domains
+- **Canonical URLs**: All content now points to canonical Nuxt frontend URLs (`https://yourblog.com/blog/{yyyy}/{mm}/{slug}`)
 - **Schema.org Integration**: JSON-LD structured data properly references canonical URLs
 
 ### ✅ Feeds & Discovery
@@ -77,9 +77,9 @@ Milestone 7 implements comprehensive feed generation, SEO optimization, content 
 
 ```bash
 # Domain Configuration (Milestone 7)
-API_DOMAIN=https://api.paulchrisluke.com
-MEDIA_DOMAIN=https://media.paulchrisluke.com
-FRONTEND_DOMAIN=https://paulchrisluke.com
+API_DOMAIN=https://api.yourblog.com
+MEDIA_DOMAIN=https://media.yourblog.com
+FRONTEND_DOMAIN=https://yourblog.com
 
 # Cloudflare Configuration
 CLOUDFLARE_ACCOUNT_ID=your_account_id
@@ -116,8 +116,8 @@ site_results = publisher.publish_site(Path("out/site"))
 from services.feeds import FeedGenerator
 
 feed_gen = FeedGenerator(
-    frontend_domain="https://paulchrisluke.com",
-    api_domain="https://api.paulchrisluke.com"
+    frontend_domain="https://yourblog.com",
+    api_domain="https://api.yourblog.com"
 )
 
 # Generate RSS feed
@@ -139,7 +139,7 @@ cache_manager = CacheManager()
 
 # Purge specific URLs
 cache_manager.purge_cache_by_urls([
-    "https://api.paulchrislube.com/blogs/2025-08-27/API-v3-2025-08-27_digest.json"
+    "https://api.yourblog.com/blogs/2025-08-27/API-v3-2025-08-27_digest.json"
 ])
 
 # Purge by tags
@@ -226,24 +226,24 @@ This tests:
 ```javascript
 // Fetch blogs index
 const { data: blogsIndex } = await $fetch('/blogs', {
-  baseURL: 'https://api.paulchrisluke.com'
+  baseURL: 'https://api.yourblog.com'
 })
 
 // Fetch RSS feed
 const rssFeed = await $fetch('/rss.xml', {
-  baseURL: 'https://api.paulchrisluke.com'
+  baseURL: 'https://api.yourblog.com'
 })
 
 // Fetch specific blog with related posts
 const blog = await $fetch(`/blogs/${date}/API-v3-${date}_digest.json`, {
-  baseURL: 'https://api.paulchrisluke.com'
+  baseURL: 'https://api.yourblog.com'
 })
 ```
 
 ### Canonical URLs
 
 All content now properly references canonical Nuxt URLs:
-- **Blog Posts**: `https://paulchrisluke.com/blog/2025-08-27`
+- **Blog Posts**: `https://yourblog.com/blog/2025-08-27`
 - **Schema.org**: All structured data points to canonical URLs
 - **Open Graph**: Social media sharing uses canonical URLs
 - **RSS/Sitemap**: All feed entries link to canonical URLs
