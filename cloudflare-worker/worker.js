@@ -30,13 +30,16 @@ export default {
       } else if (path === '/sitemap.xml') {
         // Serve sitemap
         return await handleSitemap(request, env);
+      } else if (path === '/blogs/index.json') {
+        // Serve blogs index JSON
+        return await handleBlogsIndex(request, env);
       } else if (path.startsWith('/blogs/')) {
         // Serve raw JSON files directly from R2
-        return await serveR2Asset(env, path.substring(1)); // Remove leading slash
+        return await serveR2Asset(env, path.substring(1), request); // Remove leading slash
       } else if (path.startsWith('/assets/')) {
         // Simple asset serving - just remove /assets/ prefix and serve from R2
         const assetKey = path.substring(8); // Remove '/assets/' prefix
-        return await serveR2Asset(env, assetKey);
+        return await serveR2Asset(env, assetKey, request);
       } else if (path === '/health') {
         return new Response('OK', { 
           status: 200,
@@ -91,7 +94,7 @@ function createErrorResponse(message, status, cacheTag = null) {
 /**
  * Serve static assets directly from R2 (for future use)
  */
-async function serveR2Asset(env, key) {
+async function serveR2Asset(env, key, request) {
   try {
     const object = await env.BLOG_BUCKET.get(key);
     
@@ -130,12 +133,36 @@ async function serveR2Asset(env, key) {
       headers.set('Cache-Tag', 'assets');
     }
     
-    // Add basic validators for better caching
-    if (object.etag) {
-      headers.set('ETag', object.etag);
+    // Set standard validator headers using R2's metadata
+    if (object.httpEtag) {
+      headers.set('ETag', object.httpEtag);
     }
-    if (object.httpMetadata && object.httpMetadata.lastModified) {
-      headers.set('Last-Modified', object.httpMetadata.lastModified.toUTCString());
+    if (object.uploaded) {
+      headers.set('Last-Modified', new Date(object.uploaded).toUTCString());
+    }
+    
+    // Check conditional requests to avoid egress
+    const ifNoneMatch = request.headers.get('If-None-Match');
+    const ifModifiedSince = request.headers.get('If-Modified-Since');
+    
+    if (ifNoneMatch && object.httpEtag && ifNoneMatch === object.httpEtag) {
+      // ETag matches, return 304 Not Modified
+      return new Response(null, {
+        status: 304,
+        headers: headers
+      });
+    }
+    
+    if (ifModifiedSince && object.uploaded) {
+      const ifModifiedDate = new Date(ifModifiedSince);
+      const uploadedDate = new Date(object.uploaded);
+      if (uploadedDate <= ifModifiedDate) {
+        // Object hasn't been modified, return 304 Not Modified
+        return new Response(null, {
+          status: 304,
+          headers: headers
+        });
+      }
     }
     
     // Add CORS headers
@@ -166,18 +193,56 @@ async function handleBlogsIndex(request, env) {
       return createErrorResponse('Blogs index not found', 404, 'blogs-index');
     }
     
+    const headers = new Headers({
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'public, max-age=300, s-maxage=1800', // 5 min browser, 30 min edge
+      'CDN-Cache-Control': 'public, max-age=1800', // 30 min edge
+      'Cache-Tag': 'blogs-index',
+      'Vary': 'Accept-Encoding'
+    });
+    
+    // Set standard validator headers using R2's metadata
+    if (indexObject.httpEtag) {
+      headers.set('ETag', indexObject.httpEtag);
+    }
+    if (indexObject.uploaded) {
+      headers.set('Last-Modified', new Date(indexObject.uploaded).toUTCString());
+    }
+    
+    // Check conditional requests to avoid egress
+    const ifNoneMatch = request.headers.get('If-None-Match');
+    const ifModifiedSince = request.headers.get('If-Modified-Since');
+    
+    if (ifNoneMatch && indexObject.httpEtag && ifNoneMatch === indexObject.httpEtag) {
+      // ETag matches, return 304 Not Modified
+      return new Response(null, {
+        status: 304,
+        headers: headers
+      });
+    }
+    
+    if (ifModifiedSince && indexObject.uploaded) {
+      const ifModifiedDate = new Date(ifModifiedSince);
+      const uploadedDate = new Date(indexObject.uploaded);
+      if (uploadedDate <= ifModifiedDate) {
+        // Object hasn't been modified, return 304 Not Modified
+        return new Response(null, {
+          status: 304,
+          headers: headers
+        });
+      }
+    }
+    
+    // Add CORS headers
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     const jsonContent = await indexObject.text();
     
     return new Response(jsonContent, {
       status: 200,
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'public, max-age=300, s-maxage=1800', // 5 min browser, 30 min edge
-        'CDN-Cache-Control': 'public, max-age=1800', // 30 min edge
-        'Cache-Tag': 'blogs-index',
-        'Vary': 'Accept-Encoding',
-        ...getCORSHeaders()
-      }
+      headers: headers
     });
 
   } catch (error) {
@@ -198,18 +263,56 @@ async function handleRSSFeed(request, env) {
       return createErrorResponse('RSS feed not found', 404, 'rss,feeds');
     }
     
+    const headers = new Headers({
+      'Content-Type': 'application/rss+xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
+      'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
+      'Cache-Tag': 'rss,feeds',
+      'Vary': 'Accept-Encoding'
+    });
+    
+    // Set standard validator headers using R2's metadata
+    if (rssObject.httpEtag) {
+      headers.set('ETag', rssObject.httpEtag);
+    }
+    if (rssObject.uploaded) {
+      headers.set('Last-Modified', new Date(rssObject.uploaded).toUTCString());
+    }
+    
+    // Check conditional requests to avoid egress
+    const ifNoneMatch = request.headers.get('If-None-Match');
+    const ifModifiedSince = request.headers.get('If-Modified-Since');
+    
+    if (ifNoneMatch && rssObject.httpEtag && ifNoneMatch === rssObject.httpEtag) {
+      // ETag matches, return 304 Not Modified
+      return new Response(null, {
+        status: 304,
+        headers: headers
+      });
+    }
+    
+    if (ifModifiedSince && rssObject.uploaded) {
+      const ifModifiedDate = new Date(ifModifiedSince);
+      const uploadedDate = new Date(rssObject.uploaded);
+      if (uploadedDate <= ifModifiedDate) {
+        // Object hasn't been modified, return 304 Not Modified
+        return new Response(null, {
+          status: 304,
+          headers: headers
+        });
+      }
+    }
+    
+    // Add CORS headers
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     const xmlContent = await rssObject.text();
     
     return new Response(xmlContent, {
       status: 200,
-      headers: {
-        'Content-Type': 'application/rss+xml; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
-        'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
-        'Cache-Tag': 'rss,feeds',
-        'Vary': 'Accept-Encoding',
-        ...getCORSHeaders()
-      }
+      headers: headers
     });
 
   } catch (error) {
@@ -230,18 +333,56 @@ async function handleSitemap(request, env) {
       return createErrorResponse('Sitemap not found', 404, 'sitemap,feeds');
     }
     
+    const headers = new Headers({
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
+      'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
+      'Cache-Tag': 'sitemap,feeds',
+      'Vary': 'Accept-Encoding'
+    });
+    
+    // Set standard validator headers using R2's metadata
+    if (sitemapObject.httpEtag) {
+      headers.set('ETag', sitemapObject.httpEtag);
+    }
+    if (sitemapObject.uploaded) {
+      headers.set('Last-Modified', new Date(sitemapObject.uploaded).toUTCString());
+    }
+    
+    // Check conditional requests to avoid egress
+    const ifNoneMatch = request.headers.get('If-None-Match');
+    const ifModifiedSince = request.headers.get('If-Modified-Since');
+    
+    if (ifNoneMatch && sitemapObject.httpEtag && ifNoneMatch === sitemapObject.httpEtag) {
+      // ETag matches, return 304 Not Modified
+      return new Response(null, {
+        status: 304,
+        headers: headers
+      });
+    }
+    
+    if (ifModifiedSince && sitemapObject.uploaded) {
+      const ifModifiedDate = new Date(ifModifiedSince);
+      const uploadedDate = new Date(sitemapObject.uploaded);
+      if (uploadedDate <= ifModifiedDate) {
+        // Object hasn't been modified, return 304 Not Modified
+        return new Response(null, {
+          status: 304,
+          headers: headers
+        });
+      }
+    }
+    
+    // Add CORS headers
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     const xmlContent = await sitemapObject.text();
     
     return new Response(xmlContent, {
       status: 200,
-      headers: {
-        'Content-Type': 'application/xml; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
-        'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
-        'Cache-Tag': 'sitemap,feeds',
-        'Vary': 'Accept-Encoding',
-        ...getCORSHeaders()
-      }
+      headers: headers
     });
 
   } catch (error) {
@@ -262,18 +403,56 @@ async function handleIndexPage(request, env) {
       return createErrorResponse('Index page not found', 404, 'index,html');
     }
     
+    const headers = new Headers({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
+      'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
+      'Cache-Tag': 'index,html',
+      'Vary': 'Accept-Encoding'
+    });
+    
+    // Set standard validator headers using R2's metadata
+    if (indexObject.httpEtag) {
+      headers.set('ETag', indexObject.httpEtag);
+    }
+    if (indexObject.uploaded) {
+      headers.set('Last-Modified', new Date(indexObject.uploaded).toUTCString());
+    }
+    
+    // Check conditional requests to avoid egress
+    const ifNoneMatch = request.headers.get('If-None-Match');
+    const ifModifiedSince = request.headers.get('If-Modified-Since');
+    
+    if (ifNoneMatch && indexObject.httpEtag && ifNoneMatch === indexObject.httpEtag) {
+      // ETag matches, return 304 Not Modified
+      return new Response(null, {
+        status: 304,
+        headers: headers
+      });
+    }
+    
+    if (ifModifiedSince && indexObject.uploaded) {
+      const ifModifiedDate = new Date(ifModifiedSince);
+      const uploadedDate = new Date(indexObject.uploaded);
+      if (uploadedDate <= ifModifiedDate) {
+        // Object hasn't been modified, return 304 Not Modified
+        return new Response(null, {
+          status: 304,
+          headers: headers
+        });
+      }
+    }
+    
+    // Add CORS headers
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     const htmlContent = await indexObject.text();
     
     return new Response(htmlContent, {
       status: 200,
-      headers: {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
-        'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
-        'Cache-Tag': 'index,html',
-        'Vary': 'Accept-Encoding',
-        ...getCORSHeaders()
-      }
+      headers: headers
     });
 
   } catch (error) {

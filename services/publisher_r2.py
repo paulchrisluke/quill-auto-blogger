@@ -189,7 +189,9 @@ class R2Publisher:
             try:
                 # Calculate R2 key: blogs/YYYY-MM-DD/API-v3-YYYY-MM-DD_digest.json
                 relative_path = file_path.relative_to(blogs_dir)
-                r2_key = f"blogs/{relative_path}"
+                # Convert to POSIX style to ensure forward slashes on all platforms
+                relative_path_posix = relative_path.as_posix()
+                r2_key = f"blogs/{relative_path_posix}"
                 
                 # Load blog data for enhancement
                 with open(file_path, 'r', encoding='utf-8') as f:
@@ -209,7 +211,7 @@ class R2Publisher:
                 
                 if self._should_skip(r2_key, local_md5):
                     logger.info(f"↻ Skipped {r2_key} (identical content)")
-                    results[str(relative_path)] = True
+                    results[str(relative_path_posix)] = True
                     continue
                 
                 # Upload enhanced file
@@ -222,7 +224,7 @@ class R2Publisher:
                     )
                 
                 logger.info(f"✓ Uploaded {r2_key}")
-                results[str(relative_path)] = True
+                results[str(relative_path_posix)] = True
                 
                 # Purge cache for this blog post
                 blog_date = blog_data.get('date')
@@ -231,7 +233,7 @@ class R2Publisher:
                 
             except Exception as e:
                 logger.error(f"✗ Failed to upload {file_path}: {e}")
-                results[str(relative_path)] = False
+                results[str(relative_path_posix)] = False
         
         return results
     
