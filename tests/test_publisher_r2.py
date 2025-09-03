@@ -185,3 +185,38 @@ class TestR2Publisher:
         with patch('pathlib.Path.exists', return_value=False):
             results = publisher.publish_blogs(Path('nonexistent'))
             assert results == {}
+    
+    def test_enhance_with_related_posts(self, publisher):
+        """Test related posts enhancement."""
+        blog_data = {
+            'frontmatter': {'tags': ['feat'], 'title': 'Test'},
+            'date': '2025-08-27'
+        }
+        
+        all_blogs = [blog_data]
+        
+        with patch.object(publisher.related_service, 'find_related_posts') as mock_find:
+            mock_find.return_value = [('Related Post', '/blog/2025-08-26', 0.8)]
+            
+            enhanced = publisher._enhance_with_related_posts(blog_data, all_blogs)
+            
+            assert 'related_posts' in enhanced
+            assert len(enhanced['related_posts']) == 1
+            assert enhanced['related_posts'][0]['title'] == 'Related Post'
+    
+    def test_enhance_with_thumbnails(self, publisher):
+        """Test thumbnail enhancement."""
+        blog_data = {
+            'story_packets': [{
+                'id': 'test_1',
+                'video': {'status': 'rendered', 'path': 'test.mp4'}
+            }]
+        }
+        
+        with patch.object(publisher.video_processor, 'generate_story_thumbnails') as mock_gen:
+            mock_gen.return_value = {'intro': 'thumb1.jpg', 'why': 'thumb2.jpg'}
+            
+            enhanced = publisher._enhance_with_thumbnails(blog_data, Path('blogs/2025-08-27'))
+            
+            assert 'thumbnails' in enhanced['story_packets'][0]['video']
+            assert enhanced['story_packets'][0]['video']['thumbnails']['intro'] == 'thumb1.jpg'
