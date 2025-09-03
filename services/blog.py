@@ -11,7 +11,7 @@ import os
 import sys
 from datetime import datetime, date, timezone
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING, TypedDict
 import yaml
 from dotenv import load_dotenv
 from pydantic import ValidationError
@@ -22,6 +22,7 @@ from story_schema import (
     make_story_packet, pair_with_clip, StoryType,
     _extract_why_and_highlights, VideoStatus
 )
+from services.publisher import StoryAssets
 
 # M5: JSON-LD is handled in frontmatter via schema_data.article
 import re
@@ -37,6 +38,13 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+
+class BlogAssets(TypedDict):
+    """Type definition for blog assets structure."""
+    stories: List[str]
+    images: List[str]
+    videos: List[str]
 
 
 class BlogDigestBuilder:
@@ -1409,7 +1417,7 @@ class BlogDigestBuilder:
             logger.error(f"Failed to generate markdown for {target_date}: {e}")
             raise
     
-    def get_blog_assets(self, target_date: str) -> Dict[str, List[str]]:
+    def get_blog_assets(self, target_date: str) -> BlogAssets:
         """
         Get all assets for a blog post with Cloudflare R2 URLs.
         
@@ -1417,7 +1425,7 @@ class BlogDigestBuilder:
             target_date: Date in YYYY-MM-DD format
             
         Returns:
-            Dictionary mapping asset types to lists of asset URLs
+            BlogAssets object with stories, images, and videos
         """
         assets = {
             "stories": [],
@@ -1447,13 +1455,13 @@ class BlogDigestBuilder:
                 "videos": [self._get_cloudflare_url(path) for path in assets["videos"]]
             }
             
-            return cloudflare_assets
+            return BlogAssets(**cloudflare_assets)
             
         except Exception as e:
             logger.error(f"Failed to get blog assets for {target_date}: {e}")
-            return assets
+            return BlogAssets(stories=[], images=[], videos=[])
     
-    def _get_story_assets(self, target_date: str, story_id: str) -> Dict[str, List[str]]:
+    def _get_story_assets(self, target_date: str, story_id: str) -> StoryAssets:
         """
         Get assets for a specific story.
         
@@ -1462,7 +1470,7 @@ class BlogDigestBuilder:
             story_id: Story identifier
             
         Returns:
-            Dictionary mapping asset types to lists of asset paths
+            StoryAssets object with video, images, and highlights
         """
         story_assets = {
             "images": [],
@@ -1486,11 +1494,11 @@ class BlogDigestBuilder:
                             else:
                                 story_assets["images"].append(rel_path)
             
-            return story_assets
+            return StoryAssets(**story_assets)
             
         except Exception as e:
             logger.error(f"Failed to get story assets for {story_id}: {e}")
-            return story_assets
+            return StoryAssets(video=None, images=[], highlights=[])
     
     def _get_cloudflare_url(self, asset_path: str) -> str:
         """
