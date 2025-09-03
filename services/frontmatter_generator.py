@@ -13,10 +13,12 @@ from story_schema import FrontmatterInfo
 class FrontmatterGenerator:
     """Generate frontmatter for blog posts."""
     
-    def __init__(self, blog_author: str, blog_base_url: str, worker_domain: str):
+    def __init__(self, blog_author: str, blog_base_url: str, worker_domain: str, frontend_domain: str = None):
         self.blog_author = blog_author
         self.blog_base_url = blog_base_url.rstrip("/")
         self.worker_domain = worker_domain
+        # Use frontend_domain if provided, otherwise fall back to blog_base_url
+        self.frontend_domain = frontend_domain.rstrip("/") if frontend_domain else self.blog_base_url
     
     def generate_frontmatter(
         self, 
@@ -61,7 +63,7 @@ class FrontmatterGenerator:
         utils = DigestUtils(self.worker_domain, "https://example.com/default.jpg")
         best_image = utils.select_best_image(story_packets)
         
-        # Build schema.org Article
+        # Build schema.org Article with canonical URL
         article_schema = {
             "@context": "https://schema.org",
             "@type": "Article",
@@ -72,7 +74,7 @@ class FrontmatterGenerator:
                 "name": self.blog_author
             },
             "keywords": [],  # Will be populated from metadata
-            "url": f"{self.blog_base_url}/blog/{target_date}",
+            "url": f"{self.frontend_domain}/blog/{target_date}",
             "image": best_image
         }
         
@@ -90,7 +92,7 @@ class FrontmatterGenerator:
                 "uploadDate": upload_date,
                 "duration": (
                     f"PT{int(round(float(clip.get('duration', 0.0))))}S"
-                    if clip.get("duration") is not None else None
+                    if clip.get('duration') is not None else None
                 ),
                 "thumbnailUrl": f"https://clips-media-assets2.twitch.tv/{clip['id']}/preview-480x272.jpg"
             }
@@ -126,7 +128,7 @@ class FrontmatterGenerator:
                     "mainEntity": faq_entries
                 }
         
-        # Build Open Graph metadata
+        # Build Open Graph metadata with canonical URL
         og_metadata = {
             "og:title": headline,
             "og:description": (
@@ -135,7 +137,7 @@ class FrontmatterGenerator:
                 f"{len(events_data)} GitHub {'event' if len(events_data)==1 else 'events'}"
             ),
             "og:type": "article",
-            "og:url": f"{self.blog_base_url}/blog/{target_date}",
+            "og:url": f"{self.frontend_domain}/blog/{target_date}",
             "og:image": best_image,
             "og:site_name": "Daily Devlog"
         }
@@ -145,6 +147,7 @@ class FrontmatterGenerator:
             "title": headline,
             "date": target_date,
             "author": self.blog_author,
+            "canonical": f"{self.frontend_domain}/blog/{target_date}",
             "schema": {
                 "article": article_schema,
                 "videos": video_objects
@@ -188,7 +191,7 @@ class FrontmatterGenerator:
         utils = DigestUtils(self.worker_domain, "https://example.com/default.jpg")
         best_image = utils.select_best_image(story_packets)
         
-        # Build Open Graph metadata
+        # Build Open Graph metadata with canonical URL
         og_metadata = {
             "og:title": title,
             "og:description": (
@@ -198,12 +201,12 @@ class FrontmatterGenerator:
                 f"{len(events_data)} GitHub {'event' if len(events_data)==1 else 'events'}"
             ),
             "og:type": "article",
-            "og:url": f"{self.blog_base_url}/blog/{target_date}",
+            "og:url": f"{self.frontend_domain}/blog/{target_date}",
             "og:image": best_image,
             "og:site_name": "Daily Devlog"
         }
         
-        # Build schema.org metadata
+        # Build schema.org metadata with canonical URL
         schema_metadata = {
             "article": {
                 "@context": "https://schema.org",
@@ -215,7 +218,7 @@ class FrontmatterGenerator:
                     "name": self.blog_author
                 },
                 "keywords": unique_types,
-                "url": f"{self.blog_base_url}/blog/{target_date}",
+                "url": f"{self.frontend_domain}/blog/{target_date}",
                 "image": best_image
             }
         }
@@ -224,6 +227,7 @@ class FrontmatterGenerator:
             title=title,
             date=target_date,
             author=self.blog_author,
+            canonical=f"{self.frontend_domain}/blog/{target_date}",
             og=og_metadata,
             schema=schema_metadata,
             tags=unique_types,
@@ -250,7 +254,7 @@ class FrontmatterGenerator:
         utils = DigestUtils(self.worker_domain, "https://example.com/default.jpg")
         best_image = utils.select_best_image(story_packets)
         
-        # Build Open Graph metadata with correct asset paths
+        # Build Open Graph metadata with canonical URL
         og_metadata = {
             "og:title": title,
             "og:description": (
@@ -260,12 +264,12 @@ class FrontmatterGenerator:
                 f"{len(events_data)} GitHub {'event' if len(events_data)==1 else 'events'}"
             ),
             "og:type": "article",
-            "og:url": f"{self.blog_base_url}/blog/{target_date}",
+            "og:url": f"{self.frontend_domain}/blog/{target_date}",
             "og:image": best_image,
             "og:site_name": "Daily Devlog"
         }
         
-        # Build schema.org metadata with correct asset paths
+        # Build schema.org metadata with canonical URL
         schema_metadata = {
             "article": {
                 "@context": "https://schema.org",
@@ -277,7 +281,7 @@ class FrontmatterGenerator:
                     "name": self.blog_author
                 },
                 "keywords": unique_types,
-                "url": f"{self.blog_base_url}/blog/{target_date}",
+                "url": f"{self.frontend_domain}/blog/{target_date}",
                 "image": best_image
             }
         }
@@ -286,6 +290,7 @@ class FrontmatterGenerator:
             title=title,
             date=target_date,
             author=self.blog_author,
+            canonical=f"{self.frontend_domain}/blog/{target_date}",
             og=og_metadata,
             schema=schema_metadata,
             tags=unique_types,

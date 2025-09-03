@@ -23,6 +23,15 @@ export default {
         return await handleIndexPage(request, env);
       } else if (path === '/docs') {
         return await handleDocsPage(request, env);
+      } else if (path === '/blogs') {
+        // Serve blogs index
+        return await handleBlogsIndex(request, env);
+      } else if (path === '/rss.xml') {
+        // Serve RSS feed
+        return await handleRSSFeed(request, env);
+      } else if (path === '/sitemap.xml') {
+        // Serve sitemap
+        return await handleSitemap(request, env);
       } else if (path.startsWith('/blogs/')) {
         // Serve raw JSON files directly from R2
         return await serveR2Asset(env, path.substring(1)); // Remove leading slash
@@ -89,17 +98,27 @@ async function serveR2Asset(env, key) {
     }
     
     const headers = new Headers();
-    headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400'); // 24 hours
-    headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
     
-    // Set content type based on file extension
+    // Enhanced cache headers for Milestone 7
     const ext = key.split('.').pop().toLowerCase();
     if (ext === 'mp4') {
       headers.set('Content-Type', 'video/mp4');
+      headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400'); // 24 hours
+      headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
     } else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
       headers.set('Content-Type', `image/${ext === 'jpg' ? 'jpeg' : ext}`);
+      headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400'); // 24 hours
+      headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
     } else if (ext === 'json') {
       headers.set('Content-Type', 'application/json');
+      headers.set('Cache-Control', 'public, max-age=300, s-maxage=1800'); // 5 min browser, 30 min edge
+      headers.set('CDN-Cache-Control', 'public, max-age=1800'); // 30 min edge
+    } else if (ext === 'xml') {
+      headers.set('Content-Type', 'application/xml');
+      headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400'); // 1 hour browser, 24 hours edge
+      headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
+    } else {
+      headers.set('Content-Type', 'application/octet-stream');
       headers.set('Cache-Control', 'public, max-age=300, s-maxage=1800'); // 5 min browser, 30 min edge
       headers.set('CDN-Cache-Control', 'public, max-age=1800'); // 30 min edge
     }
@@ -117,6 +136,99 @@ async function serveR2Asset(env, key) {
   } catch (error) {
     console.error('R2 asset error:', error);
     return createErrorResponse('Failed to serve asset', 500);
+  }
+}
+
+/**
+ * Handle blogs index requests
+ */
+async function handleBlogsIndex(request, env) {
+  try {
+    // Serve the blogs index JSON file
+    const indexObject = await env.BLOG_BUCKET.get('blogs/index.json');
+    
+    if (!indexObject) {
+      return createErrorResponse('Blogs index not found', 404);
+    }
+    
+    const jsonContent = await indexObject.text();
+    
+    return new Response(jsonContent, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'public, max-age=300, s-maxage=1800', // 5 min browser, 30 min edge
+        'CDN-Cache-Control': 'public, max-age=1800', // 30 min edge
+        'Vary': 'Accept-Encoding',
+        ...getCORSHeaders()
+      }
+    });
+
+  } catch (error) {
+    console.error('Blogs index error:', error);
+    return createErrorResponse('Failed to serve blogs index', 500);
+  }
+}
+
+/**
+ * Handle RSS feed requests
+ */
+async function handleRSSFeed(request, env) {
+  try {
+    // Serve the RSS feed XML file
+    const rssObject = await env.BLOG_BUCKET.get('rss.xml');
+    
+    if (!rssObject) {
+      return createErrorResponse('RSS feed not found', 404);
+    }
+    
+    const xmlContent = await rssObject.text();
+    
+    return new Response(xmlContent, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/rss+xml; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
+        'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
+        'Vary': 'Accept-Encoding',
+        ...getCORSHeaders()
+      }
+    });
+
+  } catch (error) {
+    console.error('RSS feed error:', error);
+    return createErrorResponse('Failed to serve RSS feed', 500);
+  }
+}
+
+/**
+ * Handle sitemap requests
+ */
+async function handleSitemap(request, env) {
+  try {
+    // Serve the sitemap XML file
+    const sitemapObject = await env.BLOG_BUCKET.get('sitemap.xml');
+    
+    if (!sitemapObject) {
+      return createErrorResponse('Sitemap not found', 404);
+    }
+    
+    const xmlContent = await sitemapObject.text();
+    
+    return new Response(xmlContent, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
+        'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
+        'Vary': 'Accept-Encoding',
+        ...getCORSHeaders()
+      }
+    });
+
+  } catch (error) {
+    console.error('Sitemap error:', error);
+    return createErrorResponse('Failed to serve sitemap', 500);
   }
 }
 
