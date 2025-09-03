@@ -124,7 +124,7 @@ class DigestUtils:
                     return ""
             
             # Handle out/videos paths: out/videos/YYYY-MM-DD/filename
-            elif parts[0] == 'out' and parts[1] == 'videos' and len(parts) >= 4:
+            elif len(parts) >= 4 and parts[0] == 'out' and parts[1] == 'videos':
                 try:
                     date_part = parts[2]  # YYYY-MM-DD
                     filename = parts[3]

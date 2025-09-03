@@ -21,7 +21,6 @@ from story_schema import (
     _extract_why_and_highlights, VideoStatus
 )
 from services.publisher import StoryAssets
-from services.publisher_r2 import R2Publisher
 from .content_generator import ContentGenerator
 
 if TYPE_CHECKING:
@@ -249,8 +248,6 @@ class BlogDigestBuilder:
         
         # Post-process markdown if AI is enabled
         if ai_enabled and digest.get("version") == "2":
-            content = content_gen.post_process_markdown(content, ai_enabled, force_ai)
-            
             # Regenerate frontmatter after AI modifications using updated frontmatter
             frontmatter_data = content_gen.frontmatter.copy()
             if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
@@ -479,8 +476,6 @@ class BlogDigestBuilder:
             content_gen = ContentGenerator(updated_digest, self.utils)
             # Generate full content with story packets and video assets
             consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=False)
-            # Apply full AI post-processing for enhanced titles, descriptions, and story intros
-            consolidated_content = content_gen.post_process_markdown(consolidated_content, ai_enabled=True, force_ai=False)
             # Add the blog signature
             consolidated_content += "\n\n---\n\n[https://upwork.com/freelancers/paulchrisluke](https://upwork.com/freelancers/paulchrisluke)\n\n_Hi. I'm Chris. I am a morally ambiguous technology marketer. Ridiculously rich people ask me to solve problems they didn't know they have. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _like a high-class hooker or find someone who knows how to get ahold of me._"
             
@@ -509,6 +504,7 @@ class BlogDigestBuilder:
             
             # Upload API v3 to R2 for Worker consumption using R2Publisher for consistency
             try:
+                from services.publisher_r2 import R2Publisher
                 r2_publisher = R2Publisher()
                 # Save to temporary file for R2Publisher to process
                 temp_api_file = self.blogs_dir / target_date / f"API-v3-{target_date}_digest.json"

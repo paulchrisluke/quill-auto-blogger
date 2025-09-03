@@ -8,7 +8,7 @@ import shutil
 import pathlib
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 import yaml
@@ -97,37 +97,131 @@ class TestBlogDigestBuilder:
             BlogDigestBuilder()
             assert temp_blogs_dir.exists()
     
-    def test_r2publisher_integration(self):
+    def test_r2publisher_integration(self, monkeypatch):
         """Test that R2Publisher is properly imported and can be instantiated."""
         builder = BlogDigestBuilder()
         
-        # Verify that R2Publisher can be imported and instantiated
-        try:
+        # Mock the AuthService to avoid credential issues
+        mock_auth_service = MagicMock()
+        mock_auth_service.get_credentials.return_value = {
+            'access_key_id': 'test_key',
+            'secret_access_key': 'test_secret',
+            'region': 'auto'
+        }
+        
+        # Mock boto3 client creation
+        mock_client = MagicMock()
+        mock_client.put_object.return_value = {'ETag': 'test_etag'}
+        
+        with patch('services.publisher_r2.boto3.client', return_value=mock_client), \
+             patch('services.publisher_r2.AuthService', return_value=mock_auth_service):
+            
             from services.publisher_r2 import R2Publisher
             r2_publisher = R2Publisher()
             assert r2_publisher is not None
-        except Exception as e:
-            # If R2Publisher fails to initialize (e.g., missing credentials), that's okay
-            # The main functionality should still work
-            pass
+            
+            # Test that the underlying client methods can be called
+            assert hasattr(r2_publisher, 'publish_blogs')
     
-    def test_blog_api_data_includes_updated_story_packets(self):
+    def test_blog_api_data_includes_updated_story_packets(self, monkeypatch):
         """Test that blog API data includes updated story packets with Cloudflare URLs."""
         builder = BlogDigestBuilder()
         
-        # This test verifies that the updated_story_packets variable is properly used
-        # in the final_blog_data construction
-        # The actual implementation is tested in integration tests
-        pass
+        # Create a stub digest with story packets
+        stub_digest = {
+            "date": "2025-01-15",
+            "version": "2",
+            "story_packets": [
+                {
+                    "id": "story_123",
+                    "title": "Test Story",
+                    "video": {
+                        "path": "stories/2025/01/15/story_123.mp4",
+                        "status": "rendered"
+                    }
+                }
+            ]
+        }
+        
+        # Mock the URL helper to return deterministic Cloudflare URLs
+        def mock_get_cloudflare_url(asset_path):
+            return f"https://test-worker.paulchrisluke.workers.dev/assets/{asset_path}"
+        
+        # Patch the URL helper method
+        with patch.object(builder.utils, 'get_cloudflare_url', side_effect=mock_get_cloudflare_url):
+            # Mock the build_digest method to return our stub
+            with patch.object(builder, 'build_digest', return_value=stub_digest):
+                # Mock the ContentGenerator to avoid AI processing
+                mock_content_gen = MagicMock()
+                mock_content_gen.generate.return_value = "Test content"
+                mock_content_gen.frontmatter = {"title": "Test Blog"}
+                
+                with patch('services.blog.ContentGenerator', return_value=mock_content_gen):
+                    # Mock the _save_v3_api_response method
+                    with patch.object(builder, '_save_v3_api_response'):
+                        # Mock R2Publisher to avoid upload issues
+                        with patch('services.publisher_r2.R2Publisher'):
+                            # Call the method that builds final_blog_data
+                            final_blog_data = builder.get_blog_api_data("2025-01-15")
+                            
+                            # Assert that story packets are present and have Cloudflare URLs
+                            assert "story_packets" in final_blog_data
+                            assert len(final_blog_data["story_packets"]) == 1
+                            
+                            story_packet = final_blog_data["story_packets"][0]
+                            assert story_packet["id"] == "story_123"
+                            assert "video" in story_packet
+                            assert story_packet["video"]["path"].startswith("https://test-worker.paulchrisluke.workers.dev/assets/")
+                            assert "story_123.mp4" in story_packet["video"]["path"]
     
-    def test_blog_api_data_uses_content_gen_frontmatter(self):
+    def test_blog_api_data_uses_content_gen_frontmatter(self, monkeypatch):
         """Test that blog API data uses ContentGenerator's updated frontmatter."""
         builder = BlogDigestBuilder()
         
-        # This test verifies that content_gen.frontmatter is used instead of
-        # digest["frontmatter"].copy() in the frontmatter regeneration
-        # The actual implementation is tested in integration tests
-        pass
+        # Create a fake digest with different frontmatter
+        fake_digest = {
+            "date": "2025-01-15",
+            "version": "2",
+            "frontmatter": {
+                "title": "Original Title",
+                "description": "Original description"
+            },
+            "story_packets": []
+        }
+        
+        # Create a ContentGenerator with distinct frontmatter
+        distinct_frontmatter = {
+            "title": "AI Enhanced Title",
+            "description": "AI enhanced description",
+            "tags": ["ai", "enhanced"]
+        }
+        
+        # Mock the ContentGenerator to return our distinct frontmatter
+        mock_content_gen = MagicMock()
+        mock_content_gen.generate.return_value = "Test content"
+        mock_content_gen.frontmatter = distinct_frontmatter.copy()
+        
+        # Mock the build_digest method to return our fake digest
+        with patch.object(builder, 'build_digest', return_value=fake_digest):
+            # Mock the ContentGenerator class
+            with patch('services.blog.ContentGenerator', return_value=mock_content_gen):
+                # Mock the _save_v3_api_response method
+                with patch.object(builder, '_save_v3_api_response'):
+                    # Mock R2Publisher to avoid upload issues
+                    with patch('services.publisher_r2.R2Publisher'):
+                        # Call the method that produces the API v3 data
+                        final_blog_data = builder.get_blog_api_data("2025-01-15")
+                        
+                        # Assert that the produced frontmatter equals ContentGenerator.frontmatter
+                        assert final_blog_data["frontmatter"] == distinct_frontmatter
+                        assert final_blog_data["frontmatter"] != fake_digest["frontmatter"]
+                        
+                        # Mutate the original digest frontmatter to ensure independence
+                        fake_digest["frontmatter"]["title"] = "Mutated Title"
+                        
+                        # Verify the produced value is independent of the digest copy
+                        assert final_blog_data["frontmatter"]["title"] == "AI Enhanced Title"
+                        assert final_blog_data["frontmatter"]["title"] != fake_digest["frontmatter"]["title"]
     
     def test_load_twitch_clips(self, temp_data_dir, sample_twitch_clip):
         """Test loading Twitch clips from JSON files."""
