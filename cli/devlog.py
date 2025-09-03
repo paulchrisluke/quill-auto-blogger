@@ -207,12 +207,6 @@ def blog_generate(target_date: str, no_ai: bool, force_ai: bool, no_related: boo
         final_digest = builder.create_final_digest(target_date)
         if final_digest:
             click.echo(f"[OK] Created FINAL digest with AI enhancements")
-            
-            # Upload FINAL digest to R2 for Worker API consumption
-            if builder.upload_digest_to_r2(final_digest):
-                click.echo(f"[OK] Uploaded FINAL digest to R2 for API consumption")
-            else:
-                click.echo(f"[WARNING] Failed to upload FINAL digest to R2 - API may not work")
         else:
             click.echo(f"[ERROR] Failed to create FINAL digest")
         
@@ -312,7 +306,140 @@ def blog_preview(target_date: str):
         raise SystemExit(1)
 
 
+@blog.command("regenerate-api")
+@click.option("--date", "target_date", required=True, help="Date in YYYY-MM-DD format")
+def blog_regenerate_api(target_date: str):
+    """Regenerate API v3 content for a specific date."""
+    try:
+        from services.blog import BlogDigestBuilder
+        
+        # Initialize blog builder
+        builder = BlogDigestBuilder()
+        
+        # Regenerate API v3 content
+        api_data = builder.get_blog_api_data(target_date)
+        
+        click.echo(f"[OK] Regenerated API v3 content for {target_date}")
+        click.echo(f"[INFO] Title: {api_data['frontmatter']['title']}")
+        story_packets = api_data.get('story_packets', [])
+        click.echo(f"[INFO] Stories: {len(story_packets)}")
+        click.echo(f"[INFO] API v3 file saved to blogs/{target_date}/API-v3-{target_date}_digest.json")
+        
+    except Exception as e:
+        click.echo(f"[ERR] Failed to regenerate API v3 content: {e}")
+        raise SystemExit(1)
 
+
+@devlog.group("site")
+def site():
+    """Static site building and publishing commands."""
+    pass
+
+
+@site.command("build")
+def site_build():
+    """Build out/site/{index.html, docs.html}."""
+    try:
+        from services.site_builder import SiteBuilder
+        
+        builder = SiteBuilder()
+        results = builder.build()
+        
+        # Display results
+        click.echo("[INFO] Site build completed:")
+        for filename, success in results.items():
+            status = "✓" if success else "✗"
+            click.echo(f"  {status} {filename}")
+        
+        if all(results.values()):
+            click.echo("[OK] All site files built successfully")
+        else:
+            click.echo("[WARN] Some site files failed to build")
+            raise SystemExit(1)
+            
+    except Exception as e:
+        click.echo(f"[ERR] Site build failed: {e}")
+        raise SystemExit(1)
+
+
+@site.command("publish")
+@click.option("--dry-run", is_flag=True, help="List actions without uploading.")
+def site_publish(dry_run):
+    """Publish out/site/ files and blogs/*/API-v3-*_digest.json to R2 with idempotency."""
+    try:
+        from services.publisher_r2 import R2Publisher
+        from pathlib import Path
+        
+        # Check if out/site/ exists
+        site_dir = Path("out/site")
+        if not site_dir.exists():
+            click.echo("[ERR] Site directory not found. Run 'devlog site build' first.")
+            raise SystemExit(1)
+        
+        # Check if site files exist
+        site_files = list(site_dir.glob("*.html"))
+        if not site_files:
+            click.echo("[ERR] No HTML files found in out/site/. Run 'devlog site build' first.")
+            raise SystemExit(1)
+        
+        if dry_run:
+            click.echo("[INFO] DRY RUN - No files will be uploaded")
+            click.echo(f"[INFO] Site files to check: {[f.name for f in site_files]}")
+            
+            # Check blogs directory
+            blogs_dir = Path("blogs")
+            if blogs_dir.exists():
+                api_v3_files = list(blogs_dir.rglob("API-v3-*_digest.json"))
+                click.echo(f"[INFO] API-v3 files to check: {len(api_v3_files)}")
+                for f in api_v3_files[:5]:  # Show first 5
+                    click.echo(f"  - {f}")
+                if len(api_v3_files) > 5:
+                    click.echo(f"  ... and {len(api_v3_files) - 5} more")
+            else:
+                click.echo("[INFO] No blogs directory found")
+            
+            return
+        
+        # Initialize publisher
+        publisher = R2Publisher()
+        
+        # Publish site files
+        click.echo("[INFO] Publishing site files...")
+        site_results = publisher.publish_site(site_dir)
+        
+        # Publish blog JSON files
+        click.echo("[INFO] Publishing blog JSON files...")
+        blogs_dir = Path("blogs")
+        blog_results = publisher.publish_blogs(blogs_dir)
+        
+        # Display results
+        click.echo("\n[INFO] Site publishing results:")
+        for filename, success in site_results.items():
+            status = "✓" if success else "✗"
+            click.echo(f"  {status} {filename}")
+        
+        click.echo("\n[INFO] Blog publishing results:")
+        for filename, success in blog_results.items():
+            status = "✓" if success else "✗"
+            click.echo(f"  {status} {filename}")
+        
+        # Check overall success
+        all_site_success = all(site_results.values()) if site_results else False
+        all_blog_success = True if not blog_results else all(blog_results.values())
+        
+        if all_site_success and all_blog_success:
+            click.echo("[OK] All files published successfully")
+        else:
+            click.echo("[WARN] Some files failed to publish")
+            if not all_site_success:
+                click.echo("[ERR] Site publishing had failures")
+            if not all_blog_success:
+                click.echo("[ERR] Blog publishing had failures")
+            raise SystemExit(1)
+            
+    except Exception as e:
+        click.echo(f"[ERR] Site publishing failed: {e}")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

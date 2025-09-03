@@ -59,8 +59,6 @@
             margin: 14px 8px 8px
         }
 
-
-
         .nav-link.active {
             background: #22272e;
             /* subtle neutral highlight */
@@ -322,12 +320,26 @@
             <img class="brand-logo" src="https://www.paulchrisluke.com/pcl-labs-logo.svg" alt="PCL Labs">
         </div>
 
-        <div class="nav-title">Blog</div>
-        <a class="nav-link active" href="#ep-blog">/blog/{date}</a>
+        <div class="nav-title">Blog API</div>
+        <a class="nav-link active" href="#ep-blog">/api/blog/{date}</a>
+        <a class="nav-link" href="#ep-blog-markdown">/api/blog/{date}/markdown</a>
+        <a class="nav-link" href="#ep-blog-digest">/api/blog/{date}/digest</a>
+
+        <div class="nav-title">Stories</div>
+        <a class="nav-link" href="#ep-stories">/stories/{date}</a>
+
+        <div class="nav-title">Assets</div>
+        <a class="nav-link" href="#ep-assets-stories">/api/assets/stories/{date}</a>
+        <a class="nav-link" href="#ep-assets-story">/api/assets/stories/{date}/{story_id}</a>
+        <a class="nav-link" href="#ep-assets-blog">/api/assets/blog/{date}</a>
         <a class="nav-link" href="#ep-assets">/assets/*</a>
 
         <div class="nav-title">Control</div>
         <a class="nav-link" href="#ep-start">/control/record/start</a>
+        <a class="nav-link" href="#ep-stop">/control/record/stop</a>
+
+        <div class="nav-title">System</div>
+        <a class="nav-link" href="#ep-health">/health</a>
 
         <div class="nav-title">Links</div>
         <a class="nav-link" href="https://github.com/paulchrisluke/quill-auto-blogger" target="_blank">
@@ -342,22 +354,29 @@
     <!-- MAIN -->
     <main class="main" id="content">
         <h1>API Reference</h1>
-        <p class="lead">Pure JSON API for AI-enhanced blog content. Worker serves FINAL digest data with AI enrichments
-            and structured SEO.</p>
-        <div class="notes"><strong>Pipeline:</strong> PRE-CLEANED (raw) → FINAL (AI-enhanced). Endpoints below return
-            FINAL.</div>
+        <p class="lead">Complete API for AI-enhanced blog content, story management, and recording control. Serves FINAL
+            digest data with AI enrichments and structured SEO.</p>
+        <div class="notes"><strong>Pipeline:</strong> PRE-CLEANED (raw) → FINAL (AI-enhanced). Blog endpoints return
+            FINAL data.</div>
 
-        <!-- GET /blog/{date} -->
-        <section id="ep-blog" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-08-29"' data-json='{
-  "version": "2",
-  "date": "2025-08-29",
-  "frontmatter": { "title": "Daily Devlog — Aug 29, 2025", "description": "AI-enhanced description..." },
-  "story_packets": [ { "id": "story_20250829_pr43", "title_human": "Shipped: Feature Name" } ]
+        <!-- GET /api/blog/{date} -->
+        <section id="ep-blog" class="endpoint" data-curl='curl "http://localhost:8000/api/blog/2025-08-27"' data-json='{
+  "version": "3",
+  "date": "2025-08-27",
+  "twitch_clips": [],
+  "github_events": [...],
+  "story_packets": [
+    {
+      "id": "story_20250827_pr34",
+      "title_human": "Shipped: Feature Name",
+      "ai_micro_intro": "This change enhances...",
+      "ai_comprehensive_intro": "In this feature..."
+    }
+  ]
 }'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/blog/{date}</span></div>
-            <p class="desc">Retrieve complete AI-enhanced blog data including frontmatter, story packets, and SEO
-                metadata.</p>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/blog/{date}</span></div>
+            <p class="desc">Retrieve complete AI-enhanced blog data including story packets, GitHub events, and
+                AI-generated content.</p>
             <div class="subttl">Path Parameters</div>
             <dl class="kv">
                 <dt>date</dt>
@@ -365,27 +384,144 @@
             </dl>
             <div class="subttl">Example</div>
             <dl class="kv">
-                <dd>/blog/2025-08-29</dd>
+                <dd>/api/blog/2025-08-27</dd>
+            </dl>
+        </section>
+
+        <!-- GET /api/blog/{date}/markdown -->
+        <section id="ep-blog-markdown" class="endpoint"
+            data-curl='curl "http://localhost:8000/api/blog/2025-08-27/markdown"' data-json='{
+  "date": "2025-08-27",
+  "markdown": "# Daily Devlog — Aug 27, 2025\n\nContent here..."
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/blog/{date}/markdown</span>
+            </div>
+            <p class="desc">Get raw markdown content for a specific date's blog post.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /api/blog/{date}/digest -->
+        <section id="ep-blog-digest" class="endpoint"
+            data-curl='curl "http://localhost:8000/api/blog/2025-08-27/digest"' data-json='{
+  "date": "2025-08-27",
+  "digest": {
+    "version": "3",
+    "date": "2025-08-27",
+    "story_packets": [...]
+  }
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/blog/{date}/digest</span>
+            </div>
+            <p class="desc">Get digest data for a specific date's blog post.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /stories/{date} -->
+        <section id="ep-stories" class="endpoint" data-curl='curl "http://localhost:8000/stories/2025-08-27"' data-json='{
+  "stories": [
+    {
+      "id": "story_20250827_pr34",
+      "title_human": "Shipped: Feature Name"
+    }
+  ]
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/stories/{date}</span></div>
+            <p class="desc">List story packets for a given date.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /api/assets/stories/{date} -->
+        <section id="ep-assets-stories" class="endpoint"
+            data-curl='curl "http://localhost:8000/api/assets/stories/2025-08-27"' data-json='{
+  "date": "2025-08-27",
+  "assets": {
+    "stories": ["story_20250827_pr34.mp4"],
+    "images": ["story_20250827_pr34_01_intro.png"],
+    "videos": ["story_20250827_pr34.mp4"]
+  }
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/assets/stories/{date}</span>
+            </div>
+            <p class="desc">List all story assets for a specific date.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /api/assets/stories/{date}/{story_id} -->
+        <section id="ep-assets-story" class="endpoint"
+            data-curl='curl "http://localhost:8000/api/assets/stories/2025-08-27/story_20250827_pr34"' data-json='{
+  "date": "2025-08-27",
+  "story_id": "story_20250827_pr34",
+  "assets": {
+    "video": "story_20250827_pr34.mp4",
+    "thumbnails": ["story_20250827_pr34_01_intro.png"]
+  }
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span
+                    class="path">/api/assets/stories/{date}/{story_id}</span></div>
+            <p class="desc">Get all assets for a specific story.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
+                <dt>story_id</dt>
+                <dd>string (story identifier)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /api/assets/blog/{date} -->
+        <section id="ep-assets-blog" class="endpoint"
+            data-curl='curl "http://localhost:8000/api/assets/blog/2025-08-27"' data-json='{
+  "date": "2025-08-27",
+  "assets": {
+    "stories": ["story_20250827_pr34.mp4"],
+    "images": ["story_20250827_pr34_01_intro.png"],
+    "videos": ["story_20250827_pr34.mp4"]
+  }
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/assets/blog/{date}</span>
+            </div>
+            <p class="desc">Get all assets for a blog post.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
             </dl>
         </section>
 
         <!-- GET /assets/* -->
         <section id="ep-assets" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png"'
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png"'
             data-json='Direct asset serving from R2 bucket'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/assets/*</span></div>
-            <p class="desc">Serve static assets (images, videos, highlights) directly from R2 bucket.</p>
+            <p class="desc">Serve static assets (images, videos, highlights) directly from R2 bucket via Cloudflare
+                Worker.</p>
             <div class="subttl">Example Paths</div>
             <dl class="kv">
                 <dt>Story thumbnails</dt>
-                <dd>/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png</dd>
+                <dd>/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png</dd>
                 <dt>Video files</dt>
-                <dd>/assets/stories/2025/08/29/story_20250829_pr43.mp4</dd>
+                <dd>/assets/stories/2025/08/27/story_20250827_pr34.mp4</dd>
             </dl>
         </section>
 
         <!-- POST /control/record/start -->
-        <section id="ep-start" class="endpoint" data-curl='curl -X POST "https://quill-blog-api.paulchrisluke.workers.dev/control/record/start" \
+        <section id="ep-start" class="endpoint" data-curl='curl -X POST "http://localhost:8000/control/record/start" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d ' \''{"story_id":"test_story","bounded":false}'\'' '
@@ -409,20 +545,51 @@
                 <dd>boolean (default: false)</dd>
             </dl>
         </section>
+
+        <!-- POST /control/record/stop -->
+        <section id="ep-stop" class="endpoint" data-curl='curl -X POST "http://localhost:8000/control/record/stop" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d ' \''{"story_id":"test_story"}'\'' '
+      data-json=' {"status":"stopped","story_id":"test_story"}'>
+            <div class="ep-head"><span class="method POST">POST</span><span class="path">/control/record/stop</span>
+            </div>
+            <p class="desc">Stop recording for a story (requires token).</p>
+            <div class="subttl">Headers</div>
+            <dl class="kv">
+                <dt>Authorization</dt>
+                <dd>Bearer &lt;CONTROL_API_TOKEN&gt;</dd>
+            </dl>
+            <div class="subttl">Request Body</div>
+            <dl class="kv">
+                <dt>story_id</dt>
+                <dd>string</dd>
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD, optional)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /health -->
+        <section id="ep-health" class="endpoint" data-curl='curl "http://localhost:8000/health"' data-json='{
+  "status": "healthy",
+  "timestamp": "2025-08-27T12:00:00Z"
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/health</span></div>
+            <p class="desc">Health check endpoint for monitoring system status.</p>
+        </section>
     </main>
 
     <!-- CODE PANEL -->
     <aside class="panel">
         <div class="label">cURL</div>
         <div class="code" id="code-curl"><button class="copy">Copy</button>
-            curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-08-29"
+            curl "http://localhost:8000/api/blog/2025-08-27"
         </div>
         <div class="label">200 Example</div>
         <div class="code" id="code-json"><button class="copy">Copy</button>
             {
-            "version": "2",
-            "date": "2025-08-29",
-            "frontmatter": { "title": "Daily Devlog — Aug 29, 2025" },
+            "version": "3",
+            "date": "2025-08-27",
             "story_packets": [...]
             }
         </div>

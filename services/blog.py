@@ -4,32 +4,24 @@ Blog digest builder service for generating daily blog posts with frontmatter.
 
 from __future__ import annotations
 
-import html
 import json
 import logging
 import os
 import sys
-from datetime import datetime, date, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING, TypedDict
+from typing import List, Dict, Any, Optional, TYPE_CHECKING, TypedDict
 import yaml
 from dotenv import load_dotenv
-from pydantic import ValidationError
 
 from models import TwitchClip, GitHubEvent
 from story_schema import (
-    StoryPacket, FrontmatterInfo, DigestV2, 
-    make_story_packet, pair_with_clip, StoryType,
+    StoryPacket, FrontmatterInfo, 
+    make_story_packet, pair_with_clip,
     _extract_why_and_highlights, VideoStatus
 )
 from services.publisher import StoryAssets
-
-# M5: JSON-LD is handled in frontmatter via schema_data.article
-import re
-
-# Removed: JSON-LD serialization no longer needed
-
-# Removed: JSON-LD injection no longer needed - handled in frontmatter
+from .content_generator import ContentGenerator
 
 if TYPE_CHECKING:
     from services.utils import CacheManager
@@ -60,6 +52,25 @@ class BlogDigestBuilder:
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
         self.worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+        
+        # Initialize extracted services
+        from .digest_utils import DigestUtils
+        from .digest_io import DigestIO
+        from .frontmatter_generator import FrontmatterGenerator
+        
+        self.utils = DigestUtils(self.worker_domain, self.blog_default_image)
+        self.io = DigestIO(self.data_dir, self.blogs_dir)
+        self.frontmatter_gen = FrontmatterGenerator(self.blog_author, self.blog_base_url, self.worker_domain)
+    
+    def update_paths(self, data_dir: Path, blogs_dir: Path):
+        """Update data and blogs directories and recreate DigestIO instance."""
+        self.data_dir = data_dir
+        self.blogs_dir = blogs_dir
+        self.blogs_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Recreate DigestIO instance with new paths
+        from .digest_io import DigestIO
+        self.io = DigestIO(self.data_dir, self.blogs_dir)
     
     def build_digest(self, target_date: str) -> Dict[str, Any]:
         """
@@ -78,7 +89,30 @@ class BlogDigestBuilder:
         except ValueError as exc:
             raise ValueError(f"target_date must be YYYY-MM-DD, got: {target_date}") from exc
         
-        # First try to load existing pre-cleaned digest
+        # First try to load existing FINAL digest (has AI-enhanced content)
+        final_digest_path = self.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
+        if final_digest_path.exists():
+            try:
+                with open(final_digest_path, 'r', encoding='utf-8') as f:
+                    digest = json.load(f)
+                logger.info(f"Loaded existing FINAL digest for {target_date}")
+                
+                # Check if digest has frontmatter (v2 format)
+                if digest.get("version") == "2" and "frontmatter" in digest:
+                    logger.info(f"Loaded existing v2 FINAL digest for {target_date}")
+                    
+                    # Enhance existing digest with thumbnail URLs
+                    if digest.get("story_packets"):
+                        enhanced_packets = self.utils.enhance_existing_digest_with_thumbnails(digest, target_date)
+                        digest["story_packets"] = enhanced_packets
+                    
+                    return digest
+                else:
+                    logger.info(f"Existing FINAL digest for {target_date} missing frontmatter, rebuilding...")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to load FINAL digest for {target_date}: {e}")
+        
+        # Then try to load existing pre-cleaned digest
         pre_cleaned_path = self.blogs_dir / target_date / f"PRE-CLEANED-{target_date}_digest.json"
         if pre_cleaned_path.exists():
             try:
@@ -88,22 +122,11 @@ class BlogDigestBuilder:
                 
                 # Check if digest has frontmatter (v2 format)
                 if digest.get("version") == "2" and "frontmatter" in digest:
-                    logger.info(f"Loaded existing v2 digest for {target_date}")
-                    
-                    # Check if digest already has AI-enhanced content
-                    has_ai_content = (
-                        "holistic_intro" in digest["frontmatter"] or
-                        "wrap_up" in digest["frontmatter"] or
-                        "description" in digest["frontmatter"] or
-                        any("ai_" in str(packet) for packet in digest.get("story_packets", []))
-                    )
-                    
-                    # Don't enhance existing PRE-CLEANED digests - AI enhancement happens in separate phase
-                    logger.info(f"Found existing PRE-CLEANED digest for {target_date}")
+                    logger.info(f"Found existing v2 digest for {target_date}")
                     
                     # Enhance existing digest with thumbnail URLs
                     if digest.get("story_packets"):
-                        enhanced_packets = self._enhance_existing_digest_with_thumbnails(digest, target_date)
+                        enhanced_packets = self.utils.enhance_existing_digest_with_thumbnails(digest, target_date)
                         digest["story_packets"] = enhanced_packets
                     
                     return digest
@@ -119,8 +142,8 @@ class BlogDigestBuilder:
             raise FileNotFoundError(f"No data found for date: {target_date}")
         
         # Load all data for the date
-        twitch_clips = self._load_twitch_clips(date_path)
-        github_events = self._load_github_events(date_path)
+        twitch_clips = self.io.load_twitch_clips(date_path)
+        github_events = self.io.load_github_events(date_path)
         
         if not twitch_clips and not github_events:
             raise FileNotFoundError(f"No data files found in {date_path} for {target_date}")
@@ -133,10 +156,12 @@ class BlogDigestBuilder:
         story_packets = self._generate_story_packets(events_data, clips_data, target_date)
         
         # Generate pre-computed frontmatter
-        frontmatter = self._generate_frontmatter_v2(target_date, clips_data, events_data, story_packets)
+        frontmatter = self.frontmatter_gen.generate_frontmatter(
+            target_date, clips_data, events_data, story_packets, "v2"
+        )
         
         # Enhance story packets with thumbnail URLs before serialization
-        enhanced_story_packets = self._enhance_story_packets_with_thumbnails(story_packets, target_date)
+        enhanced_story_packets = self.utils.enhance_story_packets_with_thumbnails(story_packets, target_date)
         
         # Build v2 digest structure
         digest = {
@@ -148,129 +173,6 @@ class BlogDigestBuilder:
             "frontmatter": frontmatter.model_dump(mode="json", by_alias=True),
             "story_packets": [packet.model_dump(mode="json") for packet in enhanced_story_packets]
         }
-        
-        # M5: AI enhancement happens in separate phase - save raw digest first
-        # digest = self._enhance_digest_with_ai(digest)
-        
-        return digest
-    
-
-    
-    def _enhance_digest_with_ai(self, digest: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        M5: Enhance digest with AI-generated content during pre-cleaning phase.
-        
-        This method applies AI enhancements to the digest before it's saved,
-        ensuring the API serves the enhanced content without requiring
-        additional AI calls during serving.
-        
-        Args:
-            digest: Raw digest data dictionary
-            
-        Returns:
-            Enhanced digest with AI-generated content
-        """
-        try:
-            from .ai_inserts import AIInsertsService
-            
-            target_date = digest["date"]
-            frontmatter = digest["frontmatter"]
-            story_packets = digest.get("story_packets", [])
-            
-            # Initialize AI service
-            ai_service = AIInsertsService()
-            
-            # Prepare inputs for AI
-            story_titles = [packet.get("title_human", "") for packet in story_packets]
-            inputs = {
-                "title": frontmatter.get("title", ""),
-                "tags_csv": ",".join(frontmatter.get("tags", [])),
-                "lead": frontmatter.get("lead", ""),
-                "story_titles_csv": ",".join(story_titles)
-            }
-            
-            # 1. Generate rich SEO description for og:description
-            logger.info(f"Generating SEO description for {target_date}...")
-            seo_description = ai_service.make_seo_description(target_date, inputs, force_ai=False)
-            logger.info(f"Generated SEO description: {seo_description[:100]}...")
-            
-            # Update frontmatter og:description
-            if "og" not in frontmatter:
-                frontmatter["og"] = {}
-            frontmatter["og"]["og:description"] = seo_description
-            logger.info(f"Updated og:description in frontmatter")
-            
-            # Set frontmatter description
-            if "description" not in frontmatter:
-                frontmatter["description"] = seo_description
-            logger.info(f"Set description in frontmatter")
-            
-            # 2. Update frontmatter images with smart selection
-            best_image = self._select_best_image(story_packets)
-            if "og" in frontmatter:
-                frontmatter["og"]["og:image"] = best_image
-            if "schema" in frontmatter and "article" in frontmatter["schema"]:
-                frontmatter["schema"]["article"]["image"] = best_image
-            
-            # 3. Generate holistic intro paragraph
-            holistic_intro = ai_service.make_holistic_intro(target_date, inputs, force_ai=False)
-            if holistic_intro:
-                frontmatter["holistic_intro"] = holistic_intro
-            
-            # 4. Generate wrap-up paragraph
-            wrap_up = ai_service.make_wrap_up(target_date, inputs, force_ai=False)
-            if wrap_up:
-                frontmatter["wrap_up"] = wrap_up
-            
-            # 5. Generate AI-suggested tags
-            suggested_tags = ai_service.suggest_tags(target_date, inputs, force_ai=False)
-            if suggested_tags:
-                # Merge with existing tags, avoiding duplicates
-                existing_tags = set(frontmatter.get("tags", []))
-                existing_tags.update(suggested_tags)
-                frontmatter["tags"] = list(existing_tags)
-                
-                # Also update schema keywords
-                if "schema" in frontmatter and "article" in frontmatter["schema"]:
-                    frontmatter["schema"]["article"]["keywords"] = list(existing_tags)
-            
-            # 6. Enhance story packets with AI-generated content
-            enhanced_story_packets = []
-            for packet in story_packets:
-                enhanced_packet = packet.copy()
-                
-                # Generate story micro-intro
-                story_inputs = {
-                    "title": packet.get("title_human", ""),
-                    "why": packet.get("why", ""),
-                    "highlights_csv": ",".join(packet.get("highlights", []))
-                }
-                micro_intro = ai_service.make_story_micro_intro(target_date, story_inputs, force_ai=False)
-                if micro_intro:
-                    enhanced_packet["ai_micro_intro"] = micro_intro
-                
-                # Generate comprehensive story intro
-                comprehensive_intro = ai_service.make_story_comprehensive_intro(target_date, story_inputs, force_ai=False)
-                if comprehensive_intro:
-                    enhanced_packet["ai_comprehensive_intro"] = comprehensive_intro
-                
-                enhanced_story_packets.append(enhanced_packet)
-            
-            # Update digest with enhanced content
-            digest["frontmatter"] = frontmatter
-            digest["story_packets"] = enhanced_story_packets
-            
-            logger.info(f"Enhanced digest for {target_date} with AI-generated content")
-            logger.info(f"Added holistic_intro: {'holistic_intro' in frontmatter}")
-            logger.info(f"Added wrap_up: {'wrap_up' in frontmatter}")
-            logger.info(f"Enhanced {len(enhanced_story_packets)} story packets with AI content")
-            
-        except Exception as e:
-            logger.warning(f"Failed to enhance digest with AI content: {e}")
-            logger.warning(f"Exception details: {type(e).__name__}: {str(e)}")
-            import traceback
-            logger.warning(f"Traceback: {traceback.format_exc()}")
-            # Continue without AI enhancement - digest is still valid
         
         return digest
     
@@ -327,12 +229,10 @@ class BlogDigestBuilder:
             # Force long descriptions to be inline to prevent weird wrapping
             if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
                 desc = frontmatter_data["og"]["og:description"]
-                # Only add quotes if not already quoted
                 if not (desc.startswith('"') and desc.endswith('"')):
                     frontmatter_data["og"]["og:description"] = f'"{desc}"'
             if "description" in frontmatter_data:
                 desc = frontmatter_data["description"]
-                # Only add quotes if not already quoted
                 if not (desc.startswith('"') and desc.endswith('"')):
                     frontmatter_data["description"] = f'"{desc}"'
             
@@ -340,535 +240,45 @@ class BlogDigestBuilder:
             frontmatter = f"---\n{yaml_content}---\n"
         else:
             # Fall back to v1 frontmatter generation
-            frontmatter = self._generate_frontmatter(digest)
+            frontmatter = self._generate_frontmatter_v1(digest)
         
-        content = self._generate_content(digest)
-        markdown = f"{frontmatter}\n\n{content}"
+        # Generate content using ContentGenerator
+        content_gen = ContentGenerator(digest, self.utils)
+        content = content_gen.generate(ai_enabled, force_ai, related_enabled)
         
-        # M5: Post-processing step for AI inserts and enhancements
-        if digest.get("version") == "2":
-            markdown = self._post_process_markdown(
-                markdown, 
-                digest, 
-                ai_enabled, 
-                force_ai, 
-                related_enabled, 
-                jsonld_enabled
-            )
+        # Post-process markdown if AI is enabled
+        if ai_enabled and digest.get("version") == "2":
+            # Regenerate frontmatter after AI modifications using updated frontmatter
+            frontmatter_data = content_gen.frontmatter.copy()
+            if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
+                desc = frontmatter_data["og"]["og:description"]
+                if not (desc.startswith('"') and desc.endswith('"')):
+                    frontmatter_data["og"]["og:description"] = f'"{desc}"'
+            if "description" in frontmatter_data:
+                desc = frontmatter_data["description"]
+                if not (desc.startswith('"') and desc.endswith('"')):
+                    frontmatter_data["description"] = f'"{desc}"'
             
-            # Regenerate frontmatter after AI modifications
-            if ai_enabled:
-                # Force long descriptions to be inline to prevent weird wrapping
-                frontmatter_data = digest["frontmatter"].copy()
-                if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
-                    desc = frontmatter_data["og"]["og:description"]
-                    # Only add quotes if not already quoted
-                    if not (desc.startswith('"') and desc.endswith('"')):
-                        frontmatter_data["og"]["og:description"] = f'"{desc}"'
-                if "description" in frontmatter_data:
-                    desc = frontmatter_data["description"]
-                    # Only add quotes if not already quoted
-                    if not (desc.startswith('"') and desc.endswith('"')):
-                        frontmatter_data["description"] = f'"{desc}"'
-                
-                yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=sys.maxsize)
-                new_frontmatter = f"---\n{yaml_content}---\n"
-                # Replace the old frontmatter with the new one
-                markdown = re.sub(r'^---\n.*?\n---\n', new_frontmatter, markdown, flags=re.DOTALL)
-                
-                # Now insert the holistic intro into the markdown body
-                from .ai_inserts import AIInsertsService
-                ai_service = AIInsertsService()
-                story_titles = [packet.get("title_human", "") for packet in digest.get("story_packets", [])]
-                inputs = {
-                    "title": digest["frontmatter"].get("title", ""),
-                    "tags_csv": ",".join(digest["frontmatter"].get("tags", [])),
-                    "lead": digest["frontmatter"].get("lead", ""),
-                    "story_titles_csv": ",".join(story_titles)
-                }
-                holistic_intro = ai_service.make_holistic_intro(digest["date"], inputs, force_ai)
-                if holistic_intro:
-                    markdown = self._insert_holistic_intro(markdown, holistic_intro)
-                
-                # Now insert the wrap-up
-                wrap_up = ai_service.make_wrap_up(digest["date"], inputs, force_ai)
-                if wrap_up:
-                    markdown = self._insert_wrap_up(markdown, wrap_up)
+            yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=sys.maxsize)
+            frontmatter = f"---\n{yaml_content}---\n"
         
-        return markdown
-    
-    def _post_process_markdown(
-        self,
-        markdown: str,
-        digest: Dict[str, Any],
-        ai_enabled: bool,
-        force_ai: bool,
-        related_enabled: bool,
-        jsonld_enabled: bool
-    ) -> str:
-        """
-        M5: Post-process markdown with AI inserts and enhancements.
-        
-        Args:
-            markdown: Raw markdown content
-            digest: Digest data dictionary
-            ai_enabled: Whether AI is enabled
-            force_ai: Whether to force AI regeneration
-            related_enabled: Whether to include related posts
-            jsonld_enabled: Whether to inject JSON-LD
-            
-        Returns:
-            Enhanced markdown content
-        """
-        try:
-            from .ai_inserts import AIInsertsService
-            from .related import RelatedPostsService
-            
-            target_date = digest["date"]
-            frontmatter = digest["frontmatter"]
-            story_packets = digest.get("story_packets", [])
-            
-            # 1. SEO Description (if AI enabled)
-            if ai_enabled:
-                ai_service = AIInsertsService()
-                # Prepare inputs for AI
-                story_titles = [packet.get("title_human", "") for packet in story_packets]
-                inputs = {
-                    "title": frontmatter.get("title", ""),
-                    "tags_csv": ",".join(frontmatter.get("tags", [])),
-                    "lead": frontmatter.get("lead", ""),
-                    "story_titles_csv": ",".join(story_titles)
-                }
-                
-                # Generate rich SEO description for og:description
-                seo_description = ai_service.make_seo_description(target_date, inputs, force_ai)
-                
-                # Update frontmatter og:description
-                if "og" not in frontmatter:
-                    frontmatter["og"] = {}
-                frontmatter["og"]["og:description"] = seo_description
-                
-                # Set frontmatter description
-                if "description" not in frontmatter:
-                    frontmatter["description"] = seo_description
-                
-                # Update frontmatter images with smart selection
-                best_image = self._select_best_image(story_packets)
-                if "og" in frontmatter:
-                    frontmatter["og"]["og:image"] = best_image
-                if "schema" in frontmatter and "article" in frontmatter["schema"]:
-                    frontmatter["schema"]["article"]["image"] = best_image
-                
-                # Generate holistic intro paragraph (store for later insertion)
-                holistic_intro = ai_service.make_holistic_intro(target_date, inputs, force_ai)
-                
-                # Generate AI-suggested tags
-                suggested_tags = ai_service.suggest_tags(target_date, inputs, force_ai)
-                if suggested_tags:
-                    # Merge with existing tags, avoiding duplicates
-                    existing_tags = set(frontmatter.get("tags", []))
-                    existing_tags.update(suggested_tags)
-                    frontmatter["tags"] = list(existing_tags)
-                    
-                    # Also update schema keywords
-                    if "schema" in frontmatter and "article" in frontmatter["schema"]:
-                        frontmatter["schema"]["article"]["keywords"] = list(existing_tags)
-                
-                # 2. Title punch-up (optional)
-                current_title = frontmatter.get("title", "")
-                improved_title = ai_service.punch_up_title(target_date, current_title, force_ai)
-                
-                if improved_title:
-                    # Update frontmatter and H1
-                    frontmatter["title"] = improved_title
-                    # Also update og:title and headline in frontmatter
-                    if "og" in frontmatter:
-                        frontmatter["og"]["og:title"] = improved_title
-                    if "schema" in frontmatter and "article" in frontmatter["schema"]:
-                        frontmatter["schema"]["article"]["headline"] = improved_title
-                    markdown = self._update_title_in_markdown(markdown, improved_title)
-                
-                # 3. Story micro-intros
-                markdown = self._insert_story_micro_intros(markdown, story_packets, ai_service, target_date, force_ai)
-                
-                # 4. Insert holistic intro after all frontmatter processing
-                # Store the holistic intro to insert after the markdown is fully generated
-                if holistic_intro:
-                    # We'll insert this after the markdown is generated, not before
-                    pass
-            
-            # 4. Related posts block
-            if related_enabled:
-                related_service = RelatedPostsService()
-                
-                # Extract repo from GitHub events to check for related posts
-                repo = None
-                if digest.get("github_events"):
-                    # Get the first GitHub event's repo
-                    first_event = digest["github_events"][0]
-                    if first_event.get("repo"):
-                        repo = first_event["repo"]
-                
-                related_posts = related_service.find_related_posts(
-                    target_date,
-                    frontmatter.get("tags", []),
-                    frontmatter.get("title", ""),
-                    repo=repo
-                )
-                
-                if related_posts:
-                    markdown = self._append_related_posts(markdown, related_posts)
-                else:
-                    # Add a note when no related posts are found
-                    markdown = self._append_no_related_posts(markdown)
-            
-            # 5. JSON-LD injection (already handled in frontmatter)
-            # The schema_data.article in frontmatter provides the JSON-LD structure
-            # No need to inject additional JSON-LD into the markdown body
-            
-            return markdown
-            
-        except Exception as e:
-            logger.warning(f"M5 post-processing failed: {e}")
-            return markdown  # Return original markdown on error
-    
-    def _insert_seo_description(self, markdown: str, description: str) -> str:
-        """Insert SEO description as first paragraph under H1."""
-        # Split markdown into lines to find H1 and insert description
-        lines = markdown.splitlines()
-        
-        for i, line in enumerate(lines):
-            if line.startswith('# ') and not line.startswith('##'):
-                # Found H1, insert description after it
-                lines.insert(i + 1, '')
-                lines.insert(i + 2, description)
-                lines.insert(i + 3, '')
-                break
-        
-        return '\n'.join(lines)
-    
-    def _insert_holistic_intro(self, markdown: str, intro: str) -> str:
-        """Insert holistic intro paragraph after the lead but before GitHub/Twitch stats."""
-        lines = markdown.splitlines()
-        
-        # Find the line with "Today's development activities include..." or similar
-        # This should be in the markdown body, not frontmatter
-        for i, line in enumerate(lines):
-            if "Today's development activities include" in line or "Twitch clips" in line or "GitHub events" in line:
-                # Insert holistic intro before this line
-                lines.insert(i, '')
-                lines.insert(i, intro)
-                lines.insert(i, '')
-                break
-        else:
-            # If we can't find the stats line, insert after the first paragraph after H1
-            for i, line in enumerate(lines):
-                if line.startswith('# ') and not line.startswith('##'):
-                    # Found H1, look for the next non-empty line (should be the lead)
-                    for j in range(i + 1, len(lines)):
-                        if lines[j].strip() and not lines[j].startswith('---'):
-                            # Insert holistic intro after the lead
-                            lines.insert(j + 1, '')
-                            lines.insert(j + 2, intro)
-                            lines.insert(j + 3, '')
-                            break
-                    break
-        
-        return '\n'.join(lines)
-    
-    def _update_title_in_markdown(self, markdown: str, new_title: str) -> str:
-        """Update both frontmatter and H1 title."""
-        # Update H1
-        h1_pattern = r"^(# ).+$"
-        replacement = r"\1" + new_title
-        markdown = re.sub(h1_pattern, replacement, markdown, flags=re.MULTILINE)
-        
-        # Update og:title (exact format: 2 spaces + og:title:)
-        og_title_pattern = r"^  og:title:\s*.+$"
-        replacement = f"  og:title: {new_title}"
-        markdown = re.sub(og_title_pattern, replacement, markdown, flags=re.MULTILINE)
-        
-        # Update schema.article.headline (exact format: 4 spaces + headline:)
-        headline_pattern = r"^    headline:\s*.+$"
-        replacement = f"    headline: {new_title}"
-        markdown = re.sub(headline_pattern, replacement, markdown, flags=re.MULTILINE)
-        
-        return markdown
-    
-    def _insert_story_micro_intros(
-        self, 
-        markdown: str, 
-        story_packets: List[Dict[str, Any]], 
-        ai_service: Any, 
-        target_date: str,
-        force_ai: bool = False
-    ) -> str:
-        """Insert comprehensive story intros under each story heading."""
-        for packet in story_packets:
-            story_title = packet.get("title_human", "")
-            if not story_title:
-                continue
-            
-            # Find the story heading
-            heading_pattern = rf"^(#### {re.escape(story_title)})$"
-            
-            # Prepare inputs for AI
-            story_inputs = {
-                "title": story_title,
-                "why": packet.get("why", ""),
-                "highlights_csv": ",".join(packet.get("highlights", []))
-            }
-            
-            comprehensive_intro = ai_service.make_story_comprehensive_intro(target_date, story_inputs, force_ai)
-            
-            # Insert comprehensive intro after heading
-            replacement = rf"\1\n\n{comprehensive_intro}\n"
-            markdown = re.sub(heading_pattern, replacement, markdown, flags=re.MULTILINE)
-        
-        return markdown
-    
-    def _insert_wrap_up(self, markdown: str, wrap_up: str) -> str:
-        """Insert wrap-up section before the Related posts section."""
-        lines = markdown.splitlines()
-        
-        # Find the "Related posts" section
-        for i, line in enumerate(lines):
-            if line.strip() == "## Related posts":
-                # Insert wrap-up section before Related posts
-                # Insert in correct order: header, blank, content, blank
-                lines.insert(i, "## Wrap-Up")
-                lines.insert(i + 1, '')
-                lines.insert(i + 2, wrap_up)
-                lines.insert(i + 3, '')
-                break
-        else:
-            # If no Related posts section, append at the end
-            lines.append("")
-            lines.append("## Wrap-Up")
-            lines.append("")
-            lines.append(wrap_up)
-        
-        return '\n'.join(lines)
-    
-    def _append_related_posts(
-        self, 
-        markdown: str, 
-        related_posts: List[Tuple[str, str, float]]
-    ) -> str:
-        """Append related posts block and signature to markdown."""
-        # Add related posts if available
-        if related_posts:
-            related_block = ["\n## Related posts\n"]
-            
-            for title, path, score in related_posts:
-                related_block.append(f"- [{title}]({path})")
-            
-            related_block.append("")  # Add blank line
-            markdown = markdown + "\n" + "\n".join(related_block)
-        
-        # Always add the signature
-        signature = [
-            "\n---",
-            "",
-            "[https://upwork.com/freelancers/paulchrisluke](https://upwork.com/freelancers/paulchrisluke)",
-            "",
-            "_Hi. I'm Chris. I am a morally ambiguous technology marketer. Ridiculously rich people ask me to solve problems they didn't know they have. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _like a high-class hooker or find someone who knows how to get ahold of me._"
-        ]
-        
-        return markdown + "\n" + "\n".join(signature)
-    
-    def _append_no_related_posts(self, markdown: str) -> str:
-        """Append a message when no related posts are found and add signature."""
-        markdown = markdown + "\n\n## Related posts\n\nNo related posts found for this blog post."
-        
-        # Always add the signature
-        signature = [
-            "\n---",
-            "",
-            "[https://upwork.com/freelancers/paulchrisluke](https://upwork.com/freelancers/paulchrisluke)",
-            "",
-            "_Hi. I'm Chris. I am a morally ambiguous technology marketer. Ridiculously rich people ask me to solve problems they didn't know they have. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _like a high-class hooker or find someone who knows how to get ahold of me._"
-        ]
-        
-        return markdown + "\n" + "\n".join(signature)
+        return f"{frontmatter}\n\n{content}"
     
     def save_digest(self, digest: Dict[str, Any], *, cache_manager: Optional[CacheManager] = None) -> Path:
-        """
-        Save digest as JSON file for AI ingestion.
-        
-        Args:
-            digest: Digest data dictionary
-            cache_manager: Optional cache manager instance (defaults to new instance)
-            
-        Returns:
-            Path to the saved JSON file
-        """
-
-        target_date = digest["date"]
-        
-        # Create date subdirectory
-        date_dir = self.blogs_dir / target_date
-        date_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save JSON digest using atomic write
-        json_path = date_dir / f"PRE-CLEANED-{target_date}_digest.json"
-        if json_path.exists():
-            logger.info("Overwriting existing digest: %s", json_path)
-        
-        # Ensure all data is JSON-serializable by converting to dict first
-        serializable_digest = {}
-        for key, value in digest.items():
-            if hasattr(value, 'model_dump'):
-                # Handle Pydantic models
-                serializable_digest[key] = value.model_dump(mode='json')
-            else:
-                serializable_digest[key] = value
-        
-
-        
-        # Save JSON directly to ensure proper serialization
-        try:
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(serializable_digest, f, indent=2, default=str)
-        except Exception as e:
-            logger.warning(f"Direct JSON save failed: {e}, falling back to cache manager")
-            # Fall back to cache manager
-            if cache_manager is None:
-                from services.utils import CacheManager
-                cache_manager = CacheManager()
-            cache_manager.atomic_write_json(json_path, serializable_digest, overwrite=True)
-        
-        return json_path
+        """Save digest as JSON file for AI ingestion."""
+        return self.io.save_digest(digest, digest["date"], cache_manager=cache_manager)
+    
+    def save_markdown(self, date: str, markdown: str) -> Path:
+        """Save markdown content to drafts directory."""
+        return self.io.save_markdown(date, markdown)
     
     def create_final_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
-        """
-        Create FINAL version of digest with AI enhancements for API consumption.
-        
-        Args:
-            target_date: Date in YYYY-MM-DD format
-            
-        Returns:
-            Enhanced digest dictionary or None if failed
-        """
-        try:
-            # Load the PRE-CLEANED digest
-            pre_cleaned_path = f"blogs/{target_date}/PRE-CLEANED-{target_date}_digest.json"
-            if not os.path.exists(pre_cleaned_path):
-                logger.error(f"PRE-CLEANED digest not found: {pre_cleaned_path}")
-                return None
-            
-            with open(pre_cleaned_path, 'r') as f:
-                digest = json.load(f)
-            
-            # Apply AI enhancements
-            enhanced_digest = self._enhance_digest_with_ai(digest)
-            
-            # Save as FINAL version
-            final_path = f"blogs/{target_date}/FINAL-{target_date}_digest.json"
-            with open(final_path, 'w') as f:
-                json.dump(enhanced_digest, f, indent=2, default=str)
-            
-            logger.info(f"Created FINAL digest: {final_path}")
-            return enhanced_digest
-            
-        except Exception as e:
-            logger.error(f"Failed to create FINAL digest: {e}")
-            return None
+        """Create FINAL version of digest with AI enhancements for API consumption."""
+        return self.io.create_final_digest(target_date)
     
-    def upload_digest_to_r2(self, digest: Dict[str, Any]) -> bool:
-        """
-        Upload the enhanced digest to R2 bucket for Worker API consumption.
-        
-        Args:
-            digest: Enhanced digest data dictionary
-            
-        Returns:
-            True if upload successful, False otherwise
-        """
-        try:
-            from .auth import AuthService
-            from .publisher import Publisher
-            
-            # Get R2 credentials
-            auth_service = AuthService()
-            r2_credentials = auth_service.get_r2_credentials()
-            
-            if not r2_credentials:
-                logger.warning("R2 credentials not found, skipping R2 upload")
-                return False
-            
-            # Create R2 key path - upload FINAL version for API consumption
-            target_date = digest["date"]
-            r2_key = f"blogs/{target_date}/FINAL-{target_date}_digest.json"
-            
-            # Convert digest to JSON string
-            import json
-            digest_json = json.dumps(digest, indent=2, default=str)
-            
-            # Upload to R2 using boto3 directly
-            try:
-                import boto3
-                # Handle both Pydantic SecretStr and plain string types for secret_access_key
-                secret_key = r2_credentials.secret_access_key
-                if hasattr(secret_key, 'get_secret_value'):
-                    aws_secret_access_key = secret_key.get_secret_value()
-                else:
-                    aws_secret_access_key = str(secret_key) if secret_key is not None else ""
-                
-                s3_client = boto3.client(
-                    's3',
-                    aws_access_key_id=r2_credentials.access_key_id,
-                    aws_secret_access_key=aws_secret_access_key,
-                    endpoint_url=r2_credentials.endpoint,
-                    region_name=r2_credentials.region
-                )
-                
-                s3_client.put_object(
-                    Bucket=r2_credentials.bucket,
-                    Key=r2_key,
-                    Body=digest_json.encode('utf-8'),
-                    ContentType='application/json'
-                )
-                logger.info(f"Successfully uploaded digest to R2: {r2_key}")
-                return True
-                
-            except Exception as e:
-                logger.error(f"Failed to upload digest to R2: {e}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Failed to upload digest to R2: {e}")
-            return False
+
     
-    def _load_twitch_clips(self, date_path: Path) -> List[TwitchClip]:
-        """Load all Twitch clips for a given date."""
-        clips = []
-        
-        for file_path in sorted(date_path.glob("twitch_clip_*.json")):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    clip = TwitchClip(**data)
-                    clips.append(clip)
-            except (json.JSONDecodeError, OSError, ValidationError) as e:
-                logger.warning(f"Could not load Twitch clip {file_path}: {e}", exc_info=True)
-        
-        return clips
-    
-    def _load_github_events(self, date_path: Path) -> List[GitHubEvent]:
-        """Load all GitHub events for a given date."""
-        events = []
-        
-        for file_path in sorted(date_path.glob("github_event_*.json")):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    event = GitHubEvent(**data)
-                    events.append(event)
-            except (json.JSONDecodeError, OSError, ValidationError) as e:
-                logger.warning(f"Could not load GitHub event {file_path}: {e}", exc_info=True)
-        
-        return events
+
     
     def _generate_metadata(self, target_date: str, clips: List[TwitchClip], events: List[GitHubEvent]) -> Dict[str, Any]:
         """Generate metadata for the digest."""
@@ -901,556 +311,15 @@ class BlogDigestBuilder:
             "date_parsed": datetime.strptime(target_date, "%Y-%m-%d").date()
         }
     
-    def _generate_frontmatter(self, digest: Dict[str, Any]) -> str:
-        """Generate YAML frontmatter with schema.org metadata."""
-        target_date = digest["date"]
-        metadata = digest["metadata"]
-        clips = digest["twitch_clips"]
-        events = digest["github_events"]
-        
-        # Parse date
-        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
-        
-        # Generate headline
-        headline = f"Daily Devlog — {date_obj.strftime('%b %d, %Y')}"
-        
-        # Select the best image for this blog post
-        story_packets = digest.get("story_packets", [])
-        best_image = self._select_best_image(story_packets)
-        
-        # Build schema.org Article
-        article_schema = {
-            "@context": "https://schema.org",
-            "@type": "Article",
-            "headline": headline,
-            "datePublished": target_date,
-            "author": {
-                "@type": "Person",
-                "name": self.blog_author
-            },
-            "keywords": metadata["keywords"],
-            "url": f"{self.blog_base_url}/blog/{target_date}",
-            "image": best_image
-        }
-        
-        # Build VideoObject schemas for Twitch clips
-        video_objects = []
-        for clip in clips:
-            upload_date = clip.get("created_at")
-            if isinstance(upload_date, (datetime, date)):
-                upload_date = upload_date.isoformat()
-            video_schema = {
-                "@type": "VideoObject",
-                "name": clip["title"],
-                "description": clip.get("transcript", "")[:200] + "..." if clip.get("transcript") else "",
-                "url": clip["url"],
-                "uploadDate": upload_date,
-                "duration": (
-                    f"PT{int(round(float(clip.get('duration', 0.0))))}S"
-                    if clip.get("duration") is not None else None
-                ),
-                "thumbnailUrl": f"https://clips-media-assets2.twitch.tv/{clip['id']}/preview-480x272.jpg"
-            }
-            # Remove None values
-            video_schema = {k: v for k, v in video_schema.items() if v is not None}
-            video_objects.append(video_schema)
-        
-        # Build FAQPage schema if there are multiple GitHub events
-        faq_schema = None
-        if len(events) > 1:
-            faq_entries = []
-            for event in events:
-                if event.get("title") or event.get("details", {}).get("commit_messages"):
-                    question = event.get("title", f"{event.get('type', 'unknown')} in {event.get('repo', '')}")
-                    answer = event.get("body", "")
-                    if not answer and event.get("details", {}).get("commit_messages"):
-                        answer = "\n".join(event.get("details", {}).get("commit_messages", []))
-                    
-                    if answer:
-                        faq_entries.append({
-                            "@type": "Question",
-                            "name": question,
-                            "acceptedAnswer": {
-                                "@type": "Answer",
-                                "text": answer
-                            }
-                        })
-            
-            if faq_entries:
-                faq_schema = {
-                    "@context": "https://schema.org",
-                    "@type": "FAQPage",
-                    "mainEntity": faq_entries
-                }
-        
-        # Build Open Graph metadata
-        og_metadata = {
-            "og:title": headline,
-            "og:description": (
-                f"Daily development log with {metadata['total_clips']} "
-                f"Twitch {'clip' if metadata['total_clips']==1 else 'clips'} and "
-                f"{metadata['total_events']} GitHub {'event' if metadata['total_events']==1 else 'events'}"
-            ),
-            "og:type": "article",
-            "og:url": f"{self.blog_base_url}/blog/{target_date}",
-            "og:image": best_image,
-            "og:site_name": "Daily Devlog"
-        }
-        
-        # Combine all metadata
-        frontmatter_data = {
-            "title": headline,
-            "date": target_date,
-            "author": self.blog_author,
-            "schema": {
-                "article": article_schema,
-                "videos": video_objects
-            },
-            "og": og_metadata
-        }
-        
-        # Add FAQ schema if available
-        if faq_schema:
-            frontmatter_data["schema"]["faq"] = faq_schema
-        
-        # Force long descriptions to be inline to prevent weird wrapping
-        if "og" in frontmatter_data and "og:description" in frontmatter_data["og"]:
-            desc = frontmatter_data["og"]["og:description"]
-            # Only add quotes if not already quoted
-            if not (desc.startswith('"') and desc.endswith('"')):
-                frontmatter_data["og"]["og:description"] = f'"{desc}"'
-        if "description" in frontmatter_data:
-            desc = frontmatter_data["description"]
-            # Only add quotes if not already quoted
-            if not (desc.startswith('"') and desc.endswith('"')):
-                frontmatter_data["description"] = f'"{desc}"'
-        
-        # Convert to YAML
-        yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=sys.maxsize)
-        
-        return f"---\n{yaml_content}---\n"
-    
-    def _select_best_image(self, story_packets: List[Any]) -> str:
-        """
-        Select the best image for the blog post frontmatter.
-        
-        Priority order:
-        1. First story packet with rendered video (by story type priority)
-        2. Default blog image as fallback
-        
-        Args:
-            story_packets: List of story packet dictionaries or StoryPacket objects
-            
-        Returns:
-            URL string for the best image
-        """
-        if not story_packets:
-            return self.blog_default_image
-        
-        # Priority order for story types (lower number = higher priority)
-        type_priority = {
-            "feat": 1,      # Features
-            "fix": 2,       # Bug fixes
-            "perf": 3,      # Performance
-            "security": 4,  # Security
-            "infra": 5,     # Infrastructure
-            "docs": 6,      # Documentation
-            "other": 7      # Other
-        }
-        
-        # Find the highest priority story with rendered video
-        best_story = None
-        best_priority = float('inf')
-        
-        for packet in story_packets:
-            # Handle both Dict and StoryPacket formats
-            if hasattr(packet, 'video'):  # StoryPacket object
-                video_status = packet.video.status if packet.video else None
-                story_type = packet.story_type.value if packet.story_type else "other"
-            else:  # Dict format
-                video_status = packet.get("video", {}).get("status")
-                story_type = packet.get("story_type", "other")
-            
-            if video_status == "rendered":
-                priority = type_priority.get(story_type, 999)
-                
-                if priority < best_priority:
-                    best_priority = priority
-                    best_story = packet
-        
-        if best_story:
-            # Use the video PNG intro slide as thumbnail
-            if hasattr(best_story, 'video'):  # StoryPacket object
-                video_path = best_story.video.path
-            else:  # Dict format
-                video_path = best_story["video"]["path"]
-            
-            # Convert video path to the correct Worker URL format
-            # From: /stories/2025/08/27/story_20250827_pr34.mp4
-            # To: https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png
-            if video_path.startswith('/stories/'):
-                # Extract date and filename
-                parts = video_path.split('/')
-                if len(parts) >= 5:
-                    year = parts[2]  # 2025
-                    month = parts[3]  # 08
-                    day = parts[4]    # 27
-                    filename = parts[5]  # story_20250827_pr34.mp4
-                    
-                    # Convert filename to intro PNG
-                    base_name = filename.rsplit('.', 1)[0]  # Safely strip .mp4 extension
-                    intro_png = f"{base_name}_01_intro.png"
-                    
-                    # Generate Worker URL for the intro PNG
-                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
-            
-            # Fallback: try to convert existing path format
-            intro_png_path = video_path.replace(".mp4", "_01_intro.png")
-            if intro_png_path.startswith('/stories/'):
-                return f"https://{self.worker_domain}{intro_png_path.replace('.mp4', '_01_intro.png')}"
-        
-        return self.blog_default_image
-    
-    def _get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
-        """
-        Generate thumbnail URL for a video based on its path.
-        
-        Args:
-            video_path: Path to the video file
-            story_id: Story identifier for fallback
-            
-        Returns:
-            URL string for the thumbnail, or empty string if not available
-        """
-        try:
-            # Strip extension and split path into parts
-            base_name = video_path.rsplit('.', 1)[0]  # Safely strip extension
-            parts = base_name.split('/')
-            
-            # Validate path structure before indexing
-            if len(parts) < 5:
-                logger.warning(f"Invalid video path structure (insufficient parts): {video_path}")
-                return ""
-            
-            # Handle stories paths: stories/YYYY/MM/DD/filename
-            if parts[0] == 'stories':
-                try:
-                    year = parts[1]
-                    month = parts[2]
-                    day = parts[3]
-                    filename = parts[4]
-                    
-                    # Validate date components
-                    if not (year.isdigit() and month.isdigit() and day.isdigit()):
-                        logger.warning(f"Invalid date components in path: {video_path}")
-                        return ""
-                    
-                    # Construct intro PNG filename
-                    intro_png = f"{filename}_01_intro.png"
-                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
-                    
-                except (IndexError, ValueError) as e:
-                    logger.warning(f"Failed to parse stories path {video_path}: {e}")
-                    return ""
-            
-            # Handle out/videos paths: out/videos/YYYY-MM-DD/filename
-            elif parts[0] == 'out' and parts[1] == 'videos':
-                try:
-                    date_part = parts[2]  # YYYY-MM-DD
-                    filename = parts[3]
-                    
-                    # Parse date and convert to YYYY/MM/DD format
-                    date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                    year = str(date_obj.year)
-                    month = f"{date_obj.month:02d}"
-                    day = f"{date_obj.day:02d}"
-                    
-                    # Construct intro PNG filename
-                    intro_png = f"{filename}_01_intro.png"
-                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
-                    
-                except (IndexError, ValueError) as e:
-                    logger.warning(f"Failed to parse out/videos path {video_path}: {e}")
-                    return ""
-            
-            # Handle absolute paths starting with /stories/
-            elif video_path.startswith('/stories/'):
-                # Remove leading slash and process as relative path
-                clean_path = video_path.lstrip('/')
-                return self._get_video_thumbnail_url(clean_path, story_id)
-            
-            # Handle HTTPS URLs
-            elif video_path.startswith('https://'):
-                from urllib.parse import urlsplit
-                path = urlsplit(video_path).path
-                if '/stories/' in path:
-                    stories_index = path.find('/stories/')
-                    if stories_index != -1:
-                        stories_path = path[stories_index:]
-                        # Convert video path to thumbnail path
-                        thumbnail_path = stories_path.replace('.mp4', '_01_intro.png')
-                        return f"https://{self.worker_domain}/assets{thumbnail_path}"
-            
-            # Fallback: try to generate from story_id if available
-            if story_id and video_path:
-                # Extract date from video path if possible
-                if '/stories/' in video_path:
-                    import re
-                    date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', video_path)
-                    if date_match:
-                        year, month, day = date_match.groups()
-                        return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
-            
-            logger.warning(f"Could not determine thumbnail path for: {video_path}")
-            return ""
-            
-        except Exception as e:
-            logger.warning(f"Failed to generate thumbnail URL for {video_path}: {e}")
-            return ""
-    
-    def _enhance_story_packets_with_thumbnails(self, story_packets: List[Any], _target_date: str) -> List[Any]:
-        """
-        Enhance story packets with thumbnail URLs for API responses.
-        
-        Args:
-            story_packets: List of StoryPacket objects
-            target_date: Date in YYYY-MM-DD format
-            
-        Returns:
-            List of enhanced StoryPacket objects with thumbnail URLs
-        """
-        enhanced_packets = []
-        
-        for packet in story_packets:
-            # Create a copy to avoid modifying the original
-            enhanced_packet = packet.model_copy() if hasattr(packet, 'model_copy') else packet.copy()
-            
-            # Add thumbnail information to video info if video exists and is rendered
-            if (hasattr(enhanced_packet, 'video') and 
-                enhanced_packet.video and 
-                enhanced_packet.video.path and 
-                enhanced_packet.video.status == 'rendered'):
-                
-                # Generate thumbnail URL
-                thumbnail_url = self._get_video_thumbnail_url(enhanced_packet.video.path, enhanced_packet.id)
-                
-                # Add thumbnail URL to video info
-                if hasattr(enhanced_packet.video, 'thumbnail_url'):
-                    enhanced_packet.video.thumbnail_url = thumbnail_url
-                else:
-                    # If VideoInfo model doesn't have thumbnail_url field, add it as a custom attribute
-                    if not hasattr(enhanced_packet.video, '_custom_attrs'):
-                        enhanced_packet.video._custom_attrs = {}
-                    enhanced_packet.video._custom_attrs['thumbnail_url'] = thumbnail_url
-            
-            enhanced_packets.append(enhanced_packet)
-        
-        return enhanced_packets
-    
-    def _enhance_existing_digest_with_thumbnails(self, digest: Dict[str, Any], _target_date: str) -> List[Dict[str, Any]]:
-        """
-        Enhance existing digest story packets with thumbnail URLs.
-        
-        Args:
-            digest: Existing digest dictionary
-            target_date: Date in YYYY-MM-DD format
-            
-        Returns:
-            List of enhanced story packet dictionaries with thumbnail URLs
-        """
-        enhanced_packets = []
-        
-        for packet in digest.get("story_packets", []):
-            # Create a copy to avoid modifying the original
-            enhanced_packet = packet.copy()
-            
-            # Add thumbnail information to video info if video exists and is rendered
-            if (enhanced_packet.get('video') and 
-                enhanced_packet['video'].get('path') and 
-                enhanced_packet['video'].get('status') == 'rendered'):
-                
-                # Generate thumbnail URL
-                thumbnail_url = self._get_video_thumbnail_url(enhanced_packet['video']['path'], enhanced_packet.get('id', ''))
-                
-                # Add thumbnail URL to video info
-                if thumbnail_url:
-                    enhanced_packet['video']['thumbnail_url'] = thumbnail_url
-            
-            enhanced_packets.append(enhanced_packet)
-        
-        return enhanced_packets
-    
-
-    
-    def _generate_content(self, digest: Dict[str, Any]) -> str:
-        """Generate the main content of the blog post."""
-        target_date = digest["date"]
-        clips = digest["twitch_clips"]
-        events = digest["github_events"]
-        story_packets = digest.get("story_packets", [])
-        
-        content_parts = []
-        
-        # Add header
-        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
-        content_parts.append(f"# Daily Devlog — {date_obj.strftime('%B %d, %Y')}")
-        content_parts.append("")
-        
-        # Add lead if available (v2 digest)
-        if digest.get("version") == "2" and digest.get("frontmatter", {}).get("lead"):
-            content_parts.append(digest["frontmatter"]["lead"])
-            content_parts.append("")
-        
-        # Add summary
-        content_parts.append(
-            f"Today's development activities include {len(clips)} Twitch "
-            f"{'clip' if len(clips)==1 else 'clips'} and {len(events)} GitHub "
-            f"{'event' if len(events)==1 else 'events'}."
+    def _generate_frontmatter_v1(self, digest: Dict[str, Any]) -> str:
+        """Generate v1 frontmatter with schema.org metadata."""
+        return self.frontmatter_gen.generate_frontmatter(
+            digest["date"], 
+            digest["twitch_clips"], 
+            digest["github_events"], 
+            digest.get("story_packets", []), 
+            "v1"
         )
-        content_parts.append("")
-        
-        # Add story packets section (v2 digest)
-        if story_packets:
-            content_parts.append("## Stories")
-            content_parts.append("")
-            
-            # Group by story type
-            stories_by_type = {}
-            for packet in story_packets:
-                story_type = packet.get("story_type", "other")
-                if story_type not in stories_by_type:
-                    stories_by_type[story_type] = []
-                stories_by_type[story_type].append(packet)
-            
-            # Story type display names
-            type_names = {
-                "feat": "New Features",
-                "fix": "Bug Fixes", 
-                "perf": "Performance",
-                "security": "Security",
-                "infra": "Infrastructure",
-                "docs": "Documentation",
-                "other": "Other"
-            }
-            
-            for story_type, packets in stories_by_type.items():
-                if story_type in type_names:
-                    content_parts.append(f"### {type_names[story_type]}")
-                    content_parts.append("")
-                    
-                    for packet in packets:
-                        content_parts.append(f"#### {packet.get('title_human', packet.get('title_raw', 'Untitled'))}")
-                        content_parts.append("")
-                        
-                        if packet.get('why'):
-                            content_parts.append(f"**Why:** {packet['why']}")
-                            content_parts.append("")
-                        
-                        if packet.get('highlights'):
-                            content_parts.append("**Highlights:**")
-                            for highlight in packet['highlights']:
-                                content_parts.append(f"- {highlight}")
-                            content_parts.append("")
-                        
-                        # Add video if available and rendered
-                        if (packet.get('video', {}).get('path') and 
-                            packet.get('video', {}).get('status') != 'pending'):
-                            video_path = packet['video']['path']
-                            
-                            # Convert relative video paths to public URLs
-                            if video_path.startswith('out/videos/'):
-                                # Convert to public stories URL with consistent format
-                                date_part = video_path.split('/')[2]  # Get date from out/videos/YYYY-MM-DD/
-                                filename = video_path.split('/')[-1]  # Get filename
-                                # Convert to YYYY/MM/DD format
-                                date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                                public_path = f"stories/{date_obj.strftime('%Y/%m/%d')}/{filename}"
-                                video_path = public_path
-                            
-                            # Convert to Cloudflare R2 URL for API consumption
-                            if video_path.startswith('stories/') or video_path.startswith('/stories/'):
-                                # Remove leading slash if present
-                                clean_path = video_path.lstrip('/')
-                                cloudflare_url = self._get_cloudflare_url(clean_path)
-                                video_path = cloudflare_url
-                            
-                            # Add video embed for website preview (only for secure paths)
-                            if video_path.startswith(('https://', '/stories/')):
-                                # Escape video path for HTML attribute to prevent XSS
-                                escaped_video_path = html.escape(video_path, quote=True)
-                                
-                                # Generate thumbnail URL for the video
-                                thumbnail_url = self._get_video_thumbnail_url(video_path, packet.get('id', ''))
-                                
-                                if thumbnail_url:
-                                    # Escape thumbnail URL for HTML attribute to prevent XSS
-                                    escaped_thumbnail_url = html.escape(thumbnail_url, quote=True)
-                                    content_parts.append(f'<video controls poster="{escaped_thumbnail_url}" src="{escaped_video_path}"></video>')
-                                else:
-                                    content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
-                                content_parts.append("")
-                            else:
-                                # For non-secure paths, just show the link
-                                content_parts.append(f"**Video:** [Watch Story]({video_path})")
-                                content_parts.append("")
-                        
-                        # Add PR link
-                        if packet.get('links', {}).get('pr_url'):
-                            content_parts.append(f"**PR:** [{packet['links']['pr_url']}]({packet['links']['pr_url']})")
-                            content_parts.append("")
-                        
-                        content_parts.append("---")
-                        content_parts.append("")
-        
-        # Add Twitch clips section (if not covered by stories)
-        if clips and not story_packets:
-            content_parts.append("## Twitch Clips")
-            content_parts.append("")
-            
-            for clip in clips:
-                content_parts.append(f"### {clip.get('title', 'Untitled Clip')}")
-                if clip.get('duration') is not None:
-                    content_parts.append(f"**Duration:** {clip['duration']} seconds")
-                content_parts.append(f"**Views:** {clip.get('view_count', 'Unknown')}")
-                content_parts.append(f"**URL:** {clip.get('url', '')}")
-                content_parts.append("")
-                
-                if clip.get('transcript'):
-                    content_parts.append("**Transcript:**")
-                    content_parts.append(f"> {clip.get('transcript', '')}")
-                    content_parts.append("")
-        
-        # Add GitHub events section (if not covered by stories)
-        if events and not story_packets:
-            content_parts.append("## GitHub Activity")
-            content_parts.append("")
-            
-            for event in events:
-                content_parts.append(f"### {event.get('type', 'unknown')} in {event.get('repo', '')}")
-                content_parts.append(f"**Actor:** {event.get('actor', 'Unknown')}")
-                created = event.get('created_at', 'Unknown')
-                if isinstance(created, (datetime, date)):
-                    created = created.isoformat()
-                content_parts.append(f"**Time:** {created}")
-                
-                if event.get('url'):
-                    content_parts.append(f"**URL:** {event.get('url', '')}")
-                
-                if event.get('title'):
-                    content_parts.append(f"**Title:** {event.get('title', '')}")
-                
-                if event.get('body'):
-                    content_parts.append(f"**Description:** {event.get('body', '')}")
-                
-                # Add commit messages if available
-                if event.get('details', {}).get('commit_messages'):
-                    content_parts.append("**Commits:**")
-                    for msg in event.get('details', {}).get('commit_messages', []):
-                        content_parts.append(f"- {msg}")
-                
-                content_parts.append("")
-        
-        return "\n".join(content_parts)
     
     def _generate_story_packets(
         self, 
@@ -1566,210 +435,22 @@ class BlogDigestBuilder:
         
         return None
     
-    def _generate_frontmatter_v2(
-        self, 
-        target_date: str, 
-        clips_data: List[Dict[str, Any]], 
-        events_data: List[Dict[str, Any]], 
-        story_packets: List[StoryPacket]
-    ) -> FrontmatterInfo:
-        """Generate v2 frontmatter with story packet information."""
-        # Parse date
-        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
-        
-        # Generate title
-        title = f"Daily Devlog — {date_obj.strftime('%b %d, %Y')}"
-        
-        # Extract story types for tags
-        story_types = [packet.story_type.value for packet in story_packets]
-        unique_types = list(set(story_types))
-        
-        # Generate lead based on story packets
-        lead = self._generate_lead(story_packets)
-        
-        # Select the best image for this blog post
-        best_image = self._select_best_image(story_packets)
-        
-        # Build Open Graph metadata
-        og_metadata = {
-            "og:title": title,
-            "og:description": (
-                f"Daily development log with {len(story_packets)} "
-                f"{'story' if len(story_packets)==1 else 'stories'} from "
-                f"{len(clips_data)} Twitch {'clip' if len(clips_data)==1 else 'clips'} and "
-                f"{len(events_data)} GitHub {'event' if len(events_data)==1 else 'events'}"
-            ),
-            "og:type": "article",
-            "og:url": f"{self.blog_base_url}/blog/{target_date}",
-            "og:image": best_image,
-            "og:site_name": "Daily Devlog"
-        }
-        
-        # Build schema.org metadata
-        schema_metadata = {
-            "article": {
-                "@context": "https://schema.org",
-                "@type": "Article",
-                "headline": title,
-                "datePublished": target_date,
-                "author": {
-                    "@type": "Person",
-                    "name": self.blog_author
-                },
-                "keywords": unique_types,
-                "url": f"{self.blog_base_url}/blog/{target_date}",
-                "image": best_image
-            }
-        }
-        
-        return FrontmatterInfo(
-            title=title,
-            date=target_date,
-            author=self.blog_author,
-            og=og_metadata,
-            schema=schema_metadata,
-            tags=unique_types,
-            lead=lead
-        )
-    
-    def _generate_lead(self, story_packets: List[StoryPacket]) -> Optional[str]:
-        """Generate a lead paragraph from story packets."""
-        if not story_packets:
-            return None
-        
-        # Count story types
-        type_counts = {}
-        for packet in story_packets:
-            story_type = packet.story_type.value
-            type_counts[story_type] = type_counts.get(story_type, 0) + 1
-        
-        # Generate lead based on most common types
-        if len(story_packets) == 1:
-            packet = story_packets[0]
-            return f"Today's development work focused on {packet.title_human.lower()}."
-        
-        # Multiple stories
-        total_stories = len(story_packets)
-        if type_counts.get("feat", 0) > 0 and type_counts.get("security", 0) > 0:
-            return f"Shipped {type_counts['feat']} new feature{'s' if type_counts['feat'] > 1 else ''} and enhanced security today."
-        elif type_counts.get("feat", 0) > 0:
-            return f"Shipped {type_counts['feat']} new feature{'s' if type_counts['feat'] > 1 else ''} today."
-        elif type_counts.get("fix", 0) > 0:
-            return f"Fixed {type_counts['fix']} issue{'s' if type_counts['fix'] > 1 else ''} and improved the codebase."
-        elif type_counts.get("security", 0) > 0:
-            return f"Enhanced security with {type_counts['security']} improvement{'s' if type_counts['security'] > 1 else ''}."
-        else:
-            return f"Completed {total_stories} development task{'s' if total_stories > 1 else ''} today."
-    
-    def save_markdown(self, date: str, markdown: str) -> Path:
-        """
-        Save markdown content to drafts directory.
-        
-        Args:
-            date: Date in YYYY-MM-DD format
-            markdown: Markdown content to save
-            
-        Returns:
-            Path to the saved markdown file
-        """
-        # Create drafts directory if it doesn't exist
-        drafts_dir = Path("drafts")
-        drafts_dir.mkdir(exist_ok=True)
-        
-        # Save markdown file
-        file_path = drafts_dir / f"{date}.md"
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(markdown)
-        
-        logger.info(f"Saved markdown to {file_path}")
-        return file_path
-    
-
-    
-    def _generate_frontmatter_v3(
-        self, 
-        target_date: str, 
-        clips_data: List[Dict[str, Any]], 
-        events_data: List[Dict[str, Any]], 
-        story_packets: List[StoryPacket]
-    ) -> FrontmatterInfo:
-        """
-        Generate v3 frontmatter that matches the exact requirements specification.
-        
-        This generates the exact frontmatter structure needed for working blog posts
-        with proper assets and links.
-        """
-        # Parse date
-        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
-        
-        # Generate title
-        title = f"Daily Devlog — {date_obj.strftime('%B %d, %Y')}"
-        
-        # Extract story types for tags
-        story_types = [packet.story_type.value for packet in story_packets]
-        unique_types = list(set(story_types))
-        
-        # Generate lead based on story packets
-        lead = self._generate_lead(story_packets)
-        
-        # Select the best image for this blog post
-        best_image = self._select_best_image(story_packets)
-        
-        # Build Open Graph metadata with correct asset paths
-        og_metadata = {
-            "og:title": title,
-            "og:description": (
-                f"Daily development log with {len(story_packets)} "
-                f"{'story' if len(story_packets)==1 else 'stories'} from "
-                f"{len(clips_data)} Twitch {'clip' if len(clips_data)==1 else 'clips'} and "
-                f"{len(events_data)} GitHub {'event' if len(events_data)==1 else 'events'}"
-            ),
-            "og:type": "article",
-            "og:url": f"{self.blog_base_url}/blog/{target_date}",
-            "og:image": best_image,
-            "og:site_name": "Daily Devlog"
-        }
-        
-        # Build schema.org metadata with correct asset paths
-        schema_metadata = {
-            "article": {
-                "@context": "https://schema.org",
-                "@type": "Article",
-                "headline": title,
-                "datePublished": target_date,
-                "author": {
-                    "@type": "Person",
-                    "name": self.blog_author
-                },
-                "keywords": unique_types,
-                "url": f"{self.blog_base_url}/blog/{target_date}",
-                "image": best_image
-            }
-        }
-        
-        return FrontmatterInfo(
-            title=title,
-            date=target_date,
-            author=self.blog_author,
-            og=og_metadata,
-            schema=schema_metadata,
-            tags=unique_types,
-            lead=lead
-        )
-    
     def get_blog_api_data(self, target_date: str) -> Dict[str, Any]:
-        """
-        Get complete blog data for API consumption with Cloudflare URLs.
-        
-        Args:
-            target_date: Date in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary containing complete blog data for API
-        """
+        """Get complete blog data for API consumption with Cloudflare URLs."""
         try:
-            # Build the digest
-            digest = self.build_digest(target_date)
+            # Load existing FINAL digest instead of rebuilding
+            final_digest_path = self.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
+            if final_digest_path.exists():
+                try:
+                    with open(final_digest_path, 'r', encoding='utf-8') as f:
+                        digest = json.load(f)
+                    logger.info(f"Loaded existing FINAL digest for API v3: {target_date}")
+                except (json.JSONDecodeError, OSError) as e:
+                    logger.warning(f"Failed to load FINAL digest for {target_date}: {e}, falling back to build_digest")
+                    digest = self.build_digest(target_date)
+            else:
+                logger.info(f"No FINAL digest found for {target_date}, building from scratch")
+                digest = self.build_digest(target_date)
             
             # Update story packets with Cloudflare URLs
             updated_story_packets = []
@@ -1782,7 +463,7 @@ class BlogDigestBuilder:
                     # Convert any local path (stories/, out/videos/, relative paths without http)
                     if not video_path.startswith('http'):
                         clean_path = video_path.lstrip('/')
-                        cloudflare_url = self._get_cloudflare_url(clean_path)
+                        cloudflare_url = self.utils.get_cloudflare_url(clean_path)
                         updated_story["video"]["path"] = cloudflare_url
                 
                 updated_story_packets.append(updated_story)
@@ -1791,46 +472,102 @@ class BlogDigestBuilder:
             updated_digest = digest.copy()
             updated_digest["story_packets"] = updated_story_packets
             
-            # Regenerate markdown with updated digest (so video URLs are Cloudflare URLs)
-            markdown = self.generate_markdown(updated_digest)
+            # Generate consolidated content with AI enhancements and signature
+            content_gen = ContentGenerator(updated_digest, self.utils)
+            # Generate full content with story packets and video assets
+            consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=False)
+            # Add the blog signature
+            consolidated_content += "\n\n---\n\n[https://upwork.com/freelancers/paulchrisluke](https://upwork.com/freelancers/paulchrisluke)\n\n_Hi. I'm Chris. I am a morally ambiguous technology marketer. Ridiculously rich people ask me to solve problems they didn't know they have. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _like a high-class hooker or find someone who knows how to get ahold of me._"
             
             # Get assets
             assets = self.get_blog_assets(target_date)
             
-            # Build the complete final blog structure
+            # Build the restructured final blog data
             final_blog_data = {
                 "date": target_date,
-                "version": "2",
-                "twitch_clips": digest.get("twitch_clips", []),
-                "github_events": digest.get("github_events", []),
+                "version": "3",  # Increment version for new structure
+                "frontmatter": content_gen.frontmatter,  # Keep full frontmatter with AI content
+                "content": {
+                    "body": consolidated_content
+                },
+                "story_packets": updated_story_packets,  # Use updated story packets with Cloudflare URLs
                 "metadata": digest.get("metadata", {}),
-                "frontmatter": updated_digest.get("frontmatter", {}),  # Use updated digest frontmatter
-                "story_packets": updated_story_packets,
-                "markdown": markdown,
-                "assets": assets,
                 "api_metadata": {
                     "generated_at": datetime.now(timezone.utc).isoformat(),  # UTC timestamp
-                    "version": "1.0",
+                    "version": "3.0",
                     "api_endpoint": f"/api/blog/{target_date}"
                 }
             }
             
+            # Save v3 API response to file for R2 serving
+            self._save_v3_api_response(target_date, final_blog_data)
+            
+            # Upload API v3 to R2 for Worker consumption using R2Publisher for consistency
+            try:
+                from services.publisher_r2 import R2Publisher
+                r2_publisher = R2Publisher()
+                # Save to temporary file for R2Publisher to process
+                temp_api_file = self.blogs_dir / target_date / f"API-v3-{target_date}_digest.json"
+                with open(temp_api_file, 'w', encoding='utf-8') as f:
+                    json.dump(final_blog_data, f, indent=2, ensure_ascii=False)
+                
+                # Use R2Publisher's publish_blogs method for idempotent upload with proper caching
+                results = r2_publisher.publish_blogs(self.blogs_dir)
+                if str(temp_api_file.relative_to(self.blogs_dir)) in results and results[str(temp_api_file.relative_to(self.blogs_dir))]:
+                    logger.info(f"Successfully uploaded API v3 to R2 for {target_date}")
+                else:
+                    logger.warning(f"Failed to upload API v3 to R2 for {target_date}")
+            except Exception as e:
+                logger.warning(f"Failed to upload API v3 to R2 for {target_date}: {e}")
+                # Don't fail the main operation for this
+            
             return final_blog_data
             
         except Exception as e:
-            logger.exception(f"Failed to get blog API data for {target_date}")  # Log full traceback
+            logger.exception("Failed to get blog API data for %s", target_date)
             raise
     
-    def get_blog_markdown(self, target_date: str) -> str:
+    def _save_v3_api_response(self, target_date: str, api_data: Dict[str, Any]) -> None:
         """
-        Get raw markdown content for a date.
+        Save v3 API response to JSON file for R2 serving and local development.
         
         Args:
             target_date: Date in YYYY-MM-DD format
-            
-        Returns:
-            Raw markdown content as string
+            api_data: The v3 API response data to save
         """
+        try:
+            # Ensure blogs directory exists for this date
+            date_dir = self.blogs_dir / target_date
+            date_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save v3 API response to main blogs directory
+            api_file_path = date_dir / f"API-v3-{target_date}_digest.json"
+            with open(api_file_path, 'w', encoding='utf-8') as f:
+                json.dump(api_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Saved v3 API response to {api_file_path}")
+            
+            # Also save a copy to cloudflare-worker/blogs directory for local development
+            try:
+                cloudflare_worker_dir = Path("cloudflare-worker/blogs") / target_date
+                cloudflare_worker_dir.mkdir(parents=True, exist_ok=True)
+                
+                cloudflare_worker_file_path = cloudflare_worker_dir / f"API-v3-{target_date}_digest.json"
+                with open(cloudflare_worker_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(api_data, f, indent=2, ensure_ascii=False)
+                
+                logger.info(f"Saved v3 API response to cloudflare-worker directory: {cloudflare_worker_file_path}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to save v3 API response to cloudflare-worker directory: {e}")
+                # Don't fail the main operation for this
+                
+        except Exception as e:
+            logger.exception("Failed to save v3 API response for %s", target_date)
+            # Don't raise - this is not critical for API functionality
+    
+    def get_blog_markdown(self, target_date: str) -> str:
+        """Get raw markdown content for a date."""
         # Check if markdown exists in drafts
         draft_path = Path("drafts") / f"{target_date}.md"
         if draft_path.exists():
@@ -1847,15 +584,7 @@ class BlogDigestBuilder:
             raise
     
     def get_blog_assets(self, target_date: str) -> BlogAssets:
-        """
-        Get all assets for a blog post with Cloudflare R2 URLs.
-        
-        Args:
-            target_date: Date in YYYY-MM-DD format
-            
-        Returns:
-            BlogAssets object with stories, images, and videos
-        """
+        """Get all assets for a blog post with Cloudflare R2 URLs."""
         assets = {
             "stories": [],
             "images": [],
@@ -1880,8 +609,8 @@ class BlogDigestBuilder:
             # Convert to Cloudflare R2 URLs
             cloudflare_assets = {
                 "stories": assets["stories"],
-                "images": [self._get_cloudflare_url(path) for path in assets["images"]],
-                "videos": [self._get_cloudflare_url(path) for path in assets["videos"]]
+                "images": [self.utils.get_cloudflare_url(path) for path in assets["images"]],
+                "videos": [self.utils.get_cloudflare_url(path) for path in assets["videos"]]
             }
             
             return BlogAssets(**cloudflare_assets)
@@ -1891,16 +620,7 @@ class BlogDigestBuilder:
             raise
     
     def _get_story_assets(self, target_date: str, story_id: str) -> StoryAssets:
-        """
-        Get assets for a specific story.
-        
-        Args:
-            target_date: Date in YYYY-MM-DD format
-            story_id: Story identifier
-            
-        Returns:
-            StoryAssets object with video, images, and highlights
-        """
+        """Get assets for a specific story."""
         story_assets = {
             "images": [],
             "video": None,
@@ -1928,25 +648,3 @@ class BlogDigestBuilder:
         except Exception as e:
             logger.exception("Failed to get story assets for %s", story_id)
             return StoryAssets(video=None, images=[], highlights=[])
-    
-    def _get_cloudflare_url(self, asset_path: str) -> str:
-        """
-        Convert local asset path to Worker API URL.
-        
-        Args:
-            asset_path: Local asset path (e.g., "stories/2025/08/29/story_123.mp4")
-            
-        Returns:
-            Full Worker API URL for the asset
-        """
-        try:
-            # Convert the asset path to the Worker's asset format
-            # Local path: stories/2025/08/29/story_123.mp4
-            # Worker path: /assets/stories/2025/08/29/story_123.mp4
-            worker_path = f"/assets/{asset_path}"
-            
-            return f"https://{self.worker_domain}{worker_path}"
-                
-        except Exception as e:
-            logger.exception("Failed to generate Worker URL for %s", asset_path)
-            return f"/{asset_path}"
