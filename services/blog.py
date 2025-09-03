@@ -86,12 +86,16 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing pre-cleaned digest for {target_date}")
                 
-                # Enhance existing digest with thumbnail URLs
-                if digest.get("story_packets"):
-                    enhanced_packets = self._enhance_existing_digest_with_thumbnails(digest, target_date)
-                    digest["story_packets"] = enhanced_packets
-                
-                return digest
+                # Check if digest has frontmatter (v2 format)
+                if digest.get("version") == "2" and "frontmatter" in digest:
+                    # Enhance existing digest with thumbnail URLs
+                    if digest.get("story_packets"):
+                        enhanced_packets = self._enhance_existing_digest_with_thumbnails(digest, target_date)
+                        digest["story_packets"] = enhanced_packets
+                    
+                    return digest
+                else:
+                    logger.info(f"Existing digest for {target_date} missing frontmatter, rebuilding...")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load pre-cleaned digest for {target_date}: {e}")
         
@@ -563,6 +567,7 @@ class BlogDigestBuilder:
         Returns:
             Path to the saved JSON file
         """
+
         target_date = digest["date"]
         
         # Create date subdirectory
@@ -574,11 +579,28 @@ class BlogDigestBuilder:
         if json_path.exists():
             logger.info("Overwriting existing digest: %s", json_path)
         
-        # Use the cache manager's atomic write method
-        if cache_manager is None:
-            from services.utils import CacheManager
-            cache_manager = CacheManager()
-        cache_manager.atomic_write_json(json_path, digest, overwrite=True)
+        # Ensure all data is JSON-serializable by converting to dict first
+        serializable_digest = {}
+        for key, value in digest.items():
+            if hasattr(value, 'model_dump'):
+                # Handle Pydantic models
+                serializable_digest[key] = value.model_dump(mode='json')
+            else:
+                serializable_digest[key] = value
+        
+
+        
+        # Save JSON directly to ensure proper serialization
+        try:
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_digest, f, indent=2, default=str)
+        except Exception as e:
+            logger.warning(f"Direct JSON save failed: {e}, falling back to cache manager")
+            # Fall back to cache manager
+            if cache_manager is None:
+                from services.utils import CacheManager
+                cache_manager = CacheManager()
+            cache_manager.atomic_write_json(json_path, serializable_digest, overwrite=True)
         
         return json_path
     
@@ -1107,7 +1129,9 @@ class BlogDigestBuilder:
                                 thumbnail_url = self._get_video_thumbnail_url(video_path, packet.get('id', ''))
                                 
                                 if thumbnail_url:
-                                    content_parts.append(f'<video controls poster="{thumbnail_url}" src="{escaped_video_path}"></video>')
+                                    # Escape thumbnail URL for HTML attribute to prevent XSS
+                                    escaped_thumbnail_url = html.escape(thumbnail_url, quote=True)
+                                    content_parts.append(f'<video controls poster="{escaped_thumbnail_url}" src="{escaped_video_path}"></video>')
                                 else:
                                     content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
                                 content_parts.append("")

@@ -1,140 +1,87 @@
-# Cloudflare Worker for Quill Auto Blogger
+# Quill Auto Blogger Cloudflare Worker
 
-This Cloudflare Worker provides a fast, edge-cached API for serving blog posts and assets from your Quill Auto Blogger application.
+A clean, focused Cloudflare Worker that serves blog content and API endpoints for the Quill Auto Blogger system.
+
+## Architecture
+
+The worker follows a clean separation of concerns:
+
+- **`worker.js`** - Core routing and API logic (kept minimal and focused)
+- **`index.html`** - Static home page with API documentation
+- **`upload-index.sh`** - Helper script to upload the index file to R2
 
 ## Features
 
-- **Edge Caching**: Responses are cached at Cloudflare's edge for fast global delivery
-- **R2 Integration**: Direct access to Cloudflare R2 storage for assets
-- **CORS Support**: Built-in CORS handling for cross-origin requests
-- **API Proxy**: Forwards requests to your local API server and caches responses
-- **Asset Serving**: Serves static assets (images, videos) directly from R2
+### Core Functions
+- **Blog API** (`/api/blog/{date}`) - Serves blog digest data as JSON
+- **Asset Serving** (`/assets/*`) - Serves static assets from R2 bucket
+- **Health Check** (`/health`) - Simple health endpoint
+- **Home Page** (`/`) - Serves the static index.html file
 
-## Prerequisites
+### CORS Support
+- Handles preflight requests
+- Adds CORS headers to all responses
+- Configurable for cross-origin access
 
-1. **Cloudflare Account**: You need a Cloudflare account with Workers enabled
-2. **R2 Bucket**: Your `quill-auto-blogger` R2 bucket should be set up
-3. **Wrangler CLI**: Install Cloudflare's Wrangler CLI tool
+### Edge Caching
+- Browser cache: 5 minutes for API, 1 hour for HTML
+- Edge cache: 30 minutes for API, 24 hours for HTML
+- CDN-optimized headers
 
-## Installation
+## Setup
 
-1. Install Wrangler CLI:
+1. **Deploy the worker:**
    ```bash
-   npm install -g wrangler
+   wrangler deploy
    ```
 
-2. Login to Cloudflare:
+2. **Upload the index.html file:**
    ```bash
-   wrangler login
+   ./upload-index.sh
    ```
+   
+   Note: This uploads to the `quill-auto-blogger` R2 bucket.
 
-3. Set your Cloudflare account ID:
+3. **Test the endpoints:**
    ```bash
-   wrangler config set account-id YOUR_ACCOUNT_ID
+   # Test home page
+   curl https://your-worker.your-subdomain.workers.dev/
+   
+   # Test blog API
+   curl https://your-worker.your-subdomain.workers.dev/api/blog/2025-08-29
+   
+   # Test health
+   curl https://your-worker.your-subdomain.workers.dev/health
    ```
-
-## Configuration
-
-1. **Update `wrangler.toml`**:
-   - Set your R2 bucket name
-   - Update `LOCAL_API_URL` for production
-   - Configure environment-specific settings
-
-2. **Set Secrets**:
-   ```bash
-   wrangler secret put WORKER_BEARER_TOKEN
-   # Enter your bearer token when prompted
-   ```
-
-## Deployment
-
-### Development
-```bash
-cd cloudflare-worker
-wrangler dev
-```
-
-### Production
-```bash
-cd cloudflare-worker
-wrangler deploy --env production
-```
-
-### Staging
-```bash
-cd cloudflare-worker
-wrangler deploy --env staging
-```
-
-## API Endpoints
-
-The worker provides the following endpoints:
-
-### Blog Posts
-- `GET /api/blog/{date}` - Get complete blog post data
-- `GET /api/blog/{date}/markdown` - Get raw markdown content
-- `GET /api/blog/{date}/digest` - Get digest data
-
-### Assets
-- `GET /api/assets/stories/{date}` - List all story assets for a date
-- `GET /api/assets/stories/{date}/{story_id}` - Get assets for a specific story
-- `GET /api/assets/blog/{date}` - Get all assets for a blog post
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `LOCAL_API_URL` | URL of your local API server | `http://localhost:8000` |
-| `WORKER_BEARER_TOKEN` | Secret token for API authentication | Required |
-| `BLOG_BUCKET` | R2 bucket binding for assets | `quill-auto-blogger` |
+- `BLOG_BUCKET` - R2 bucket containing blog data and index.html
+- `WORKER_BEARER_TOKEN` - Optional token for protected endpoints
 
-## Caching Strategy
+## File Structure
 
-- **Blog Data**: 5 minutes browser, 1 hour edge
-- **Asset Metadata**: 5 minutes browser, 30 minutes edge
-- **Static Assets**: 24 hours browser and edge
-
-## Security
-
-- **Bearer Token**: All API requests require valid `Authorization: Bearer <token>` header
-- **CORS**: Configured for cross-origin requests (customize as needed)
-- **Input Validation**: Date format and path validation
-
-## Monitoring
-
-Monitor your worker in the Cloudflare dashboard:
-- **Analytics**: Request counts, response times, cache hit rates
-- **Logs**: Real-time request logs and errors
-- **Performance**: Edge caching effectiveness
-
-## Troubleshooting
-
-### Common Issues
-
-1. **R2 Access Denied**: Check R2 bucket permissions and API tokens
-2. **API Timeout**: Verify your local API server is accessible
-3. **CORS Errors**: Check CORS configuration in your local API
-4. **Cache Misses**: Verify cache headers are being set correctly
-
-### Debug Mode
-
-Enable debug logging in development:
-```bash
-wrangler dev --log-level debug
 ```
+cloudflare-worker/
+├── worker.js          # Main worker logic (clean and focused)
+├── index.html         # Static home page with API docs
+├── upload-index.sh    # Script to upload index.html to R2
+├── wrangler.toml      # Worker configuration
+└── README.md          # This file
+```
+
+## Benefits of This Structure
+
+1. **Separation of Concerns** - Worker handles logic, HTML handles presentation
+2. **Maintainability** - Easy to update the home page without touching worker code
+3. **Performance** - Static HTML served from R2 with proper caching
+4. **Clean Code** - Worker.js is now focused and readable
+5. **Scalability** - Easy to add more static assets or modify the home page
 
 ## Future Enhancements
 
-- **Direct R2 Asset Serving**: Serve assets directly from R2 without proxying
-- **Image Optimization**: Automatic image resizing and format conversion
-- **Rate Limiting**: Implement request rate limiting
-- **Analytics**: Custom analytics and metrics collection
-- **A/B Testing**: Support for content variants and testing
-
-## Support
-
-For issues and questions:
-1. Check Cloudflare Worker logs
-2. Verify R2 bucket configuration
-3. Test local API endpoints
-4. Review CORS and authentication setup
+- Add more API endpoints as needed
+- Implement authentication for protected routes
+- Add rate limiting
+- Expand asset serving capabilities
+- Add monitoring and logging
