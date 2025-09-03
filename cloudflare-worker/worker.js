@@ -21,7 +21,7 @@ export default {
       // Route requests based on path
       if (path === '/' || path === '') {
         return await handleIndexPage(request, env);
-      } else if (path.startsWith('/api/blog/')) {
+      } else if (path.startsWith('/blog/')) {
         return await handleBlogAPI(request, env, requestCtx, path);
       } else if (path.startsWith('/assets/')) {
         // Simple asset serving - just remove /assets/ prefix and serve from R2
@@ -80,9 +80,9 @@ function createErrorResponse(message, status) {
  */
 async function handleBlogAPI(request, env, ctx, path) {
   const segments = path.split('/');
-  const date = segments[3];
+  const date = segments[2]; // For /blog/2025-08-27, date is at index 2
   
-  if (!date || segments.length < 4) {
+  if (!date || segments.length < 3) {
     return createErrorResponse('Invalid blog path', 400);
   }
   
@@ -93,7 +93,7 @@ async function handleBlogAPI(request, env, ctx, path) {
   
   try {
     // Get digest data from R2 bucket (primary data source)
-    const digestKey = `blogs/${date}/PRE-CLEANED-${date}_digest.json`;
+    const digestKey = `blogs/${date}/FINAL-${date}_digest.json`;
     
     let digestData = null;
     

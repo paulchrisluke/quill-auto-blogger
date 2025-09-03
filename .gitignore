@@ -246,6 +246,9 @@ drafts/
 config.local.py
 settings.local.py
 
+# Cloudflare Workers
+wrangler.toml
+
 # Docker
 .dockerignore
 Dockerfile

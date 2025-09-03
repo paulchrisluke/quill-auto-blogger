@@ -1,594 +1,476 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Quill Auto Blogger API</title>
     <style>
+        :root {
+            --bg: #ffffff;
+            --sidebar: #f6f8fa;
+            --panel: #f6f8fa;
+            --line: #d0d7de;
+            --text: #24292f;
+            --muted: #656d76;
+            --accent: #0969da;
+            --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+        }
+
         * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
+            margin: 0;
+            padding: 0
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            line-height: 1.6;
-            color: #1a1a1a;
-            background: #ffffff;
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            display: grid;
+            grid-template-columns: 220px 1fr 420px;
             min-height: 100vh;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 40px 20px;
+        /* Sidebar */
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow: auto;
+            background: var(--sidebar);
+            border-right: 1px solid var(--line);
+            padding: 20px 14px;
         }
 
-        .header {
-            text-align: center;
-            margin-bottom: 60px;
-            border-bottom: 1px solid #e5e7eb;
-            padding-bottom: 40px;
+        .brand {
+            font-size: 15px;
+            font-weight: 800;
+            margin-bottom: 22px
         }
 
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 16px;
-            color: #111827;
-            font-weight: 700;
+        .nav-title {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            margin: 14px 8px 6px
         }
 
-        .header p {
-            font-size: 1.125rem;
-            color: #6b7280;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-
-        .endpoint-section {
-            margin-bottom: 60px;
-        }
-
-        .section-title {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: #111827;
-            margin-bottom: 24px;
-            padding-bottom: 12px;
-            border-bottom: 2px solid #f3f4f6;
-        }
-
-        .endpoint-card {
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
+        .nav-link {
+            display: block;
+            padding: 8px 10px;
             border-radius: 8px;
-            margin-bottom: 32px;
-            overflow: hidden;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            color: var(--text);
+            text-decoration: none;
+            font-size: 14px;
         }
 
-        .endpoint-header {
-            background: #f9fafb;
-            padding: 20px;
-            border-bottom: 1px solid #e5e7eb;
+        .nav-link:hover {
+            background: #f3f4f6
         }
 
-        .endpoint-title {
+        .nav-link.active {
+            background: #0969da;
+            color: #ffffff
+        }
+
+        .github-icon {
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        /* Main */
+        .main {
+            padding: 32px;
+            overflow: auto;
+            max-width: 100%;
+            display: block
+        }
+
+        .main h1 {
+            font-size: 28px;
+            margin-bottom: 6px
+        }
+
+        .lead {
+            color: var(--muted);
+            margin-bottom: 28px
+        }
+
+        .endpoint {
+            padding: 24px 0;
+            border-top: 1px solid var(--line);
+            width: 100%;
+            display: block
+        }
+
+        .endpoint:first-of-type {
+            border-top: none
+        }
+
+        .ep-head {
             display: flex;
             align-items: center;
-            margin-bottom: 12px;
+            gap: 12px;
+            margin-bottom: 6px
         }
 
         .method {
-            padding: 4px 12px;
-            border-radius: 4px;
-            font-weight: 600;
-            font-size: 0.875rem;
-            margin-right: 16px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .method.get { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-        .method.post { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
-        .method.put { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-        .method.delete { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-
-        .endpoint-path {
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-            font-size: 1.125rem;
-            color: #111827;
-            font-weight: 500;
-        }
-
-        .endpoint-description {
-            color: #6b7280;
-            font-size: 0.875rem;
-            margin-top: 8px;
-        }
-
-        .endpoint-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 40px;
-            padding: 24px;
-        }
-
-        .left-column {
-            border-right: 1px solid #e5e7eb;
-            padding-right: 24px;
-        }
-
-        .right-column {
-            padding-left: 24px;
-        }
-
-        .content-section {
-            margin-bottom: 24px;
-        }
-
-        .content-title {
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #374151;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 12px;
-        }
-
-        .content-item {
-            margin-bottom: 16px;
-        }
-
-        .content-label {
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #111827;
-            margin-bottom: 4px;
-        }
-
-        .content-value {
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-            background: #f9fafb;
-            padding: 8px 12px;
-            border-radius: 4px;
-            border: 1px solid #e5e7eb;
-            font-size: 0.875rem;
-            color: #1f2937;
-            word-break: break-all;
-        }
-
-        .code-block {
-            background: #1f2937;
-            color: #f9fafb;
-            padding: 16px;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 4px 8px;
             border-radius: 6px;
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-            font-size: 0.875rem;
-            overflow-x: auto;
-            margin-top: 8px;
+            text-transform: uppercase
         }
 
-        .code-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 12px;
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #9ca3af;
+        .GET {
+            background: #ddf4d8;
+            color: #1a7f37;
+            border: 1px solid #1a7f37
         }
 
-        .code-icon {
-            margin-right: 8px;
-            font-size: 1rem;
+        .POST {
+            background: #ffebe9;
+            color: #cf222e;
+            border: 1px solid #cf222e
         }
 
-        .auth-badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            margin-left: 12px;
+        .path {
+            font-family: var(--mono);
+            font-size: 14px;
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
+            padding: 3px 8px;
+            border-radius: 6px
         }
 
-        .auth-public { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-        .auth-protected { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-
-        .available-blogs {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 24px;
-            margin-top: 24px;
+        .desc {
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 12px
         }
 
-        .blog-card {
-            background: #f9fafb;
-            border: 1px solid #e5e7eb;
+        .notes {
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
             border-radius: 6px;
-            padding: 20px;
+            padding: 12px;
+            margin: 12px 0;
+            color: #656d76;
+            font-size: 13px;
+            font-style: italic
         }
 
-        .blog-title {
-            font-weight: 600;
-            color: #111827;
-            margin-bottom: 8px;
+        .subttl {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .14em;
+            color: var(--muted);
+            margin-top: 14px
         }
 
-        .blog-description {
-            color: #6b7280;
-            font-size: 0.875rem;
-            margin-bottom: 16px;
+        .kv {
+            margin-top: 8px;
+            width: 100%;
+            display: block
         }
 
-        .blog-try {
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+        .kv dt {
+            font-size: 13px;
+            color: #24292f
+        }
+
+        .kv dd {
+            font-family: var(--mono);
+            font-size: 13px;
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            padding: 6px 8px;
+            margin: 6px 0 10px;
+            color: #24292f
+        }
+
+        /* Right code panel */
+        .panel {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow: auto;
+            background: var(--panel);
+            border-left: 1px solid var(--line);
+            padding: 22px 18px;
+        }
+
+        .label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .14em;
+            color: var(--muted);
+            margin: 4px 0 8px
+        }
+
+        .code {
+            position: relative;
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 13px;
+            white-space: pre;
+            overflow: auto;
+            color: #24292f
+        }
+
+        .copy {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            font-size: 12px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            border: 1px solid #d0d7de;
             background: #ffffff;
-            padding: 8px 12px;
-            border-radius: 4px;
-            border: 1px solid #d1d5db;
-            font-size: 0.875rem;
-            color: #374151;
+            color: #656d76;
+            cursor: pointer
         }
 
-        @media (max-width: 768px) {
-            .endpoint-content {
-                grid-template-columns: 1fr;
-                gap: 24px;
+        /* Responsive */
+        @media (max-width: 1200px) {
+            body {
+                grid-template-columns: 220px 1fr
             }
-            
-            .left-column {
-                border-right: none;
-                border-bottom: 1px solid #e5e7eb;
-                padding-right: 0;
-                padding-bottom: 24px;
+
+            .panel {
+                display: none
             }
-            
-            .right-column {
-                padding-left: 0;
+        }
+
+        @media (max-width: 700px) {
+            body {
+                grid-template-columns: 1fr
             }
-            
-            .header h1 {
-                font-size: 2rem;
+
+            .sidebar {
+                display: none
             }
-            
-            .container {
-                padding: 20px 16px;
+
+            .main {
+                padding: 22px 16px
             }
+        }
+
+        a {
+            color: #0969da
         }
     </style>
 </head>
+
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>Quill Auto Blogger API</h1>
-            <p>Automated blog generation from Twitch clips and GitHub activity. Access your finalized blogs through our RESTful API endpoints.</p>
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
+        <div class="brand">Quill Auto Blogger API</div>
+        <div class="nav-title">Blog</div>
+        <a class="nav-link active" href="#ep-blog">/blog/{date}</a>
+        <a class="nav-link" href="#ep-assets">/assets/*</a>
+
+        <div class="nav-title">Control</div>
+        <a class="nav-link" href="#ep-start">/control/record/start</a>
+
+        <div class="nav-title">Links</div>
+        <a class="nav-link github-link" href="https://github.com/paulchrisluke/quill-auto-blogger" target="_blank">
+            <svg class="github-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                    d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+            </svg>
+            View on GitHub
+        </a>
+    </aside>
+
+    <!-- MAIN CONTENT (simple one column) -->
+    <main class="main" id="content">
+        <h1>API Reference</h1>
+        <p class="lead">Pure JSON API for AI-enhanced blog content. The Worker serves FINAL digest data with AI enhancements, structured SEO metadata, and complete story packets.</p>
+        
+        <div class="notes">
+            <strong>Pipeline Structure:</strong> The system generates PRE-CLEANED (raw) and FINAL (AI-enhanced) digest versions. 
+            The API serves the FINAL version with AI-generated content including SEO descriptions, holistic intros, wrap-ups, and story intros.
         </div>
 
-        <div class="endpoint-section">
-            <h2 class="section-title">Blog Content Endpoints</h2>
-            
-            <!-- Get Complete Blog Data -->
-            <div class="endpoint-card">
-                <div class="endpoint-header">
-                    <div class="endpoint-title">
-                        <span class="method get">GET</span>
-                        <span class="endpoint-path">/api/blog/{date}</span>
-                        <span class="auth-badge auth-public">Public</span>
-                    </div>
-                    <div class="endpoint-description">
-                        Retrieve complete blog data including story packets, metadata, and assets
-                    </div>
-                </div>
-                <div class="endpoint-content">
-                    <div class="left-column">
-                        <div class="content-section">
-                            <div class="content-title">Path Parameters</div>
-                            <div class="content-item">
-                                <div class="content-label">date</div>
-                                <div class="content-value">string (YYYY-MM-DD format)</div>
-                            </div>
-                        </div>
-                        <div class="content-section">
-                            <div class="content-title">Example</div>
-                            <div class="content-item">
-                                <div class="content-value">/api/blog/2025-08-29</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="right-column">
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">💻</span>
-                                cURL
-                            </div>
-                            <div class="code-block">curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-29"</div>
-                        </div>
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">📄</span>
-                                200 Example
-                            </div>
-                            <div class="code-block">{
+        <!-- GET /blog/{date} -->
+        <section id="ep-blog" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-08-29"' data-json='{
+  "version": "2",
   "date": "2025-08-29",
-  "stories": [
+  "frontmatter": {
+    "title": "Daily Devlog — Aug 29, 2025",
+    "description": "AI-enhanced description...",
+    "holistic_intro": "AI-generated holistic introduction...",
+    "wrap_up": "AI-generated wrap-up...",
+    "schema": {
+      "article": {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "Daily Devlog — Aug 29, 2025"
+      }
+    }
+  },
+  "story_packets": [
     {
       "id": "story_20250829_pr43",
-      "title": "Story Title",
-      "content": "Story content...",
-      "assets": {
-        "video": "https://media.paulchrisluke.com/stories/2025/08/29/story_20250829_pr43.mp4",
-        "images": ["..."],
-        "highlights": ["..."]
+      "title_human": "Shipped: Feature Name",
+      "ai_micro_intro": "AI-generated micro introduction...",
+      "ai_comprehensive_intro": "AI-generated comprehensive introduction...",
+      "video": {
+        "thumbnail_url": "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png"
       }
     }
   ]
-}</div>
-                        </div>
-                    </div>
-                </div>
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/blog/{date}</span></div>
+            <p class="desc">Retrieve complete AI-enhanced blog data including frontmatter, story packets, and structured SEO metadata.</p>
+            <div class="notes">Returns FINAL digest data with AI enhancements, JSON-LD schema, and complete story packets.</div>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
+            </dl>
+            <div class="subttl">Example</div>
+            <dl class="kv">
+                <dd>/api/blog/2025-08-29</dd>
+            </dl>
+        </section>
+
+
+
+        <!-- GET /assets/* -->
+        <section id="ep-assets" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png"' data-json='Direct asset serving from R2 bucket'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/assets/*</span>
             </div>
+            <p class="desc">Serve static assets (images, videos, highlights) directly from R2 bucket.</p>
+            <div class="notes">Assets are served with proper content-type headers and caching.</div>
+            <div class="subttl">Example Paths</div>
+            <dl class="kv">
+                <dt>Story thumbnails</dt>
+                <dd>/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png</dd>
+                <dt>Video files</dt>
+                <dd>/assets/stories/2025/08/29/story_20250829_pr43.mp4</dd>
+            </dl>
+        </section>
 
-            <!-- Get Blog Markdown -->
-            <div class="endpoint-card">
-                <div class="endpoint-header">
-                    <div class="endpoint-title">
-                        <span class="method get">GET</span>
-                        <span class="endpoint-path">/api/blog/{date}/markdown</span>
-                        <span class="auth-badge auth-public">Public</span>
-                    </div>
-                    <div class="endpoint-description">
-                        Retrieve just the markdown content for the blog post
-                    </div>
-                </div>
-                <div class="endpoint-content">
-                    <div class="left-column">
-                        <div class="content-section">
-                            <div class="content-title">Path Parameters</div>
-                            <div class="content-item">
-                                <div class="content-label">date</div>
-                                <div class="content-value">string (YYYY-MM-DD format)</div>
-                            </div>
-                        </div>
-                        <div class="content-section">
-                            <div class="content-title">Example</div>
-                            <div class="content-item">
-                                <div class="content-value">/api/blog/2025-08-29/markdown</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="right-column">
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">💻</span>
-                                cURL
-                            </div>
-                            <div class="code-block">curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-29/markdown"</div>
-                        </div>
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">📄</span>
-                                200 Example
-                            </div>
-                            <div class="code-block"># Blog Post Title
-
-This is the markdown content of the blog post...
-
-## Story 1
-Content for the first story...
-
-## Story 2  
-Content for the second story...</div>
-                        </div>
-                    </div>
-                </div>
+        <!-- POST /control/record/start -->
+        <section id="ep-start" class="endpoint" data-curl='curl -X POST "https://quill-blog-api.paulchrisluke.workers.dev/control/record/start" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d ' \''{"story_id":"test_story","bounded":false}'\'' ' data-json=' { "status" : "started" , "mode" : "bounded"
+            , "story_id" : "test_story" , "prep_delay" : 5, "duration" : 15 }'>
+            <div class="ep-head"><span class="method POST">POST</span><span class="path">/control/record/start</span>
             </div>
+            <p class="desc">Start recording for a story (requires token). Supports optional <code
+                    style="font-family:var(--mono)">bounded</code> mode.</p>
+            <div class="subttl">Headers</div>
+            <dl class="kv">
+                <dt>Authorization</dt>
+                <dd>Bearer &lt;CONTROL_API_TOKEN&gt;</dd>
+            </dl>
+            <div class="subttl">Request Body</div>
+            <dl class="kv">
+                <dt>story_id</dt>
+                <dd>string</dd>
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD, optional)</dd>
+                <dt>bounded</dt>
+                <dd>boolean (default: false)</dd>
+            </dl>
+        </section>
+    </main>
 
-            <!-- Get Blog Digest -->
-            <div class="endpoint-card">
-                <div class="endpoint-header">
-                    <div class="endpoint-title">
-                        <span class="method get">GET</span>
-                        <span class="endpoint-path">/api/blog/{date}/digest</span>
-                        <span class="auth-badge auth-public">Public</span>
-                    </div>
-                    <div class="endpoint-description">
-                        Retrieve digest data with story packets and metadata
-                    </div>
-                </div>
-                <div class="endpoint-content">
-                    <div class="left-column">
-                        <div class="content-section">
-                            <div class="content-title">Path Parameters</div>
-                            <div class="content-item">
-                                <div class="content-label">date</div>
-                                <div class="content-value">string (YYYY-MM-DD format)</div>
-                            </div>
-                        </div>
-                        <div class="content-section">
-                            <div class="content-title">Example</div>
-                            <div class="content-item">
-                                <div class="content-value">/api/blog/2025-08-29/digest</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="right-column">
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">💻</span>
-                                cURL
-                            </div>
-                            <div class="code-block">curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-29/digest"</div>
-                        </div>
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">📄</span>
-                                200 Example
-                            </div>
-                            <div class="code-block">{
-  "date": "2025-08-29",
-  "stories": [
-    {
-      "id": "story_20250829_pr43",
-      "title": "Story Title",
-      "summary": "Story summary...",
-      "metadata": {
-        "created_at": "2025-08-29T10:00:00Z",
-        "tags": ["github", "twitch"]
-      }
-    }
-  ]
-}</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <!-- RIGHT CODE PANEL -->
+    <aside class="panel">
+        <div class="label">cURL</div>
+        <div class="code" id="code-curl"><button class="copy">Copy</button>
+            curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-08-29"
         </div>
-
-        <div class="endpoint-section">
-            <h2 class="section-title">Asset Endpoints</h2>
-            
-            <!-- Get All Blog Assets -->
-            <div class="endpoint-card">
-                <div class="endpoint-header">
-                    <div class="endpoint-title">
-                        <span class="method get">GET</span>
-                        <span class="endpoint-path">/api/assets/blog/{date}</span>
-                        <span class="auth-badge auth-public">Public</span>
-                    </div>
-                    <div class="endpoint-description">
-                        Retrieve all assets (images, videos, highlights) for a blog post
-                    </div>
-                </div>
-                <div class="endpoint-content">
-                    <div class="left-column">
-                        <div class="content-section">
-                            <div class="content-title">Path Parameters</div>
-                            <div class="content-item">
-                                <div class="content-label">date</div>
-                                <div class="content-value">string (YYYY-MM-DD format)</div>
-                            </div>
-                        </div>
-                        <div class="content-section">
-                            <div class="content-title">Response Structure</div>
-                            <div class="content-item">
-                                <div class="content-value">{"video": "...", "images": [...], "highlights": [...]}</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="right-column">
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">💻</span>
-                                cURL
-                            </div>
-                            <div class="code-block">curl "https://quill-blog-api.paulchrisluke.workers.dev/api/assets/blog/2025-08-29"</div>
-                        </div>
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">📄</span>
-                                200 Example
-                            </div>
-                            <div class="code-block">{
-  "video": "https://media.paulchrisluke.com/stories/2025/08/29/story_20250829_pr43.mp4",
-  "images": [
-    "https://media.paulchrisluke.com/stories/2025/08/29/story_20250829_pr43_intro.png"
-  ],
-  "highlights": [
-    "https://media.paulchrisluke.com/stories/2025/08/29/story_20250829_pr43_hl_001.png"
-  ]
-}</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div class="label">200 Example</div>
+        <div class="code" id="code-json"><button class="copy">Copy</button>
+            {
+            "version": "2",
+            "date": "2025-08-29",
+            "frontmatter": {
+                "title": "Daily Devlog — Aug 29, 2025",
+                "description": "AI-enhanced description...",
+                "holistic_intro": "AI-generated holistic introduction...",
+                "wrap_up": "AI-generated wrap-up..."
+            },
+            "story_packets": [...]
+            }
         </div>
+    </aside>
 
-        <div class="endpoint-section">
-            <h2 class="section-title">Control Endpoints (Protected)</h2>
-            
-            <!-- Start Recording -->
-            <div class="endpoint-card">
-                <div class="endpoint-header">
-                    <div class="endpoint-title">
-                        <span class="method post">POST</span>
-                        <span class="endpoint-path">/control/record/start</span>
-                        <span class="auth-badge auth-protected">Protected</span>
-                    </div>
-                    <div class="endpoint-description">
-                        Start recording for a story (with optional bounded mode)
-                    </div>
-                </div>
-                <div class="endpoint-content">
-                    <div class="left-column">
-                        <div class="content-section">
-                            <div class="content-title">Headers</div>
-                            <div class="content-item">
-                                <div class="content-label">Authorization</div>
-                                <div class="content-value">Bearer &lt;CONTROL_API_TOKEN&gt;</div>
-                            </div>
-                        </div>
-                        <div class="content-section">
-                            <div class="content-title">Request Body</div>
-                            <div class="content-item">
-                                <div class="content-label">story_id</div>
-                                <div class="content-value">string</div>
-                            </div>
-                            <div class="content-item">
-                                <div class="content-label">date</div>
-                                <div class="content-value">string (YYYY-MM-DD, optional)</div>
-                            </div>
-                            <div class="content-item">
-                                <div class="content-label">bounded</div>
-                                <div class="content-value">boolean (default: false)</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="right-column">
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">💻</span>
-                                cURL
-                            </div>
-                            <div class="code-block">curl -X POST "https://quill-blog-api.paulchrisluke.workers.dev/control/record/start" \\
-  -H "Authorization: Bearer YOUR_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{"story_id": "test_story", "bounded": false}'</div>
-                        </div>
-                        <div class="content-section">
-                            <div class="code-header">
-                                <span class="code-icon">📄</span>
-                                200 Example
-                            </div>
-                            <div class="code-block">{
-  "status": "started",
-  "mode": "bounded",
-  "story_id": "test_story",
-  "prep_delay": 5,
-  "duration": 15
-}</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <script>
+        // Map endpoint sections to sidebar and set initial example
+        const sections = [...document.querySelectorAll('.endpoint')];
+        const sidebarLinks = [...document.querySelectorAll('.nav-link')];
+        const curlEl = document.getElementById('code-curl');
+        const jsonEl = document.getElementById('code-json');
 
-        <div class="endpoint-section">
-            <h2 class="section-title">Available Blogs</h2>
-            <div class="available-blogs">
-                <div class="blog-card">
-                    <div class="blog-title">2025-08-27</div>
-                    <div class="blog-description">Blog from August 27, 2025</div>
-                    <div class="blog-try">/api/blog/2025-08-27</div>
-                </div>
-                <div class="blog-card">
-                    <div class="blog-title">2025-08-29</div>
-                    <div class="blog-description">Blog from August 29, 2025</div>
-                    <div class="blog-try">/api/blog/2025-08-29</div>
-                </div>
-            </div>
-        </div>
-    </div>
+        function setExamplesFrom(el) {
+            const curl = el.getAttribute('data-curl') || '';
+            const json = el.getAttribute('data-json') || '';
+            setBlock(curlEl, curl);
+            setBlock(jsonEl, json);
+            // highlight active link
+            const id = '#' + el.id;
+            sidebarLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === id));
+        }
+
+        function setBlock(blockEl, text) {
+            // replace only the text node (keep the copy button)
+            const btn = blockEl.querySelector('.copy');
+            blockEl.textContent = '\n' + text;
+            if (btn) { blockEl.prepend(btn); }
+        }
+
+        // Click in sidebar updates examples
+        sidebarLinks.forEach(a => {
+            a.addEventListener('click', (e) => {
+                const id = a.getAttribute('href').slice(1);
+                const target = document.getElementById(id);
+                if (target) {
+                    e.preventDefault();
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setExamplesFrom(target);
+                }
+            });
+        });
+
+        // Scroll spy: when you scroll, update examples to nearest section
+        const spy = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    setExamplesFrom(entry.target);
+                }
+            });
+        }, { root: document.querySelector('.main'), threshold: 0.4 });
+
+        sections.forEach(s => spy.observe(s));
+        setExamplesFrom(document.getElementById('ep-blog')); // initial
+
+        // Copy buttons
+        document.querySelectorAll('.code .copy').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const parent = btn.parentElement;
+                const text = parent.textContent.replace('Copy', '').trim();
+                navigator.clipboard.writeText(text);
+                const old = btn.textContent; btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = old, 1200);
+            });
+        });
+    </script>
 </body>
+
 </html>

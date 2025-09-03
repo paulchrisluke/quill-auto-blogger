@@ -13,7 +13,7 @@ The worker follows a clean separation of concerns:
 ## Features
 
 ### Core Functions
-- **Blog API** (`/api/blog/{date}`) - Serves blog digest data as JSON
+- **Blog API** (`/blog/{date}`) - Serves FINAL digest data as JSON with AI enhancements
 - **Asset Serving** (`/assets/*`) - Serves static assets from R2 bucket
 - **Health Check** (`/health`) - Simple health endpoint
 - **Home Page** (`/`) - Serves the static index.html file
@@ -48,7 +48,7 @@ The worker follows a clean separation of concerns:
    curl https://your-worker.your-subdomain.workers.dev/
    
    # Test blog API
-   curl https://your-worker.your-subdomain.workers.dev/api/blog/2025-08-29
+   curl https://your-worker.your-subdomain.workers.dev/blog/2025-08-29
    
    # Test health
    curl https://your-worker.your-subdomain.workers.dev/health
@@ -77,6 +77,8 @@ cloudflare-worker/
 3. **Performance** - Static HTML served from R2 with proper caching
 4. **Clean Code** - Worker.js is now focused and readable
 5. **Scalability** - Easy to add more static assets or modify the home page
+6. **Pure JSON API** - Serves FINAL digest data with AI enhancements for frontend consumption
+7. **Global Distribution** - R2-backed API with edge caching for fast global access
 
 ## Future Enhancements
 

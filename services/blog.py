@@ -88,6 +88,19 @@ class BlogDigestBuilder:
                 
                 # Check if digest has frontmatter (v2 format)
                 if digest.get("version") == "2" and "frontmatter" in digest:
+                    logger.info(f"Loaded existing v2 digest for {target_date}")
+                    
+                    # Check if digest already has AI-enhanced content
+                    has_ai_content = (
+                        "holistic_intro" in digest["frontmatter"] or
+                        "wrap_up" in digest["frontmatter"] or
+                        "description" in digest["frontmatter"] or
+                        any("ai_" in str(packet) for packet in digest.get("story_packets", []))
+                    )
+                    
+                    # Don't enhance existing PRE-CLEANED digests - AI enhancement happens in separate phase
+                    logger.info(f"Found existing PRE-CLEANED digest for {target_date}")
+                    
                     # Enhance existing digest with thumbnail URLs
                     if digest.get("story_packets"):
                         enhanced_packets = self._enhance_existing_digest_with_thumbnails(digest, target_date)
@@ -135,6 +148,147 @@ class BlogDigestBuilder:
             "frontmatter": frontmatter.model_dump(mode="json", by_alias=True),
             "story_packets": [packet.model_dump(mode="json") for packet in enhanced_story_packets]
         }
+        
+        # M5: AI enhancement happens in separate phase - save raw digest first
+        # digest = self._enhance_digest_with_ai(digest)
+        
+        return digest
+    
+    def _select_best_image(self, story_packets: List[Dict[str, Any]]) -> str:
+        """
+        Select the best image for the blog post from available story thumbnails.
+        
+        Args:
+            story_packets: List of story packet dictionaries
+            
+        Returns:
+            URL of the best image to use
+        """
+        # Look for thumbnail URLs in story packets
+        for packet in story_packets:
+            if "video" in packet and "thumbnail_url" in packet["video"]:
+                thumbnail_url = packet["video"]["thumbnail_url"]
+                if thumbnail_url and thumbnail_url != "null":
+                    return thumbnail_url
+        
+        # Fallback to default image
+        return os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
+    
+    def _enhance_digest_with_ai(self, digest: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        M5: Enhance digest with AI-generated content during pre-cleaning phase.
+        
+        This method applies AI enhancements to the digest before it's saved,
+        ensuring the API serves the enhanced content without requiring
+        additional AI calls during serving.
+        
+        Args:
+            digest: Raw digest data dictionary
+            
+        Returns:
+            Enhanced digest with AI-generated content
+        """
+        try:
+            from .ai_inserts import AIInsertsService
+            
+            target_date = digest["date"]
+            frontmatter = digest["frontmatter"]
+            story_packets = digest.get("story_packets", [])
+            
+            # Initialize AI service
+            ai_service = AIInsertsService()
+            
+            # Prepare inputs for AI
+            story_titles = [packet.get("title_human", "") for packet in story_packets]
+            inputs = {
+                "title": frontmatter.get("title", ""),
+                "tags_csv": ",".join(frontmatter.get("tags", [])),
+                "lead": frontmatter.get("lead", ""),
+                "story_titles_csv": ",".join(story_titles)
+            }
+            
+            # 1. Generate rich SEO description for og:description
+            logger.info(f"Generating SEO description for {target_date}...")
+            seo_description = ai_service.make_seo_description(target_date, inputs, force_ai=False)
+            logger.info(f"Generated SEO description: {seo_description[:100]}...")
+            
+            # Update frontmatter og:description
+            if "og" not in frontmatter:
+                frontmatter["og"] = {}
+            frontmatter["og"]["og:description"] = seo_description
+            logger.info(f"Updated og:description in frontmatter")
+            
+            # Set frontmatter description
+            if "description" not in frontmatter:
+                frontmatter["description"] = seo_description
+            logger.info(f"Set description in frontmatter")
+            
+            # 2. Update frontmatter images with smart selection
+            best_image = self._select_best_image(story_packets)
+            if "og" in frontmatter:
+                frontmatter["og"]["og:image"] = best_image
+            if "schema" in frontmatter and "article" in frontmatter["schema"]:
+                frontmatter["schema"]["article"]["image"] = best_image
+            
+            # 3. Generate holistic intro paragraph
+            holistic_intro = ai_service.make_holistic_intro(target_date, inputs, force_ai=False)
+            if holistic_intro:
+                frontmatter["holistic_intro"] = holistic_intro
+            
+            # 4. Generate wrap-up paragraph
+            wrap_up = ai_service.make_wrap_up(target_date, inputs, force_ai=False)
+            if wrap_up:
+                frontmatter["wrap_up"] = wrap_up
+            
+            # 5. Generate AI-suggested tags
+            suggested_tags = ai_service.suggest_tags(target_date, inputs, force_ai=False)
+            if suggested_tags:
+                # Merge with existing tags, avoiding duplicates
+                existing_tags = set(frontmatter.get("tags", []))
+                existing_tags.update(suggested_tags)
+                frontmatter["tags"] = list(existing_tags)
+                
+                # Also update schema keywords
+                if "schema" in frontmatter and "article" in frontmatter["schema"]:
+                    frontmatter["schema"]["article"]["keywords"] = list(existing_tags)
+            
+            # 6. Enhance story packets with AI-generated content
+            enhanced_story_packets = []
+            for packet in story_packets:
+                enhanced_packet = packet.copy()
+                
+                # Generate story micro-intro
+                story_inputs = {
+                    "title": packet.get("title_human", ""),
+                    "why": packet.get("why", ""),
+                    "highlights_csv": ",".join(packet.get("highlights", []))
+                }
+                micro_intro = ai_service.make_story_micro_intro(target_date, story_inputs, force_ai=False)
+                if micro_intro:
+                    enhanced_packet["ai_micro_intro"] = micro_intro
+                
+                # Generate comprehensive story intro
+                comprehensive_intro = ai_service.make_story_comprehensive_intro(target_date, story_inputs, force_ai=False)
+                if comprehensive_intro:
+                    enhanced_packet["ai_comprehensive_intro"] = comprehensive_intro
+                
+                enhanced_story_packets.append(enhanced_packet)
+            
+            # Update digest with enhanced content
+            digest["frontmatter"] = frontmatter
+            digest["story_packets"] = enhanced_story_packets
+            
+            logger.info(f"Enhanced digest for {target_date} with AI-generated content")
+            logger.info(f"Added holistic_intro: {'holistic_intro' in frontmatter}")
+            logger.info(f"Added wrap_up: {'wrap_up' in frontmatter}")
+            logger.info(f"Enhanced {len(enhanced_story_packets)} story packets with AI content")
+            
+        except Exception as e:
+            logger.warning(f"Failed to enhance digest with AI content: {e}")
+            logger.warning(f"Exception details: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.warning(f"Traceback: {traceback.format_exc()}")
+            # Continue without AI enhancement - digest is still valid
         
         return digest
     
@@ -603,6 +757,106 @@ class BlogDigestBuilder:
             cache_manager.atomic_write_json(json_path, serializable_digest, overwrite=True)
         
         return json_path
+    
+    def create_final_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
+        """
+        Create FINAL version of digest with AI enhancements for API consumption.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Enhanced digest dictionary or None if failed
+        """
+        try:
+            # Load the PRE-CLEANED digest
+            pre_cleaned_path = f"blogs/{target_date}/PRE-CLEANED-{target_date}_digest.json"
+            if not os.path.exists(pre_cleaned_path):
+                logger.error(f"PRE-CLEANED digest not found: {pre_cleaned_path}")
+                return None
+            
+            with open(pre_cleaned_path, 'r') as f:
+                digest = json.load(f)
+            
+            # Apply AI enhancements
+            enhanced_digest = self._enhance_digest_with_ai(digest)
+            
+            # Save as FINAL version
+            final_path = f"blogs/{target_date}/FINAL-{target_date}_digest.json"
+            with open(final_path, 'w') as f:
+                json.dump(enhanced_digest, f, indent=2, default=str)
+            
+            logger.info(f"Created FINAL digest: {final_path}")
+            return enhanced_digest
+            
+        except Exception as e:
+            logger.error(f"Failed to create FINAL digest: {e}")
+            return None
+    
+    def upload_digest_to_r2(self, digest: Dict[str, Any]) -> bool:
+        """
+        Upload the enhanced digest to R2 bucket for Worker API consumption.
+        
+        Args:
+            digest: Enhanced digest data dictionary
+            
+        Returns:
+            True if upload successful, False otherwise
+        """
+        try:
+            from .auth import AuthService
+            from .publisher import Publisher
+            
+            # Get R2 credentials
+            auth_service = AuthService()
+            r2_credentials = auth_service.get_r2_credentials()
+            
+            if not r2_credentials:
+                logger.warning("R2 credentials not found, skipping R2 upload")
+                return False
+            
+            # Create R2 key path - upload FINAL version for API consumption
+            target_date = digest["date"]
+            r2_key = f"blogs/{target_date}/FINAL-{target_date}_digest.json"
+            
+            # Convert digest to JSON string
+            import json
+            digest_json = json.dumps(digest, indent=2, default=str)
+            
+            # Upload to R2 using boto3 directly
+            try:
+                import boto3
+                # Handle both Pydantic SecretStr and plain string types for secret_access_key
+                secret_key = r2_credentials.secret_access_key
+                if hasattr(secret_key, 'get_secret_value'):
+                    aws_secret_access_key = secret_key.get_secret_value()
+                else:
+                    aws_secret_access_key = str(secret_key) if secret_key is not None else ""
+                
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=r2_credentials.access_key_id,
+                    aws_secret_access_key=aws_secret_access_key,
+                    endpoint_url=r2_credentials.endpoint,
+                    region_name=r2_credentials.region
+                )
+                
+                s3_client.put_object(
+                    Bucket=r2_credentials.bucket,
+                    Key=r2_key,
+                    Body=digest_json.encode('utf-8'),
+                    ContentType='application/json'
+                )
+                logger.info(f"Successfully uploaded digest to R2: {r2_key}")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Failed to upload digest to R2: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to upload digest to R2: {e}")
+            return False
     
     def _load_twitch_clips(self, date_path: Path) -> List[TwitchClip]:
         """Load all Twitch clips for a given date."""
