@@ -154,25 +154,7 @@ class BlogDigestBuilder:
         
         return digest
     
-    def _select_best_image(self, story_packets: List[Dict[str, Any]]) -> str:
-        """
-        Select the best image for the blog post from available story thumbnails.
-        
-        Args:
-            story_packets: List of story packet dictionaries
-            
-        Returns:
-            URL of the best image to use
-        """
-        # Look for thumbnail URLs in story packets
-        for packet in story_packets:
-            if "video" in packet and "thumbnail_url" in packet["video"]:
-                thumbnail_url = packet["video"]["thumbnail_url"]
-                if thumbnail_url and thumbnail_url != "null":
-                    return thumbnail_url
-        
-        # Fallback to default image
-        return os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
+
     
     def _enhance_digest_with_ai(self, digest: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1141,43 +1123,63 @@ class BlogDigestBuilder:
             URL string for the thumbnail, or empty string if not available
         """
         try:
-            # Handle different video path formats
-            if video_path.startswith('out/videos/'):
-                # Convert out/videos/YYYY-MM-DD/filename.mp4 to thumbnail
-                parts = video_path.split('/')
-                if len(parts) >= 4:
-                    date_part = parts[2]  # YYYY-MM-DD
-                    filename = parts[3]   # story_YYYYMMDD_prXX.mp4
+            # Strip extension and split path into parts
+            base_name = video_path.rsplit('.', 1)[0]  # Safely strip extension
+            parts = base_name.split('/')
+            
+            # Validate path structure before indexing
+            if len(parts) < 5:
+                logger.warning(f"Invalid video path structure (insufficient parts): {video_path}")
+                return ""
+            
+            # Handle stories paths: stories/YYYY/MM/DD/filename
+            if parts[0] == 'stories':
+                try:
+                    year = parts[1]
+                    month = parts[2]
+                    day = parts[3]
+                    filename = parts[4]
                     
-                    # Convert to YYYY/MM/DD format
+                    # Validate date components
+                    if not (year.isdigit() and month.isdigit() and day.isdigit()):
+                        logger.warning(f"Invalid date components in path: {video_path}")
+                        return ""
+                    
+                    # Construct intro PNG filename
+                    intro_png = f"{filename}_01_intro.png"
+                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    
+                except (IndexError, ValueError) as e:
+                    logger.warning(f"Failed to parse stories path {video_path}: {e}")
+                    return ""
+            
+            # Handle out/videos paths: out/videos/YYYY-MM-DD/filename
+            elif parts[0] == 'out' and parts[1] == 'videos':
+                try:
+                    date_part = parts[2]  # YYYY-MM-DD
+                    filename = parts[3]
+                    
+                    # Parse date and convert to YYYY/MM/DD format
                     date_obj = datetime.strptime(date_part, "%Y-%m-%d")
                     year = str(date_obj.year)
                     month = f"{date_obj.month:02d}"
                     day = f"{date_obj.day:02d}"
                     
-                    # Generate intro PNG thumbnail path
-                    base_name = filename.replace('.mp4', '')
-                    intro_png = f"{base_name}_01_intro.png"
-                    
+                    # Construct intro PNG filename
+                    intro_png = f"{filename}_01_intro.png"
                     return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    
+                except (IndexError, ValueError) as e:
+                    logger.warning(f"Failed to parse out/videos path {video_path}: {e}")
+                    return ""
             
-            elif video_path.startswith('stories/') or video_path.startswith('/stories/'):
-                # Handle stories/YYYY/MM/DD/filename.mp4 format
+            # Handle absolute paths starting with /stories/
+            elif video_path.startswith('/stories/'):
+                # Remove leading slash and process as relative path
                 clean_path = video_path.lstrip('/')
-                parts = clean_path.split('/')
-                
-                if len(parts) >= 4:
-                    year = parts[1]   # YYYY
-                    month = parts[2]  # MM
-                    day = parts[3]    # DD
-                    filename = parts[-1]  # Use last segment for filename
-                    
-                    # Generate intro PNG thumbnail path
-                    base_name = filename.rsplit('.', 1)[0]  # Safely strip .mp4 extension
-                    intro_png = f"{base_name}_01_intro.png"
-                    
-                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                return self._get_video_thumbnail_url(clean_path, story_id)
             
+            # Handle HTTPS URLs
             elif video_path.startswith('https://'):
                 from urllib.parse import urlsplit
                 path = urlsplit(video_path).path
@@ -1187,21 +1189,19 @@ class BlogDigestBuilder:
                         stories_path = path[stories_index:]
                         # Convert video path to thumbnail path
                         thumbnail_path = stories_path.replace('.mp4', '_01_intro.png')
-                        # Get Worker domain from environment
                         return f"https://{self.worker_domain}/assets{thumbnail_path}"
             
             # Fallback: try to generate from story_id if available
             if story_id and video_path:
                 # Extract date from video path if possible
                 if '/stories/' in video_path:
-                    # Try to extract date from path
                     import re
                     date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', video_path)
                     if date_match:
                         year, month, day = date_match.groups()
-                        
                         return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
             
+            logger.warning(f"Could not determine thumbnail path for: {video_path}")
             return ""
             
         except Exception as e:

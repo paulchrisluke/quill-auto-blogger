@@ -13,7 +13,8 @@
             --line: #30363d;
             --text: #f0f6fc;
             --muted: #8b949e;
-            --accent: #58a6ff;
+            --accent: #3fb950;
+            /* subtle green accent */
             --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
             --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
         }
@@ -29,7 +30,7 @@
             background: var(--bg);
             color: var(--text);
             display: grid;
-            grid-template-columns: 220px 1fr 420px;
+            grid-template-columns: 220px 1fr 380px;
             min-height: 100vh;
         }
 
@@ -47,7 +48,7 @@
         .brand {
             font-size: 15px;
             font-weight: 800;
-            margin-bottom: 22px
+            margin-bottom: 18px
         }
 
         .nav-title {
@@ -55,9 +56,33 @@
             color: var(--muted);
             text-transform: uppercase;
             letter-spacing: .12em;
-            margin: 14px 8px 6px
+            margin: 14px 8px 8px
         }
 
+
+
+        .nav-link.active {
+            background: #22272e;
+            /* subtle neutral highlight */
+            color: var(--text);
+            font-weight: 600;
+            /* slight emphasis instead of color */
+            outline: 1px solid rgba(255, 255, 255, .06);
+        }
+
+        /* Smaller, tidier logo */
+        .brand-logo {
+            width: 100%;
+            max-width: 72px;
+            /* ↓ much smaller logo to match title text size */
+            height: auto;
+            display: block;
+            margin: 4px auto 8px;
+            /* centered */
+            opacity: .95;
+        }
+
+        /* Sidebar links: neutral active state, no green bar */
         .nav-link {
             display: block;
             padding: 8px 10px;
@@ -65,28 +90,32 @@
             color: var(--text);
             text-decoration: none;
             font-size: 14px;
+            border-left: 0;
+            /* remove accent bar entirely */
         }
 
         .nav-link:hover {
-            background: #21262d
+            background: #1b1f26;
         }
 
-        .nav-link.active {
-            background: #58a6ff;
-            color: #ffffff
+        /* Optional: tighten sidebar spacing a touch */
+        .nav-title {
+            margin: 12px 8px 6px;
+        }
+
+        .sidebar {
+            padding: 18px 12px;
         }
 
         .github-icon {
             margin-right: 8px;
-            vertical-align: middle;
+            vertical-align: middle
         }
 
         /* Main */
         .main {
-            padding: 32px;
-            overflow: auto;
-            max-width: 100%;
-            display: block
+            padding: 28px 28px 40px;
+            overflow: auto
         }
 
         .main h1 {
@@ -96,14 +125,23 @@
 
         .lead {
             color: var(--muted);
-            margin-bottom: 28px
+            margin-bottom: 20px
+        }
+
+        .notes {
+            background: #1b1f26;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px;
+            color: var(--muted);
+            font-size: 13px;
+            font-style: italic;
+            margin-bottom: 16px;
         }
 
         .endpoint {
-            padding: 24px 0;
-            border-top: 1px solid var(--line);
-            width: 100%;
-            display: block
+            padding: 22px 0;
+            border-top: 1px solid var(--line)
         }
 
         .endpoint:first-of-type {
@@ -126,14 +164,14 @@
         }
 
         .GET {
-            background: #0a8f08;
-            color: #ffffff;
-            border: 1px solid #0a8f08
+            background: #238636;
+            color: #fff;
+            border: 1px solid #238636
         }
 
         .POST {
             background: #cf222e;
-            color: #ffffff;
+            color: #fff;
             border: 1px solid #cf222e
         }
 
@@ -141,7 +179,7 @@
             font-family: var(--mono);
             font-size: 14px;
             background: #21262d;
-            border: 1px solid #30363d;
+            border: 1px solid var(--line);
             padding: 3px 8px;
             border-radius: 6px
         }
@@ -149,18 +187,7 @@
         .desc {
             color: var(--muted);
             font-size: 14px;
-            margin-bottom: 12px
-        }
-
-        .notes {
-            background: #21262d;
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            padding: 12px;
-            margin: 12px 0;
-            color: #8b949e;
-            font-size: 13px;
-            font-style: italic
+            margin-bottom: 10px
         }
 
         .subttl {
@@ -168,13 +195,11 @@
             text-transform: uppercase;
             letter-spacing: .14em;
             color: var(--muted);
-            margin-top: 14px
+            margin-top: 12px
         }
 
         .kv {
-            margin-top: 8px;
-            width: 100%;
-            display: block
+            margin-top: 6px
         }
 
         .kv dt {
@@ -185,12 +210,14 @@
         .kv dd {
             font-family: var(--mono);
             font-size: 13px;
+            color: #f0f6fc;
             background: #21262d;
-            border: 1px solid #30363d;
+            border: 1px solid var(--line);
             border-radius: 6px;
             padding: 6px 8px;
             margin: 6px 0 10px;
-            color: #f0f6fc
+            overflow-wrap: anywhere;
+            /* wrap long paths/URLs */
         }
 
         /* Right code panel */
@@ -201,7 +228,7 @@
             overflow: auto;
             background: var(--panel);
             border-left: 1px solid var(--line);
-            padding: 22px 18px;
+            padding: 20px 16px;
         }
 
         .label {
@@ -215,34 +242,19 @@
         .code {
             position: relative;
             background: #21262d;
-            border: 1px solid #30363d;
-            border-radius: 6px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
             padding: 12px;
             font-family: var(--mono);
             font-size: 13px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            overflow-x: auto;
             color: #f0f6fc;
-            max-width: 100%;
-        }
-
-        .code::-webkit-scrollbar {
-            height: 8px;
-        }
-
-        .code::-webkit-scrollbar-track {
-            background: #161b22;
-            border-radius: 4px;
-        }
-
-        .code::-webkit-scrollbar-thumb {
-            background: #484f58;
-            border-radius: 4px;
-        }
-
-        .code::-webkit-scrollbar-thumb:hover {
-            background: #5a6169;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            /* soft wrap */
+            overflow-wrap: anywhere;
+            /* break long tokens */
+            word-break: break-word;
+            margin-bottom: 14px;
         }
 
         .copy {
@@ -252,14 +264,14 @@
             font-size: 12px;
             padding: 6px 8px;
             border-radius: 6px;
-            border: 1px solid #30363d;
+            border: 1px solid var(--line);
             background: #0d1117;
             color: #8b949e;
             cursor: pointer
         }
 
         /* Responsive */
-        @media (max-width: 1200px) {
+        @media (max-width:1200px) {
             body {
                 grid-template-columns: 220px 1fr
             }
@@ -269,7 +281,7 @@
             }
         }
 
-        @media (max-width: 700px) {
+        @media (max-width:700px) {
             body {
                 grid-template-columns: 1fr
             }
@@ -281,106 +293,19 @@
             .main {
                 padding: 22px 16px
             }
-        }
-
-        /* Code block improvements */
-        .code {
-            position: relative;
-            background: #21262d;
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            padding: 12px;
-            font-family: var(--mono);
-            font-size: 13px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            overflow-x: auto;
-            color: #f0f6fc;
-            max-width: 100%;
-        }
-
-        .code::-webkit-scrollbar {
-            height: 8px;
-        }
-
-        .code::-webkit-scrollbar-track {
-            background: #161b22;
-            border-radius: 4px;
-        }
-
-        .code::-webkit-scrollbar-thumb {
-            background: #484f58;
-            border-radius: 4px;
-        }
-
-        .code::-webkit-scrollbar-thumb:hover {
-            background: #5a6169;
-        }
-
-        /* Better mobile layout */
-        @media (max-width: 768px) {
-            .main {
-                padding: 20px 16px;
-            }
-
-            .endpoint {
-                padding: 20px 0;
-            }
 
             .ep-head {
                 flex-direction: column;
                 align-items: flex-start;
-                gap: 8px;
-            }
-
-            .method {
-                align-self: flex-start;
+                gap: 8px
             }
 
             .path {
-                font-size: 13px;
-                word-break: break-all;
+                font-size: 13px
             }
 
             .kv dd {
-                word-break: break-all;
-                font-size: 12px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .main {
-                padding: 16px 12px;
-            }
-
-            .main h1 {
-                font-size: 24px;
-            }
-
-            .lead {
-                font-size: 14px;
-            }
-
-            .endpoint {
-                padding: 16px 0;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .main {
-                padding: 16px 12px;
-            }
-
-            .main h1 {
-                font-size: 24px;
-            }
-
-            .lead {
-                font-size: 14px;
-            }
-
-            .endpoint {
-                padding: 16px 0;
+                font-size: 12px
             }
         }
 
@@ -391,14 +316,14 @@
 </head>
 
 <body>
-    <!-- LEFT SIDEBAR -->
+    <!-- SIDEBAR -->
     <aside class="sidebar">
         <div class="brand">
-            <img src="https://www.paulchrisluke.com/pcl-labs-logo.svg" alt="PCL Labs"
-                style="width: 100%; max-width: 180px; height: auto; margin-bottom: 8px;">
-            <div style="font-size: 12px; color: var(--muted); text-align: center; font-style: italic;">made with ❤️ open
-                source</div>
+            <img class="brand-logo" src="https://www.paulchrisluke.com/pcl-labs-logo.svg" alt="PCL Labs">
+            <div style="font-size:12px;color:var(--muted);text-align:center;font-style:italic;">made with ❤️ open source
+            </div>
         </div>
+
         <div class="nav-title">Blog</div>
         <a class="nav-link active" href="#ep-blog">/blog/{date}</a>
         <a class="nav-link" href="#ep-assets">/assets/*</a>
@@ -407,63 +332,34 @@
         <a class="nav-link" href="#ep-start">/control/record/start</a>
 
         <div class="nav-title">Links</div>
-        <a class="nav-link github-link" href="https://github.com/paulchrisluke/quill-auto-blogger" target="_blank">
-            <svg class="github-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <a class="nav-link" href="https://github.com/paulchrisluke/quill-auto-blogger" target="_blank">
+            <svg class="github-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path
-                    d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                    d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.21 11.39.6.11.79-.26.79-.58v-2.23c-3.34.72-4.03-1.42-4.03-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.21.08 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49.99.11-.78.42-1.31.76-1.61-2.66-.31-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.53-1.52.12-3.18 0 0 1.01-.32 3.3 1.23.96-.27 1.98-.4 3-.4s2.04.13 3 .4c2.29-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.8 5.62-5.48 5.93.43.37.83 1.1.83 2.23v3.29c0 .32.19.69.8.58C20.56 21.8 24 17.3 24 12 24 5.37 18.63 0 12 0z" />
             </svg>
             View on GitHub
         </a>
     </aside>
 
-    <!-- MAIN CONTENT (simple one column) -->
+    <!-- MAIN -->
     <main class="main" id="content">
         <h1>API Reference</h1>
-        <p class="lead">Pure JSON API for AI-enhanced blog content. The Worker serves FINAL digest data with AI
-            enhancements, structured SEO metadata, and complete story packets.</p>
-
-        <div class="notes">
-            <strong>Pipeline Structure:</strong> The system generates PRE-CLEANED (raw) and FINAL (AI-enhanced) digest
-            versions.
-            The API serves the FINAL version with AI-generated content including SEO descriptions, holistic intros,
-            wrap-ups, and story intros.
-        </div>
+        <p class="lead">Pure JSON API for AI-enhanced blog content. Worker serves FINAL digest data with AI enrichments
+            and structured SEO.</p>
+        <div class="notes"><strong>Pipeline:</strong> PRE-CLEANED (raw) → FINAL (AI-enhanced). Endpoints below return
+            FINAL.</div>
 
         <!-- GET /blog/{date} -->
         <section id="ep-blog" class="endpoint"
             data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-08-29"' data-json='{
   "version": "2",
   "date": "2025-08-29",
-  "frontmatter": {
-    "title": "Daily Devlog — Aug 29, 2025",
-    "description": "AI-enhanced description...",
-    "holistic_intro": "AI-generated holistic introduction...",
-    "wrap_up": "AI-generated wrap-up...",
-    "schema": {
-      "article": {
-        "@context": "https://schema.org",
-        "@type": "Article",
-        "headline": "Daily Devlog — Aug 29, 2025"
-      }
-    }
-  },
-  "story_packets": [
-    {
-      "id": "story_20250829_pr43",
-      "title_human": "Shipped: Feature Name",
-      "ai_micro_intro": "AI-generated micro introduction...",
-      "ai_comprehensive_intro": "AI-generated comprehensive introduction...",
-      "video": {
-        "thumbnail_url": "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png"
-      }
-    }
-  ]
+  "frontmatter": { "title": "Daily Devlog — Aug 29, 2025", "description": "AI-enhanced description..." },
+  "story_packets": [ { "id": "story_20250829_pr43", "title_human": "Shipped: Feature Name" } ]
 }'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/blog/{date}</span></div>
-            <p class="desc">Retrieve complete AI-enhanced blog data including frontmatter, story packets, and structured
-                SEO metadata.</p>
-            <div class="notes">Returns FINAL digest data with AI enhancements, JSON-LD schema, and complete story
-                packets.</div>
+            <p class="desc">Retrieve complete AI-enhanced blog data including frontmatter, story packets, and SEO
+                metadata.</p>
             <div class="subttl">Path Parameters</div>
             <dl class="kv">
                 <dt>date</dt>
@@ -471,20 +367,16 @@
             </dl>
             <div class="subttl">Example</div>
             <dl class="kv">
-                <dd>/api/blog/2025-08-29</dd>
+                <dd>/blog/2025-08-29</dd>
             </dl>
         </section>
-
-
 
         <!-- GET /assets/* -->
         <section id="ep-assets" class="endpoint"
             data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png"'
             data-json='Direct asset serving from R2 bucket'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/assets/*</span>
-            </div>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/assets/*</span></div>
             <p class="desc">Serve static assets (images, videos, highlights) directly from R2 bucket.</p>
-            <div class="notes">Assets are served with proper content-type headers and caching.</div>
             <div class="subttl">Example Paths</div>
             <dl class="kv">
                 <dt>Story thumbnails</dt>
@@ -498,8 +390,8 @@
         <section id="ep-start" class="endpoint" data-curl='curl -X POST "https://quill-blog-api.paulchrisluke.workers.dev/control/record/start" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d ' \''{"story_id":"test_story","bounded":false}'\'' ' data-json=' { "status" : "started" , "mode" : "bounded"
-            , "story_id" : "test_story" , "prep_delay" : 5, "duration" : 15 }'>
+  -d ' \''{"story_id":"test_story","bounded":false}'\'' '
+      data-json=' {"status":"started","mode":"bounded","story_id":"test_story","prep_delay":5,"duration":15}'>
             <div class="ep-head"><span class="method POST">POST</span><span class="path">/control/record/start</span>
             </div>
             <p class="desc">Start recording for a story (requires token). Supports optional <code
@@ -521,7 +413,7 @@
         </section>
     </main>
 
-    <!-- RIGHT CODE PANEL -->
+    <!-- CODE PANEL -->
     <aside class="panel">
         <div class="label">cURL</div>
         <div class="code" id="code-curl"><button class="copy">Copy</button>
@@ -532,44 +424,34 @@
             {
             "version": "2",
             "date": "2025-08-29",
-            "frontmatter": {
-            "title": "Daily Devlog — Aug 29, 2025",
-            "description": "AI-enhanced description...",
-            "holistic_intro": "AI-generated holistic introduction...",
-            "wrap_up": "AI-generated wrap-up..."
-            },
+            "frontmatter": { "title": "Daily Devlog — Aug 29, 2025" },
             "story_packets": [...]
             }
         </div>
     </aside>
 
     <script>
-        // Map endpoint sections to sidebar and set initial example
+        // Elements
         const sections = [...document.querySelectorAll('.endpoint')];
         const sidebarLinks = [...document.querySelectorAll('.nav-link')];
         const curlEl = document.getElementById('code-curl');
         const jsonEl = document.getElementById('code-json');
 
+        function setBlock(blockEl, text) {
+            const btn = blockEl.querySelector('.copy');
+            blockEl.textContent = '\n' + (text || '');
+            if (btn) blockEl.prepend(btn);
+        }
         function setExamplesFrom(el) {
-            const curl = el.getAttribute('data-curl') || '';
-            const json = el.getAttribute('data-json') || '';
-            setBlock(curlEl, curl);
-            setBlock(jsonEl, json);
-            // highlight active link
+            setBlock(curlEl, el.getAttribute('data-curl'));
+            setBlock(jsonEl, el.getAttribute('data-json'));
             const id = '#' + el.id;
             sidebarLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === id));
         }
 
-        function setBlock(blockEl, text) {
-            // replace only the text node (keep the copy button)
-            const btn = blockEl.querySelector('.copy');
-            blockEl.textContent = '\n' + text;
-            if (btn) { blockEl.prepend(btn); }
-        }
-
-        // Click in sidebar updates examples
+        // Sidebar clicks
         sidebarLinks.forEach(a => {
-            a.addEventListener('click', (e) => {
+            a.addEventListener('click', e => {
                 const id = a.getAttribute('href').slice(1);
                 const target = document.getElementById(id);
                 if (target) {
@@ -580,17 +462,13 @@
             });
         });
 
-        // Scroll spy: when you scroll, update examples to nearest section
+        // Scroll spy
         const spy = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    setExamplesFrom(entry.target);
-                }
+                if (entry.isIntersecting) { setExamplesFrom(entry.target); }
             });
-        }, { root: document.querySelector('.main'), threshold: 0.4 });
-
+        }, { root: document.querySelector('.main'), threshold: 0.45 });
         sections.forEach(s => spy.observe(s));
-        setExamplesFrom(document.getElementById('ep-blog')); // initial
 
         // Copy buttons
         document.querySelectorAll('.code .copy').forEach(btn => {
@@ -598,10 +476,12 @@
                 const parent = btn.parentElement;
                 const text = parent.textContent.replace('Copy', '').trim();
                 navigator.clipboard.writeText(text);
-                const old = btn.textContent; btn.textContent = 'Copied!';
-                setTimeout(() => btn.textContent = old, 1200);
+                const old = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = old, 1100);
             });
         });
+
+        // Initial load
+        setExamplesFrom(document.getElementById('ep-blog'));
     </script>
 </body>
 
