@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quill Auto Blogger API</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --sidebar: #161b22;
+            --panel: #161b22;
+            --line: #30363d;
+            --text: #f0f6fc;
+            --muted: #8b949e;
+            --accent: #3fb950;
+            /* subtle green accent */
+            --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        body {
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            display: grid;
+            grid-template-columns: 220px 1fr 380px;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow: auto;
+            background: var(--sidebar);
+            border-right: 1px solid var(--line);
+            padding: 20px 14px;
+        }
+
+        .brand {
+            font-size: 15px;
+            font-weight: 800;
+            margin-bottom: 18px
+        }
+
+        .nav-title {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            margin: 14px 8px 8px
+        }
+
+
+
+        .nav-link.active {
+            background: #22272e;
+            /* subtle neutral highlight */
+            color: var(--text);
+            font-weight: 600;
+            /* slight emphasis instead of color */
+            outline: 1px solid rgba(255, 255, 255, .06);
+        }
+
+        /* Smaller, tidier logo */
+        .brand-logo {
+            width: 100%;
+            max-width: 72px;
+            /* ↓ much smaller logo to match title text size */
+            height: auto;
+            display: block;
+            margin: 4px auto 8px;
+            /* centered */
+            opacity: .95;
+        }
+
+        /* Sidebar links: neutral active state, no green bar */
+        .nav-link {
+            display: block;
+            padding: 8px 10px;
+            border-radius: 8px;
+            color: var(--text);
+            text-decoration: none;
+            font-size: 14px;
+            border-left: 0;
+            /* remove accent bar entirely */
+        }
+
+        .nav-link:hover {
+            background: #1b1f26;
+        }
+
+        /* Optional: tighten sidebar spacing a touch */
+        .nav-title {
+            margin: 12px 8px 6px;
+        }
+
+        .sidebar {
+            padding: 18px 12px;
+        }
+
+        .github-icon {
+            margin-right: 8px;
+            vertical-align: middle
+        }
+
+        /* Main */
+        .main {
+            padding: 28px 28px 40px;
+            overflow: auto
+        }
+
+        .main h1 {
+            font-size: 28px;
+            margin-bottom: 6px
+        }
+
+        .lead {
+            color: var(--muted);
+            margin-bottom: 20px
+        }
+
+        .notes {
+            background: #1b1f26;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px;
+            color: var(--muted);
+            font-size: 13px;
+            font-style: italic;
+            margin-bottom: 16px;
+        }
+
+        .endpoint {
+            padding: 22px 0;
+            border-top: 1px solid var(--line)
+        }
+
+        .endpoint:first-of-type {
+            border-top: none
+        }
+
+        .ep-head {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 6px
+        }
+
+        .method {
+            font-size: 12px;
+            font-weight: 800;
+            padding: 4px 8px;
+            border-radius: 6px;
+            text-transform: uppercase
+        }
+
+        .GET {
+            background: #238636;
+            color: #fff;
+            border: 1px solid #238636
+        }
+
+        .POST {
+            background: #cf222e;
+            color: #fff;
+            border: 1px solid #cf222e
+        }
+
+        .path {
+            font-family: var(--mono);
+            font-size: 14px;
+            background: #21262d;
+            border: 1px solid var(--line);
+            padding: 3px 8px;
+            border-radius: 6px
+        }
+
+        .desc {
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 10px
+        }
+
+        .subttl {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .14em;
+            color: var(--muted);
+            margin-top: 12px
+        }
+
+        .kv {
+            margin-top: 6px
+        }
+
+        .kv dt {
+            font-size: 13px;
+            color: #f0f6fc
+        }
+
+        .kv dd {
+            font-family: var(--mono);
+            font-size: 13px;
+            color: #f0f6fc;
+            background: #21262d;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 6px 8px;
+            margin: 6px 0 10px;
+            overflow-wrap: anywhere;
+            /* wrap long paths/URLs */
+        }
+
+        /* Right code panel */
+        .panel {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow: auto;
+            background: var(--panel);
+            border-left: 1px solid var(--line);
+            padding: 20px 16px;
+        }
+
+        .label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .14em;
+            color: var(--muted);
+            margin: 4px 0 8px
+        }
+
+        .code {
+            position: relative;
+            background: #21262d;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 13px;
+            color: #f0f6fc;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            /* soft wrap */
+            overflow-wrap: anywhere;
+            /* break long tokens */
+            word-break: break-word;
+            margin-bottom: 14px;
+        }
+
+        .copy {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            font-size: 12px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            background: #0d1117;
+            color: #8b949e;
+            cursor: pointer
+        }
+
+        /* Responsive */
+        @media (max-width:1200px) {
+            body {
+                grid-template-columns: 220px 1fr
+            }
+
+            .panel {
+                display: none
+            }
+        }
+
+        @media (max-width:700px) {
+            body {
+                grid-template-columns: 1fr
+            }
+
+            .sidebar {
+                display: none
+            }
+
+            .main {
+                padding: 22px 16px
+            }
+
+            .ep-head {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px
+            }
+
+            .path {
+                font-size: 13px
+            }
+
+            .kv dd {
+                font-size: 12px
+            }
+        }
+
+        a {
+            color: #58a6ff
+        }
+    </style>
+</head>
+
+<body>
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="brand">
+            <img class="brand-logo" src="https://www.paulchrisluke.com/pcl-labs-logo.svg" alt="PCL Labs">
+        </div>
+
+        <div class="nav-title">Blog</div>
+        <a class="nav-link active" href="#ep-blog">/blog/{date}</a>
+        <a class="nav-link" href="#ep-assets">/assets/*</a>
+
+        <div class="nav-title">Control</div>
+        <a class="nav-link" href="#ep-start">/control/record/start</a>
+
+        <div class="nav-title">Links</div>
+        <a class="nav-link" href="https://github.com/paulchrisluke/quill-auto-blogger" target="_blank">
+            <svg class="github-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path
+                    d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.21 11.39.6.11.79-.26.79-.58v-2.23c-3.34.72-4.03-1.42-4.03-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.21.08 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49.99.11-.78.42-1.31.76-1.61-2.66-.31-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.53-1.52.12-3.18 0 0 1.01-.32 3.3 1.23.96-.27 1.98-.4 3-.4s2.04.13 3 .4c2.29-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.8 5.62-5.48 5.93.43.37.83 1.1.83 2.23v3.29c0 .32.19.69.8.58C20.56 21.8 24 17.3 24 12 24 5.37 18.63 0 12 0z" />
+            </svg>
+            View on GitHub
+        </a>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main" id="content">
+        <h1>API Reference</h1>
+        <p class="lead">Pure JSON API for AI-enhanced blog content. Worker serves FINAL digest data with AI enrichments
+            and structured SEO.</p>
+        <div class="notes"><strong>Pipeline:</strong> PRE-CLEANED (raw) → FINAL (AI-enhanced). Endpoints below return
+            FINAL.</div>
+
+        <!-- GET /blog/{date} -->
+        <section id="ep-blog" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-08-29"' data-json='{
+  "version": "2",
+  "date": "2025-08-29",
+  "frontmatter": { "title": "Daily Devlog — Aug 29, 2025", "description": "AI-enhanced description..." },
+  "story_packets": [ { "id": "story_20250829_pr43", "title_human": "Shipped: Feature Name" } ]
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/blog/{date}</span></div>
+            <p class="desc">Retrieve complete AI-enhanced blog data including frontmatter, story packets, and SEO
+                metadata.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
+            </dl>
+            <div class="subttl">Example</div>
+            <dl class="kv">
+                <dd>/blog/2025-08-29</dd>
+            </dl>
+        </section>
+
+        <!-- GET /assets/* -->
+        <section id="ep-assets" class="endpoint"
+            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png"'
+            data-json='Direct asset serving from R2 bucket'>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/assets/*</span></div>
+            <p class="desc">Serve static assets (images, videos, highlights) directly from R2 bucket.</p>
+            <div class="subttl">Example Paths</div>
+            <dl class="kv">
+                <dt>Story thumbnails</dt>
+                <dd>/assets/stories/2025/08/29/story_20250829_pr43_01_intro.png</dd>
+                <dt>Video files</dt>
+                <dd>/assets/stories/2025/08/29/story_20250829_pr43.mp4</dd>
+            </dl>
+        </section>
+
+        <!-- POST /control/record/start -->
+        <section id="ep-start" class="endpoint" data-curl='curl -X POST "https://quill-blog-api.paulchrisluke.workers.dev/control/record/start" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d ' \''{"story_id":"test_story","bounded":false}'\'' '
+      data-json=' {"status":"started","mode":"bounded","story_id":"test_story","prep_delay":5,"duration":15}'>
+            <div class="ep-head"><span class="method POST">POST</span><span class="path">/control/record/start</span>
+            </div>
+            <p class="desc">Start recording for a story (requires token). Supports optional <code
+                    style="font-family:var(--mono)">bounded</code> mode.</p>
+            <div class="subttl">Headers</div>
+            <dl class="kv">
+                <dt>Authorization</dt>
+                <dd>Bearer &lt;CONTROL_API_TOKEN&gt;</dd>
+            </dl>
+            <div class="subttl">Request Body</div>
+            <dl class="kv">
+                <dt>story_id</dt>
+                <dd>string</dd>
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD, optional)</dd>
+                <dt>bounded</dt>
+                <dd>boolean (default: false)</dd>
+            </dl>
+        </section>
+    </main>
+
+    <!-- CODE PANEL -->
+    <aside class="panel">
+        <div class="label">cURL</div>
+        <div class="code" id="code-curl"><button class="copy">Copy</button>
+            curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-08-29"
+        </div>
+        <div class="label">200 Example</div>
+        <div class="code" id="code-json"><button class="copy">Copy</button>
+            {
+            "version": "2",
+            "date": "2025-08-29",
+            "frontmatter": { "title": "Daily Devlog — Aug 29, 2025" },
+            "story_packets": [...]
+            }
+        </div>
+    </aside>
+
+    <script>
+        // Elements
+        const sections = [...document.querySelectorAll('.endpoint')];
+        const sidebarLinks = [...document.querySelectorAll('.nav-link')];
+        const curlEl = document.getElementById('code-curl');
+        const jsonEl = document.getElementById('code-json');
+
+        function setBlock(blockEl, text) {
+            const btn = blockEl.querySelector('.copy');
+            blockEl.textContent = '\n' + (text || '');
+            if (btn) blockEl.prepend(btn);
+        }
+        function setExamplesFrom(el) {
+            setBlock(curlEl, el.getAttribute('data-curl'));
+            setBlock(jsonEl, el.getAttribute('data-json'));
+            const id = '#' + el.id;
+            sidebarLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === id));
+        }
+
+        // Sidebar clicks
+        sidebarLinks.forEach(a => {
+            a.addEventListener('click', e => {
+                const id = a.getAttribute('href').slice(1);
+                const target = document.getElementById(id);
+                if (target) {
+                    e.preventDefault();
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setExamplesFrom(target);
+                }
+            });
+        });
+
+        // Scroll spy
+        const spy = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) { setExamplesFrom(entry.target); }
+            });
+        }, { root: document.querySelector('.main'), threshold: 0.45 });
+        sections.forEach(s => spy.observe(s));
+
+        // Copy buttons
+        document.querySelectorAll('.code .copy').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const parent = btn.parentElement;
+                const text = parent.textContent.replace('Copy', '').trim();
+                navigator.clipboard.writeText(text);
+                const old = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = old, 1100);
+            });
+        });
+
+        // Initial load
+        setExamplesFrom(document.getElementById('ep-blog'));
+    </script>
+</body>
+
+</html>

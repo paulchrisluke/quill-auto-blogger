@@ -1,0 +1,666 @@
+{
+  "version": "2",
+  "date": "2025-08-27",
+  "twitch_clips": [],
+  "github_events": [
+    {
+      "id": "53875743956",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T00:35:30Z",
+      "details": {
+        "commits": 1,
+        "branch": "feature/twitch-clips-download-convert-transcribe",
+        "commit_messages": [
+          "Fix API path compatibility and improve task cleanup logic\n\n- Fix route mismatch in audio_processor.py: accept both underscore and hyphenated path variants\n- Update do_POST to accept /process_clips, /process-clips, and base path variants\n- Update do_GET to accept both /api/audio_processor/ and /api/audio-processor/ paths\n- Improve task cleanup in task_manager.py: use completed_at timestamp when available\n- Prevent premature cleanup of long-running tasks by using completion time instead of creation time\n- Maintain backward compatibility and provide clear error messages"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53875786004",
+      "type": "PullRequestEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T00:37:26Z",
+      "details": {
+        "action": "closed",
+        "number": 34,
+        "state": "closed",
+        "merged": true
+      },
+      "url": "https://github.com/paulchrisluke/pcl-labs/pull/34",
+      "title": "Feature/twitch clips download convert transcribe",
+      "body": "\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n## Summary by CodeRabbit\n\n- New Features\n  - Added audio processing and transcription capabilities with batch, status, and background tasks, integrated with cloud storage.\n  - Introduced test endpoints to validate audio and transcription flows.\n- Documentation\n  - Rewrote project and server guides with setup, API usage, deployment, storage integration, and troubleshooting.\n- Tests\n  - Added end-to-end audio pipeline and transcription tests with a consolidated runner.\n- Chores\n  - Introduced Python env/dependency management and an update script; expanded ignore rules.\n  - Enabled deployment via platform configuration; updated site URL to the www variant.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->"
+    },
+    {
+      "id": "53875786356",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T00:37:27Z",
+      "details": {
+        "commits": 8,
+        "branch": "main",
+        "commit_messages": [
+          "feat: Add comprehensive audio processing API with R2 storage integration\n\n- Add Python audio processor API with Twitch clip processing\n- Implement Cloudflare R2 storage integration for file uploads\n- Add R2-based testing with real data instead of hardcoded IDs\n- Create comprehensive test script with health checks and validation\n- Update vercel.json with proper routing for API endpoints\n- Add requirements.txt for Python dependencies\n- Update README with complete project documentation\n- Add server infrastructure with proper error handling\n- Implement latest clip retrieval and listing endpoints\n- Add proper CORS headers and request validation",
+          "Fix Cloudflare R2 API implementation: remove zone_id requirement, use correct API endpoints\n\n- Remove CLOUDFLARE_ZONE_ID requirement (R2 is account-level)\n- Update bucket management API to use correct R2 REST endpoints\n- Update object operations to use R2 REST API instead of S3-compatible\n- Fix validation to remove zone_id from required environment variables\n- Update README.md with correct API endpoint documentation\n- Add proper error handling and logging for API responses\n- Test and verify all operations work with valid API token",
+          "Fix R2 storage configuration in audio processor\n\n- Update audio processor R2Storage class to use correct API endpoints\n- Fix environment variable validation and debugging\n- Update test script to use latest deployment URL\n- R2 storage is now properly configured and working\n\nThe audio processor now correctly uses:\n- CLOUDFLARE_ACCOUNT_ID instead of R2_ACCOUNT_ID\n- CLOUDFLARE_API_TOKEN instead of R2_API_TOKEN\n- Correct R2 REST API endpoints for object operations\n- Proper Bearer token authentication",
+          "Fix redirect loop: change canonical URL to www.paulchrisluke.com",
+          "Consolidate Vercel configs and extend audio_processor function limits - Increase timeout to 900s and memory to 3008MB",
+          "Fix Vercel config: move function limits to build config",
+          "Fix API path compatibility and improve task cleanup logic\n\n- Fix route mismatch in audio_processor.py: accept both underscore and hyphenated path variants\n- Update do_POST to accept /process_clips, /process-clips, and base path variants\n- Update do_GET to accept both /api/audio_processor/ and /api/audio-processor/ paths\n- Improve task cleanup in task_manager.py: use completed_at timestamp when available\n- Prevent premature cleanup of long-running tasks by using completion time instead of creation time\n- Maintain backward compatibility and provide clear error messages",
+          "Merge pull request #34 from paulchrisluke/feature/twitch-clips-download-convert-transcribe\n\nFeature/twitch clips download convert transcribe"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53876550459",
+      "type": "CreateEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T01:10:08Z",
+      "details": {
+        "ref_type": "branch",
+        "ref": "security-implementation"
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53880544099",
+      "type": "PullRequestEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:05:40Z",
+      "details": {
+        "action": "opened",
+        "number": 35,
+        "state": "open",
+        "merged": false
+      },
+      "url": "https://github.com/paulchrisluke/pcl-labs/pull/35",
+      "title": "Security implementation",
+      "body": null
+    },
+    {
+      "id": "53880544259",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:05:40Z",
+      "details": {
+        "commits": 4,
+        "branch": "security-implementation",
+        "commit_messages": [
+          "Complete security implementation testing and validation\n\n- Test Workers calling Python API with security headers\n- Confirm HMAC authentication and CORS protection working correctly\n- Identify audio processing as the next priority (video downloads work, audio extraction missing)\n- Update test scripts to use correct deployment URLs\n- Security implementation fully functional and deployed",
+          "Fix JSON parsing error in stored clips endpoint - filter for JSON files only and add debug endpoint",
+          "Update Python Vercel server with security improvements and caching - Add HMAC authentication, request validation, and caching layer - Update requirements and environment configuration - Add security testing and debug utilities",
+          "Implement security features and rate limiting for audio processing pipeline"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53880586574",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:07:38Z",
+      "details": {
+        "commits": 20,
+        "branch": "security-implementation",
+        "commit_messages": [
+          "Merge pull request #1 from paulchrisluke/markdown-portfolio\n\ndynamic portfolio",
+          "Merge pull request #2 from paulchrisluke/content-updates\n\ncontent-changes",
+          "resolve errors on build",
+          "update content",
+          "contact form",
+          "thank-you",
+          "placeholder terms and privacy",
+          "termsprivacy",
+          "link changes",
+          "minor changes and gtm add",
+          "favicon",
+          "logo",
+          "try md first portfolio item",
+          "fix error",
+          "change title",
+          "create portfolio component on homepage",
+          "Merge pull request #5 from paulchrisluke/home-portfolio-section\n\ncreate portfolio component on homepage",
+          "content updates and style portfolio page",
+          "update content in portfolio",
+          "use slots"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53880617632",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:09:05Z",
+      "details": {
+        "commits": 20,
+        "branch": "security-implementation",
+        "commit_messages": [
+          "Merge pull request #1 from paulchrisluke/markdown-portfolio\n\ndynamic portfolio",
+          "Merge pull request #2 from paulchrisluke/content-updates\n\ncontent-changes",
+          "resolve errors on build",
+          "update content",
+          "contact form",
+          "thank-you",
+          "placeholder terms and privacy",
+          "termsprivacy",
+          "link changes",
+          "minor changes and gtm add",
+          "favicon",
+          "logo",
+          "try md first portfolio item",
+          "fix error",
+          "change title",
+          "create portfolio component on homepage",
+          "Merge pull request #5 from paulchrisluke/home-portfolio-section\n\ncreate portfolio component on homepage",
+          "content updates and style portfolio page",
+          "update content in portfolio",
+          "use slots"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53880707637",
+      "type": "PullRequestEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:13:11Z",
+      "details": {
+        "action": "closed",
+        "number": 35,
+        "state": "closed",
+        "merged": true
+      },
+      "url": "https://github.com/paulchrisluke/pcl-labs/pull/35",
+      "title": "Security implementation",
+      "body": null
+    },
+    {
+      "id": "53880707979",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:13:12Z",
+      "details": {
+        "commits": 20,
+        "branch": "main",
+        "commit_messages": [
+          "Merge pull request #1 from paulchrisluke/markdown-portfolio\n\ndynamic portfolio",
+          "Merge pull request #2 from paulchrisluke/content-updates\n\ncontent-changes",
+          "resolve errors on build",
+          "update content",
+          "contact form",
+          "thank-you",
+          "placeholder terms and privacy",
+          "termsprivacy",
+          "link changes",
+          "minor changes and gtm add",
+          "favicon",
+          "logo",
+          "try md first portfolio item",
+          "fix error",
+          "change title",
+          "create portfolio component on homepage",
+          "Merge pull request #5 from paulchrisluke/home-portfolio-section\n\ncreate portfolio component on homepage",
+          "content updates and style portfolio page",
+          "update content in portfolio",
+          "use slots"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53881004613",
+      "type": "CreateEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:26:59Z",
+      "details": {
+        "ref_type": "branch",
+        "ref": "feature/deduplication-caching"
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53881020208",
+      "type": "PullRequestEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:27:41Z",
+      "details": {
+        "action": "opened",
+        "number": 36,
+        "state": "open",
+        "merged": false
+      },
+      "url": "https://github.com/paulchrisluke/pcl-labs/pull/36",
+      "title": "Feature/deduplication caching",
+      "body": null
+    },
+    {
+      "id": "53881108620",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:31:44Z",
+      "details": {
+        "commits": 1,
+        "branch": "feature/deduplication-caching",
+        "commit_messages": [
+          "Fix syntax error in test_security.py - corrected malformed test_clip_processing function and added proper test_rate_limiting function"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53881421765",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:46:12Z",
+      "details": {
+        "commits": 1,
+        "branch": "feature/deduplication-caching",
+        "commit_messages": [
+          "Add manual trigger endpoints for bulk clip processing - /api/trigger-pipeline and /api/process-all-clips"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53881462182",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:48:03Z",
+      "details": {
+        "commits": 1,
+        "branch": "feature/deduplication-caching",
+        "commit_messages": [
+          "Add input validation for deduplication endpoints - validate clip IDs using validateClipId function"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53881587961",
+      "type": "PullRequestEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:53:52Z",
+      "details": {
+        "action": "closed",
+        "number": 36,
+        "state": "closed",
+        "merged": true
+      },
+      "url": "https://github.com/paulchrisluke/pcl-labs/pull/36",
+      "title": "Feature/deduplication caching",
+      "body": "\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* New Features\n  * Added deduplication APIs: check clips, fetch file info by clip, and run cleanup. Consistent JSON responses and input validation.\n* Refactor\n  * Pipeline now deduplicates before processing, skipping unnecessary downloads and proceeding even if audio processing fails, improving efficiency and resilience.\n* Tests\n  * Introduced a deduplication test script and integrated it into the full test run.\n  * Enhanced audio pipeline tests to support running against production endpoints without local env setup.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->"
+    },
+    {
+      "id": "53881588217",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T04:53:52Z",
+      "details": {
+        "commits": 6,
+        "branch": "main",
+        "commit_messages": [
+          "feat: Add deduplication and caching for video downloads\n\n- Add DeduplicationService to check for existing video files before downloading\n- Integrate deduplication into the pipeline scheduler\n- Add API endpoints for deduplication checks, file info, and cleanup\n- Create comprehensive test suite for deduplication functionality\n- Prevent duplicate video downloads and improve pipeline efficiency\n- Add orphaned file cleanup functionality",
+          "feat: Add deduplication test to test suite and fix audio test for production\n\n- Add test:deduplication script to package.json\n- Update test:all to include deduplication tests\n- Fix audio test to work with production worker without local HMAC secret\n- All tests now pass against production environment\n- Deduplication functionality fully integrated and tested",
+          "Fix syntax error in test_security.py - corrected malformed test_clip_processing function and added proper test_rate_limiting function",
+          "Add manual trigger endpoints for bulk clip processing - /api/trigger-pipeline and /api/process-all-clips",
+          "Add input validation for deduplication endpoints - validate clip IDs using validateClipId function",
+          "Merge pull request #36 from paulchrisluke/feature/deduplication-caching\n\nFeature/deduplication caching"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53883733238",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T06:18:19Z",
+      "details": {
+        "commits": 3,
+        "branch": "feature/deduplication-caching",
+        "commit_messages": [
+          "Merge pull request #35 from paulchrisluke/security-implementation\n\nSecurity implementation",
+          "Merge pull request #36 from paulchrisluke/feature/deduplication-caching\n\nFeature/deduplication caching",
+          "feat: Enable audio processor with real clips from R2 database\n\n- Fixed R2 configuration detection in health checks\n- Bypassed HMAC validation in development mode for easier testing\n- Updated test script to process all clips from Cloudflare Worker API\n- Removed hardcoded test data, now using real production clips\n- Successfully processed 9/10 clips with video and audio extraction\n- Added debug endpoint for listing R2 files\n- Fixed response parsing in test script for nested results structure\n- All clips now have audio files uploaded to R2 storage"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53884303402",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T06:36:24Z",
+      "details": {
+        "commits": 1,
+        "branch": "feature/deduplication-caching",
+        "commit_messages": [
+          "feat: secure debug endpoint and fix audio pipeline tests\n\n- Add admin token authentication to debug endpoint using HMAC validation\n- Implement limit parameter validation and clamping (1-1000)\n- Add cursor parameter for pagination support\n- Improve exception handling without exposing internal details\n- Fix audio pipeline test to work with deployed worker secrets\n- Update SecurityService to use direct fetch for worker testing\n- All tests now pass successfully"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53884309894",
+      "type": "PullRequestEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T06:36:37Z",
+      "details": {
+        "action": "opened",
+        "number": 37,
+        "state": "open",
+        "merged": false
+      },
+      "url": "https://github.com/paulchrisluke/pcl-labs/pull/37",
+      "title": "Feature/deduplication caching",
+      "body": null
+    },
+    {
+      "id": "53884403630",
+      "type": "PullRequestEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T06:39:32Z",
+      "details": {
+        "action": "closed",
+        "number": 37,
+        "state": "closed",
+        "merged": true
+      },
+      "url": "https://github.com/paulchrisluke/pcl-labs/pull/37",
+      "title": "Feature/deduplication caching",
+      "body": null
+    },
+    {
+      "id": "53884404096",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T06:39:33Z",
+      "details": {
+        "commits": 3,
+        "branch": "main",
+        "commit_messages": [
+          "feat: Enable audio processor with real clips from R2 database\n\n- Fixed R2 configuration detection in health checks\n- Bypassed HMAC validation in development mode for easier testing\n- Updated test script to process all clips from Cloudflare Worker API\n- Removed hardcoded test data, now using real production clips\n- Successfully processed 9/10 clips with video and audio extraction\n- Added debug endpoint for listing R2 files\n- Fixed response parsing in test script for nested results structure\n- All clips now have audio files uploaded to R2 storage",
+          "feat: secure debug endpoint and fix audio pipeline tests\n\n- Add admin token authentication to debug endpoint using HMAC validation\n- Implement limit parameter validation and clamping (1-1000)\n- Add cursor parameter for pagination support\n- Improve exception handling without exposing internal details\n- Fix audio pipeline test to work with deployed worker secrets\n- Update SecurityService to use direct fetch for worker testing\n- All tests now pass successfully",
+          "Merge pull request #37 from paulchrisluke/feature/deduplication-caching\n\nFeature/deduplication caching"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53892617626",
+      "type": "CreateEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T09:57:25Z",
+      "details": {
+        "ref_type": "branch",
+        "ref": "feature/cloudflare-whisper-transcription"
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    },
+    {
+      "id": "53893906736",
+      "type": "PullRequestEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T10:28:16Z",
+      "details": {
+        "action": "opened",
+        "number": 38,
+        "state": "open",
+        "merged": false
+      },
+      "url": "https://github.com/paulchrisluke/pcl-labs/pull/38",
+      "title": "Feature/cloudflare whisper transcription",
+      "body": null
+    },
+    {
+      "id": "53895227137",
+      "type": "PushEvent",
+      "repo": "paulchrisluke/pcl-labs",
+      "actor": "paulchrisluke",
+      "created_at": "2025-08-27T11:01:13Z",
+      "details": {
+        "commits": 1,
+        "branch": "feature/cloudflare-whisper-transcription",
+        "commit_messages": [
+          "feat: improve transcription pipeline with validation and automated scheduling\n\n- Add transcript content validation to ensure meaningful content before storage\n- Implement minimum text length, segment validation, and error pattern detection\n- Add transcription pipeline that runs every 6 hours via cron trigger\n- Create manual transcription pipeline endpoint for on-demand processing\n- Fix issue where small/empty transcript files were being stored\n- Add comprehensive validation to prevent storing invalid transcripts\n- Update wrangler.toml with new cron schedule for transcription pipeline\n- Add handleTranscriptionPipeline function to process all stored clips"
+        ]
+      },
+      "url": null,
+      "title": null,
+      "body": null
+    }
+  ],
+  "metadata": {
+    "total_clips": 0,
+    "total_events": 25,
+    "keywords": [
+      "CreateEvent",
+      "PullRequestEvent",
+      "PushEvent",
+      "paulchrisluke",
+      "pcl-labs"
+    ],
+    "date_parsed": "2025-08-27"
+  },
+  "frontmatter": {
+    "title": "Daily Devlog \u2014 Aug 27, 2025",
+    "date": "2025-08-27",
+    "author": "Paul Chris Luke",
+    "og": {
+      "og:title": "Daily Devlog \u2014 Aug 27, 2025",
+      "og:description": "Daily development log with 3 stories from 0 Twitch clips and 25 GitHub events",
+      "og:type": "article",
+      "og:url": "https://paulchrisluke.com/blog/2025-08-27",
+      "og:image": "https://paulchrisluke.com/pcl-labs-logo.svg",
+      "og:site_name": "Daily Devlog"
+    },
+    "schema": {
+      "article": {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "Daily Devlog \u2014 Aug 27, 2025",
+        "datePublished": "2025-08-27",
+        "author": {
+          "@type": "Person",
+          "name": "Paul Chris Luke"
+        },
+        "keywords": [
+          "feat",
+          "security"
+        ],
+        "url": "https://paulchrisluke.com/blog/2025-08-27",
+        "image": "https://paulchrisluke.com/pcl-labs-logo.svg"
+      }
+    },
+    "tags": [
+      "feat",
+      "security"
+    ],
+    "lead": "Shipped 2 new features and enhanced security today."
+  },
+  "story_packets": [
+    {
+      "id": "story_20250827_pr34",
+      "kind": "pr_merge",
+      "repo": "paulchrisluke/pcl-labs",
+      "pr_number": 34,
+      "merged_at": "2025-08-27T00:37:26Z",
+      "title_raw": "Feature/twitch clips download convert transcribe",
+      "title_human": "Shipped: Twitch Clips \u2192 Audio \u2192 Transcribe",
+      "why": "Added audio processing and transcription capabilities with batch, status, and background tasks, integrated with cloud storage.",
+      "highlights": [
+        "Introduced test endpoints to validate audio and transcription flows.",
+        "Introduced Python env/dependency management and an update script; expanded ignore rules."
+      ],
+      "story_type": "feat",
+      "pairing": {
+        "clip_id": null,
+        "clip_created_at": null,
+        "score": null,
+        "needs_broll": true
+      },
+      "explainer": {
+        "required": true,
+        "status": "missing",
+        "target_seconds": 90
+      },
+      "video": {
+        "status": "rendered",
+        "path": "/stories/2025/08/27/story_20250827_pr34.mp4",
+        "duration_s": 24.0,
+        "canvas": "1080x1920",
+        "force_rerender": false,
+        "explainer_status_at_render": "missing",
+        "frames": 720
+      },
+      "links": {
+        "pr_url": "https://github.com/paulchrisluke/pcl-labs/pull/34",
+        "commit_compare_url": null,
+        "clip_url": null,
+        "permalink": "/stories/2025/08/27/pr-34"
+      }
+    },
+    {
+      "id": "story_20250827_pr35",
+      "kind": "pr_merge",
+      "repo": "paulchrisluke/pcl-labs",
+      "pr_number": 35,
+      "merged_at": "2025-08-27T04:13:11Z",
+      "title_raw": "Security implementation",
+      "title_human": "Shipped: Security Implementation",
+      "why": "Enhanced system security with authentication and validation.",
+      "highlights": [
+        "HMAC authentication",
+        "CORS protection",
+        "Rate limiting"
+      ],
+      "story_type": "security",
+      "pairing": {
+        "clip_id": null,
+        "clip_created_at": null,
+        "score": null,
+        "needs_broll": true
+      },
+      "explainer": {
+        "required": true,
+        "status": "missing",
+        "target_seconds": 90
+      },
+      "video": {
+        "status": "rendered",
+        "path": "/stories/2025/08/27/story_20250827_pr35.mp4",
+        "duration_s": 24.0,
+        "canvas": "1080x1920",
+        "force_rerender": false,
+        "explainer_status_at_render": "missing",
+        "frames": 720
+      },
+      "links": {
+        "pr_url": "https://github.com/paulchrisluke/pcl-labs/pull/35",
+        "commit_compare_url": null,
+        "clip_url": null,
+        "permalink": "/stories/2025/08/27/pr-35"
+      }
+    },
+    {
+      "id": "story_20250827_pr36",
+      "kind": "pr_merge",
+      "repo": "paulchrisluke/pcl-labs",
+      "pr_number": 36,
+      "merged_at": "2025-08-27T04:53:52Z",
+      "title_raw": "Feature/deduplication caching",
+      "title_human": "Shipped: Deduplication & Caching",
+      "why": "Improved pipeline efficiency by preventing duplicate processing.",
+      "highlights": [
+        "Duplicate detection",
+        "File cleanup",
+        "Pipeline optimization"
+      ],
+      "story_type": "feat",
+      "pairing": {
+        "clip_id": null,
+        "clip_created_at": null,
+        "score": null,
+        "needs_broll": true
+      },
+      "explainer": {
+        "required": true,
+        "status": "missing",
+        "target_seconds": 90
+      },
+      "video": {
+        "status": "rendered",
+        "path": "/stories/2025/08/27/story_20250827_pr36.mp4",
+        "duration_s": 24.0,
+        "canvas": "1080x1920",
+        "force_rerender": false,
+        "explainer_status_at_render": "missing",
+        "frames": 720
+      },
+      "links": {
+        "pr_url": "https://github.com/paulchrisluke/pcl-labs/pull/36",
+        "commit_compare_url": null,
+        "clip_url": null,
+        "permalink": "/stories/2025/08/27/pr-36"
+      }
+    }
+  ]
+}

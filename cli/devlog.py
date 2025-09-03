@@ -197,7 +197,26 @@ def blog_generate(target_date: str, no_ai: bool, force_ai: bool, no_related: boo
         # Build digest and generate markdown
         digest = builder.build_digest(target_date)
         
-        # Generate markdown with M5 options
+
+        
+        # Save PRE-CLEANED digest (raw, no AI enhancements)
+        digest_path = builder.save_digest(digest)
+        click.echo(f"[OK] Saved PRE-CLEANED digest: {digest_path}")
+        
+        # Create FINAL digest with AI enhancements for API consumption
+        final_digest = builder.create_final_digest(target_date)
+        if final_digest:
+            click.echo(f"[OK] Created FINAL digest with AI enhancements")
+            
+            # Upload FINAL digest to R2 for Worker API consumption
+            if builder.upload_digest_to_r2(final_digest):
+                click.echo(f"[OK] Uploaded FINAL digest to R2 for API consumption")
+            else:
+                click.echo(f"[WARNING] Failed to upload FINAL digest to R2 - API may not work")
+        else:
+            click.echo(f"[ERROR] Failed to create FINAL digest")
+        
+        # Generate markdown with M5 options (for human readability)
         ai_options = {
             "ai_enabled": not no_ai,
             "force_ai": force_ai,
@@ -213,6 +232,7 @@ def blog_generate(target_date: str, no_ai: bool, force_ai: bool, no_related: boo
         click.echo(f"[OK] Generated blog post: {file_path}")
         click.echo(f"[INFO] Title: {digest['frontmatter']['title']}")
         click.echo(f"[INFO] Stories: {len(digest.get('story_packets', []))}")
+        click.echo(f"[INFO] Schema data included in digest for API consumption")
         
     except Exception as e:
         click.echo(f"[ERR] Failed to generate blog post: {e}")

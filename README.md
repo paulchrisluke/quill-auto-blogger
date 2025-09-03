@@ -18,6 +18,14 @@ A Python project that fetches and processes Twitch clips and GitHub activity, wi
 - **Structured Content**: SEO-optimized frontmatter and content organization
 - **Environment Configuration**: Flexible target repository and path configuration
 
+## M5 Features - Pure JSON API & AI Enhancement
+
+- **Pure JSON API**: Cloudflare Worker serves enhanced blog data as JSON (no HTML rendering)
+- **Dual Pipeline**: PRE-CLEANED (raw data) and FINAL (AI-enhanced) digest versions
+- **AI Enhancement**: Automatic generation of SEO descriptions, holistic intros, wrap-ups, and story intros
+- **R2 Integration**: Automatic upload to Cloudflare R2 for global API distribution
+- **Structured SEO**: JSON-LD schema data embedded in frontmatter for search engines
+
 ## Features
 
 - **Twitch Integration**: Fetch recent clips for any broadcaster
@@ -196,7 +204,8 @@ data/
 
 blogs/
 ├── YYYY-MM-DD/
-│   └── PRE-CLEANED-YYYY-MM-DD_digest.json
+│   ├── PRE-CLEANED-YYYY-MM-DD_digest.json (raw data, no AI)
+│   └── FINAL-YYYY-MM-DD_digest.json (AI-enhanced for API)
 └── ...
 ```
 
@@ -298,7 +307,7 @@ og:
 
 ## Blog Generation Workflow (M4)
 
-The blog generation system automatically creates markdown blog posts from your daily development data.
+The blog generation system automatically creates both markdown blog posts and JSON API endpoints from your daily development data.
 
 ### Quick Start
 
@@ -326,6 +335,9 @@ Generate a markdown blog post from your daily development data.
 
 **Output:**
 - Creates `drafts/YYYY-MM-DD.md` with the generated markdown
+- Creates `blogs/YYYY-MM-DD/PRE-CLEANED-YYYY-MM-DD_digest.json` (raw data)
+- Creates `blogs/YYYY-MM-DD/FINAL-YYYY-MM-DD_digest.json` (AI-enhanced for API)
+- Uploads FINAL version to R2 bucket for Worker API consumption
 - Displays title and story count
 
 #### `devlog blog preview`
@@ -336,6 +348,25 @@ Preview the content of a blog post without generating files.
 
 **Output:**
 - Shows title, date, tags, and first ~10 lines of content
+
+### API Access (M5)
+
+The generated blog content is available via the Cloudflare Worker API:
+
+```bash
+# Get complete blog data for a date
+curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-01-15"
+
+# Response includes:
+# - Frontmatter with SEO metadata and JSON-LD schema
+# - Story packets with AI-enhanced intros
+# - All assets and metadata
+```
+
+**API Endpoints:**
+- `/blog/{date}` - Complete blog data as JSON
+- `/assets/*` - Static assets (images, videos)
+- `/health` - Health check endpoint
 
 
 

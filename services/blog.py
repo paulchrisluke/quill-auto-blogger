@@ -59,6 +59,7 @@ class BlogDigestBuilder:
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
+        self.worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
     
     def build_digest(self, target_date: str) -> Dict[str, Any]:
         """
@@ -84,7 +85,30 @@ class BlogDigestBuilder:
                 with open(pre_cleaned_path, 'r', encoding='utf-8') as f:
                     digest = json.load(f)
                 logger.info(f"Loaded existing pre-cleaned digest for {target_date}")
-                return digest
+                
+                # Check if digest has frontmatter (v2 format)
+                if digest.get("version") == "2" and "frontmatter" in digest:
+                    logger.info(f"Loaded existing v2 digest for {target_date}")
+                    
+                    # Check if digest already has AI-enhanced content
+                    has_ai_content = (
+                        "holistic_intro" in digest["frontmatter"] or
+                        "wrap_up" in digest["frontmatter"] or
+                        "description" in digest["frontmatter"] or
+                        any("ai_" in str(packet) for packet in digest.get("story_packets", []))
+                    )
+                    
+                    # Don't enhance existing PRE-CLEANED digests - AI enhancement happens in separate phase
+                    logger.info(f"Found existing PRE-CLEANED digest for {target_date}")
+                    
+                    # Enhance existing digest with thumbnail URLs
+                    if digest.get("story_packets"):
+                        enhanced_packets = self._enhance_existing_digest_with_thumbnails(digest, target_date)
+                        digest["story_packets"] = enhanced_packets
+                    
+                    return digest
+                else:
+                    logger.info(f"Existing digest for {target_date} missing frontmatter, rebuilding...")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load pre-cleaned digest for {target_date}: {e}")
         
@@ -111,6 +135,9 @@ class BlogDigestBuilder:
         # Generate pre-computed frontmatter
         frontmatter = self._generate_frontmatter_v2(target_date, clips_data, events_data, story_packets)
         
+        # Enhance story packets with thumbnail URLs before serialization
+        enhanced_story_packets = self._enhance_story_packets_with_thumbnails(story_packets, target_date)
+        
         # Build v2 digest structure
         digest = {
             "version": "2",
@@ -119,8 +146,131 @@ class BlogDigestBuilder:
             "github_events": events_data,
             "metadata": self._generate_metadata(target_date, twitch_clips, github_events),
             "frontmatter": frontmatter.model_dump(mode="json", by_alias=True),
-            "story_packets": [packet.model_dump(mode="json") for packet in story_packets]
+            "story_packets": [packet.model_dump(mode="json") for packet in enhanced_story_packets]
         }
+        
+        # M5: AI enhancement happens in separate phase - save raw digest first
+        # digest = self._enhance_digest_with_ai(digest)
+        
+        return digest
+    
+
+    
+    def _enhance_digest_with_ai(self, digest: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        M5: Enhance digest with AI-generated content during pre-cleaning phase.
+        
+        This method applies AI enhancements to the digest before it's saved,
+        ensuring the API serves the enhanced content without requiring
+        additional AI calls during serving.
+        
+        Args:
+            digest: Raw digest data dictionary
+            
+        Returns:
+            Enhanced digest with AI-generated content
+        """
+        try:
+            from .ai_inserts import AIInsertsService
+            
+            target_date = digest["date"]
+            frontmatter = digest["frontmatter"]
+            story_packets = digest.get("story_packets", [])
+            
+            # Initialize AI service
+            ai_service = AIInsertsService()
+            
+            # Prepare inputs for AI
+            story_titles = [packet.get("title_human", "") for packet in story_packets]
+            inputs = {
+                "title": frontmatter.get("title", ""),
+                "tags_csv": ",".join(frontmatter.get("tags", [])),
+                "lead": frontmatter.get("lead", ""),
+                "story_titles_csv": ",".join(story_titles)
+            }
+            
+            # 1. Generate rich SEO description for og:description
+            logger.info(f"Generating SEO description for {target_date}...")
+            seo_description = ai_service.make_seo_description(target_date, inputs, force_ai=False)
+            logger.info(f"Generated SEO description: {seo_description[:100]}...")
+            
+            # Update frontmatter og:description
+            if "og" not in frontmatter:
+                frontmatter["og"] = {}
+            frontmatter["og"]["og:description"] = seo_description
+            logger.info(f"Updated og:description in frontmatter")
+            
+            # Set frontmatter description
+            if "description" not in frontmatter:
+                frontmatter["description"] = seo_description
+            logger.info(f"Set description in frontmatter")
+            
+            # 2. Update frontmatter images with smart selection
+            best_image = self._select_best_image(story_packets)
+            if "og" in frontmatter:
+                frontmatter["og"]["og:image"] = best_image
+            if "schema" in frontmatter and "article" in frontmatter["schema"]:
+                frontmatter["schema"]["article"]["image"] = best_image
+            
+            # 3. Generate holistic intro paragraph
+            holistic_intro = ai_service.make_holistic_intro(target_date, inputs, force_ai=False)
+            if holistic_intro:
+                frontmatter["holistic_intro"] = holistic_intro
+            
+            # 4. Generate wrap-up paragraph
+            wrap_up = ai_service.make_wrap_up(target_date, inputs, force_ai=False)
+            if wrap_up:
+                frontmatter["wrap_up"] = wrap_up
+            
+            # 5. Generate AI-suggested tags
+            suggested_tags = ai_service.suggest_tags(target_date, inputs, force_ai=False)
+            if suggested_tags:
+                # Merge with existing tags, avoiding duplicates
+                existing_tags = set(frontmatter.get("tags", []))
+                existing_tags.update(suggested_tags)
+                frontmatter["tags"] = list(existing_tags)
+                
+                # Also update schema keywords
+                if "schema" in frontmatter and "article" in frontmatter["schema"]:
+                    frontmatter["schema"]["article"]["keywords"] = list(existing_tags)
+            
+            # 6. Enhance story packets with AI-generated content
+            enhanced_story_packets = []
+            for packet in story_packets:
+                enhanced_packet = packet.copy()
+                
+                # Generate story micro-intro
+                story_inputs = {
+                    "title": packet.get("title_human", ""),
+                    "why": packet.get("why", ""),
+                    "highlights_csv": ",".join(packet.get("highlights", []))
+                }
+                micro_intro = ai_service.make_story_micro_intro(target_date, story_inputs, force_ai=False)
+                if micro_intro:
+                    enhanced_packet["ai_micro_intro"] = micro_intro
+                
+                # Generate comprehensive story intro
+                comprehensive_intro = ai_service.make_story_comprehensive_intro(target_date, story_inputs, force_ai=False)
+                if comprehensive_intro:
+                    enhanced_packet["ai_comprehensive_intro"] = comprehensive_intro
+                
+                enhanced_story_packets.append(enhanced_packet)
+            
+            # Update digest with enhanced content
+            digest["frontmatter"] = frontmatter
+            digest["story_packets"] = enhanced_story_packets
+            
+            logger.info(f"Enhanced digest for {target_date} with AI-generated content")
+            logger.info(f"Added holistic_intro: {'holistic_intro' in frontmatter}")
+            logger.info(f"Added wrap_up: {'wrap_up' in frontmatter}")
+            logger.info(f"Enhanced {len(enhanced_story_packets)} story packets with AI content")
+            
+        except Exception as e:
+            logger.warning(f"Failed to enhance digest with AI content: {e}")
+            logger.warning(f"Exception details: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.warning(f"Traceback: {traceback.format_exc()}")
+            # Continue without AI enhancement - digest is still valid
         
         return digest
     
@@ -553,6 +703,7 @@ class BlogDigestBuilder:
         Returns:
             Path to the saved JSON file
         """
+
         target_date = digest["date"]
         
         # Create date subdirectory
@@ -564,13 +715,130 @@ class BlogDigestBuilder:
         if json_path.exists():
             logger.info("Overwriting existing digest: %s", json_path)
         
-        # Use the cache manager's atomic write method
-        if cache_manager is None:
-            from services.utils import CacheManager
-            cache_manager = CacheManager()
-        cache_manager.atomic_write_json(json_path, digest, overwrite=True)
+        # Ensure all data is JSON-serializable by converting to dict first
+        serializable_digest = {}
+        for key, value in digest.items():
+            if hasattr(value, 'model_dump'):
+                # Handle Pydantic models
+                serializable_digest[key] = value.model_dump(mode='json')
+            else:
+                serializable_digest[key] = value
+        
+
+        
+        # Save JSON directly to ensure proper serialization
+        try:
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_digest, f, indent=2, default=str)
+        except Exception as e:
+            logger.warning(f"Direct JSON save failed: {e}, falling back to cache manager")
+            # Fall back to cache manager
+            if cache_manager is None:
+                from services.utils import CacheManager
+                cache_manager = CacheManager()
+            cache_manager.atomic_write_json(json_path, serializable_digest, overwrite=True)
         
         return json_path
+    
+    def create_final_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
+        """
+        Create FINAL version of digest with AI enhancements for API consumption.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Enhanced digest dictionary or None if failed
+        """
+        try:
+            # Load the PRE-CLEANED digest
+            pre_cleaned_path = f"blogs/{target_date}/PRE-CLEANED-{target_date}_digest.json"
+            if not os.path.exists(pre_cleaned_path):
+                logger.error(f"PRE-CLEANED digest not found: {pre_cleaned_path}")
+                return None
+            
+            with open(pre_cleaned_path, 'r') as f:
+                digest = json.load(f)
+            
+            # Apply AI enhancements
+            enhanced_digest = self._enhance_digest_with_ai(digest)
+            
+            # Save as FINAL version
+            final_path = f"blogs/{target_date}/FINAL-{target_date}_digest.json"
+            with open(final_path, 'w') as f:
+                json.dump(enhanced_digest, f, indent=2, default=str)
+            
+            logger.info(f"Created FINAL digest: {final_path}")
+            return enhanced_digest
+            
+        except Exception as e:
+            logger.error(f"Failed to create FINAL digest: {e}")
+            return None
+    
+    def upload_digest_to_r2(self, digest: Dict[str, Any]) -> bool:
+        """
+        Upload the enhanced digest to R2 bucket for Worker API consumption.
+        
+        Args:
+            digest: Enhanced digest data dictionary
+            
+        Returns:
+            True if upload successful, False otherwise
+        """
+        try:
+            from .auth import AuthService
+            from .publisher import Publisher
+            
+            # Get R2 credentials
+            auth_service = AuthService()
+            r2_credentials = auth_service.get_r2_credentials()
+            
+            if not r2_credentials:
+                logger.warning("R2 credentials not found, skipping R2 upload")
+                return False
+            
+            # Create R2 key path - upload FINAL version for API consumption
+            target_date = digest["date"]
+            r2_key = f"blogs/{target_date}/FINAL-{target_date}_digest.json"
+            
+            # Convert digest to JSON string
+            import json
+            digest_json = json.dumps(digest, indent=2, default=str)
+            
+            # Upload to R2 using boto3 directly
+            try:
+                import boto3
+                # Handle both Pydantic SecretStr and plain string types for secret_access_key
+                secret_key = r2_credentials.secret_access_key
+                if hasattr(secret_key, 'get_secret_value'):
+                    aws_secret_access_key = secret_key.get_secret_value()
+                else:
+                    aws_secret_access_key = str(secret_key) if secret_key is not None else ""
+                
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=r2_credentials.access_key_id,
+                    aws_secret_access_key=aws_secret_access_key,
+                    endpoint_url=r2_credentials.endpoint,
+                    region_name=r2_credentials.region
+                )
+                
+                s3_client.put_object(
+                    Bucket=r2_credentials.bucket,
+                    Key=r2_key,
+                    Body=digest_json.encode('utf-8'),
+                    ContentType='application/json'
+                )
+                logger.info(f"Successfully uploaded digest to R2: {r2_key}")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Failed to upload digest to R2: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to upload digest to R2: {e}")
+            return False
     
     def _load_twitch_clips(self, date_path: Path) -> List[TwitchClip]:
         """Load all Twitch clips for a given date."""
@@ -817,48 +1085,200 @@ class BlogDigestBuilder:
             else:  # Dict format
                 video_path = best_story["video"]["path"]
             
-            # Convert video path to the correct public stories URL format
-            # From: out/videos/2025-08-29/story_20250829_pr42.mp4
-            # To: /stories/2025/08/29/story_20250829_pr42_01_intro.png
-            if video_path.startswith('out/videos/'):
+            # Convert video path to the correct Worker URL format
+            # From: /stories/2025/08/27/story_20250827_pr34.mp4
+            # To: https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png
+            if video_path.startswith('/stories/'):
                 # Extract date and filename
                 parts = video_path.split('/')
-                if len(parts) >= 4:
-                    date_part = parts[2]  # 2025-08-29
-                    filename = parts[3]   # story_20250829_pr42.mp4
+                if len(parts) >= 5:
+                    year = parts[2]  # 2025
+                    month = parts[3]  # 08
+                    day = parts[4]    # 27
+                    filename = parts[5]  # story_20250827_pr34.mp4
                     
-                    # Parse date and convert to YYYY/MM/DD format
-                    try:
-                        date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                        year_month_day = date_obj.strftime("%Y/%m/%d")
-                        
-                        # Convert filename to intro PNG
-                        base_name = filename.replace('.mp4', '')
-                        intro_png = f"{base_name}_01_intro.png"
-                        
-                        return f"{self.blog_base_url}/stories/{year_month_day}/{intro_png}"
-                    except ValueError:
-                        pass
+                    # Convert filename to intro PNG
+                    base_name = filename.rsplit('.', 1)[0]  # Safely strip .mp4 extension
+                    intro_png = f"{base_name}_01_intro.png"
+                    
+                    # Generate Worker URL for the intro PNG
+                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
             
             # Fallback: try to convert existing path format
             intro_png_path = video_path.replace(".mp4", "_01_intro.png")
             if intro_png_path.startswith('/stories/'):
-                return f"{self.blog_base_url}{intro_png_path}"
-            elif intro_png_path.startswith('out/videos/'):
-                # Convert out/videos path to public stories path
-                parts = intro_png_path.split('/')
-                if len(parts) >= 4:
-                    date_part = parts[2]  # 2025-08-29
-                    filename = parts[3]   # story_20250829_pr42_01_intro.png
-                    
-                    try:
-                        date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                        year_month_day = date_obj.strftime("%Y/%m/%d")
-                        return f"{self.blog_base_url}/stories/{year_month_day}/{filename}"
-                    except ValueError:
-                        pass
+                return f"https://{self.worker_domain}{intro_png_path.replace('.mp4', '_01_intro.png')}"
         
         return self.blog_default_image
+    
+    def _get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
+        """
+        Generate thumbnail URL for a video based on its path.
+        
+        Args:
+            video_path: Path to the video file
+            story_id: Story identifier for fallback
+            
+        Returns:
+            URL string for the thumbnail, or empty string if not available
+        """
+        try:
+            # Strip extension and split path into parts
+            base_name = video_path.rsplit('.', 1)[0]  # Safely strip extension
+            parts = base_name.split('/')
+            
+            # Validate path structure before indexing
+            if len(parts) < 5:
+                logger.warning(f"Invalid video path structure (insufficient parts): {video_path}")
+                return ""
+            
+            # Handle stories paths: stories/YYYY/MM/DD/filename
+            if parts[0] == 'stories':
+                try:
+                    year = parts[1]
+                    month = parts[2]
+                    day = parts[3]
+                    filename = parts[4]
+                    
+                    # Validate date components
+                    if not (year.isdigit() and month.isdigit() and day.isdigit()):
+                        logger.warning(f"Invalid date components in path: {video_path}")
+                        return ""
+                    
+                    # Construct intro PNG filename
+                    intro_png = f"{filename}_01_intro.png"
+                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    
+                except (IndexError, ValueError) as e:
+                    logger.warning(f"Failed to parse stories path {video_path}: {e}")
+                    return ""
+            
+            # Handle out/videos paths: out/videos/YYYY-MM-DD/filename
+            elif parts[0] == 'out' and parts[1] == 'videos':
+                try:
+                    date_part = parts[2]  # YYYY-MM-DD
+                    filename = parts[3]
+                    
+                    # Parse date and convert to YYYY/MM/DD format
+                    date_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                    year = str(date_obj.year)
+                    month = f"{date_obj.month:02d}"
+                    day = f"{date_obj.day:02d}"
+                    
+                    # Construct intro PNG filename
+                    intro_png = f"{filename}_01_intro.png"
+                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    
+                except (IndexError, ValueError) as e:
+                    logger.warning(f"Failed to parse out/videos path {video_path}: {e}")
+                    return ""
+            
+            # Handle absolute paths starting with /stories/
+            elif video_path.startswith('/stories/'):
+                # Remove leading slash and process as relative path
+                clean_path = video_path.lstrip('/')
+                return self._get_video_thumbnail_url(clean_path, story_id)
+            
+            # Handle HTTPS URLs
+            elif video_path.startswith('https://'):
+                from urllib.parse import urlsplit
+                path = urlsplit(video_path).path
+                if '/stories/' in path:
+                    stories_index = path.find('/stories/')
+                    if stories_index != -1:
+                        stories_path = path[stories_index:]
+                        # Convert video path to thumbnail path
+                        thumbnail_path = stories_path.replace('.mp4', '_01_intro.png')
+                        return f"https://{self.worker_domain}/assets{thumbnail_path}"
+            
+            # Fallback: try to generate from story_id if available
+            if story_id and video_path:
+                # Extract date from video path if possible
+                if '/stories/' in video_path:
+                    import re
+                    date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', video_path)
+                    if date_match:
+                        year, month, day = date_match.groups()
+                        return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
+            
+            logger.warning(f"Could not determine thumbnail path for: {video_path}")
+            return ""
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate thumbnail URL for {video_path}: {e}")
+            return ""
+    
+    def _enhance_story_packets_with_thumbnails(self, story_packets: List[Any], _target_date: str) -> List[Any]:
+        """
+        Enhance story packets with thumbnail URLs for API responses.
+        
+        Args:
+            story_packets: List of StoryPacket objects
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            List of enhanced StoryPacket objects with thumbnail URLs
+        """
+        enhanced_packets = []
+        
+        for packet in story_packets:
+            # Create a copy to avoid modifying the original
+            enhanced_packet = packet.model_copy() if hasattr(packet, 'model_copy') else packet.copy()
+            
+            # Add thumbnail information to video info if video exists and is rendered
+            if (hasattr(enhanced_packet, 'video') and 
+                enhanced_packet.video and 
+                enhanced_packet.video.path and 
+                enhanced_packet.video.status == 'rendered'):
+                
+                # Generate thumbnail URL
+                thumbnail_url = self._get_video_thumbnail_url(enhanced_packet.video.path, enhanced_packet.id)
+                
+                # Add thumbnail URL to video info
+                if hasattr(enhanced_packet.video, 'thumbnail_url'):
+                    enhanced_packet.video.thumbnail_url = thumbnail_url
+                else:
+                    # If VideoInfo model doesn't have thumbnail_url field, add it as a custom attribute
+                    if not hasattr(enhanced_packet.video, '_custom_attrs'):
+                        enhanced_packet.video._custom_attrs = {}
+                    enhanced_packet.video._custom_attrs['thumbnail_url'] = thumbnail_url
+            
+            enhanced_packets.append(enhanced_packet)
+        
+        return enhanced_packets
+    
+    def _enhance_existing_digest_with_thumbnails(self, digest: Dict[str, Any], _target_date: str) -> List[Dict[str, Any]]:
+        """
+        Enhance existing digest story packets with thumbnail URLs.
+        
+        Args:
+            digest: Existing digest dictionary
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            List of enhanced story packet dictionaries with thumbnail URLs
+        """
+        enhanced_packets = []
+        
+        for packet in digest.get("story_packets", []):
+            # Create a copy to avoid modifying the original
+            enhanced_packet = packet.copy()
+            
+            # Add thumbnail information to video info if video exists and is rendered
+            if (enhanced_packet.get('video') and 
+                enhanced_packet['video'].get('path') and 
+                enhanced_packet['video'].get('status') == 'rendered'):
+                
+                # Generate thumbnail URL
+                thumbnail_url = self._get_video_thumbnail_url(enhanced_packet['video']['path'], enhanced_packet.get('id', ''))
+                
+                # Add thumbnail URL to video info
+                if thumbnail_url:
+                    enhanced_packet['video']['thumbnail_url'] = thumbnail_url
+            
+            enhanced_packets.append(enhanced_packet)
+        
+        return enhanced_packets
     
 
     
@@ -958,7 +1378,16 @@ class BlogDigestBuilder:
                             if video_path.startswith(('https://', '/stories/')):
                                 # Escape video path for HTML attribute to prevent XSS
                                 escaped_video_path = html.escape(video_path, quote=True)
-                                content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
+                                
+                                # Generate thumbnail URL for the video
+                                thumbnail_url = self._get_video_thumbnail_url(video_path, packet.get('id', ''))
+                                
+                                if thumbnail_url:
+                                    # Escape thumbnail URL for HTML attribute to prevent XSS
+                                    escaped_thumbnail_url = html.escape(thumbnail_url, quote=True)
+                                    content_parts.append(f'<video controls poster="{escaped_thumbnail_url}" src="{escaped_video_path}"></video>')
+                                else:
+                                    content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
                                 content_parts.append("")
                             else:
                                 # For non-secure paths, just show the link
@@ -1502,26 +1931,22 @@ class BlogDigestBuilder:
     
     def _get_cloudflare_url(self, asset_path: str) -> str:
         """
-        Convert local asset path to Cloudflare R2 custom domain URL.
+        Convert local asset path to Worker API URL.
         
         Args:
             asset_path: Local asset path (e.g., "stories/2025/08/29/story_123.mp4")
             
         Returns:
-            Full Cloudflare R2 custom domain URL
+            Full Worker API URL for the asset
         """
         try:
-            # Get Cloudflare custom domain from environment
-            import os
-            custom_domain = os.getenv("CLOUDFLARE_R2_CUSTOM_DOMAIN", "media.paulchrisluke.com")
+            # Convert the asset path to the Worker's asset format
+            # Local path: stories/2025/08/29/story_123.mp4
+            # Worker path: /assets/stories/2025/08/29/story_123.mp4
+            worker_path = f"/assets/{asset_path}"
             
-            if custom_domain:
-                # Use custom domain for clean, professional URLs
-                return f"https://{custom_domain}/{asset_path}"
-            else:
-                # Fallback to local path if no custom domain config
-                return f"/{asset_path}"
+            return f"https://{self.worker_domain}{worker_path}"
                 
         except Exception as e:
-            logger.exception("Failed to generate Cloudflare URL for %s", asset_path)
+            logger.exception("Failed to generate Worker URL for %s", asset_path)
             return f"/{asset_path}"

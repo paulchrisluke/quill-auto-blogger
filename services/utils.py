@@ -295,7 +295,18 @@ class CacheManager:
         tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
         try:
             with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, default=str)
+                # Use a more robust serialization approach
+                def safe_serializer(obj):
+                    if hasattr(obj, 'model_dump'):
+                        return obj.model_dump(mode='json')
+                    elif hasattr(obj, 'dict'):
+                        return obj.dict()
+                    elif hasattr(obj, '__dict__'):
+                        return obj.__dict__
+                    else:
+                        return str(obj)
+                
+                json.dump(data, f, indent=2, default=safe_serializer)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, file_path)
