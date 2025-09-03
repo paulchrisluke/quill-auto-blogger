@@ -60,9 +60,10 @@ class R2Publisher:
             etag = response.get('ETag', '').strip('"')  # Remove quotes from ETag
             return etag == local_md5
         except ClientError as e:
-            if e.response['Error']['Code'] == '404':
+            error_code = e.response.get('Error', {}).get('Code')
+            if error_code in ('404', 'NotFound', 'NoSuchKey'):
                 return False  # File doesn't exist, should upload
-            logger.warning(f"Error checking R2 object {r2_key}: {e}")
+            logger.warning(f"Error checking R2 object {r2_key}: {e}", exc_info=True)
             return False  # On error, proceed with upload
     
     def _headers_for(self, file_path: Path) -> Dict[str, str]:

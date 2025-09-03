@@ -72,31 +72,9 @@ class DigestUtils:
             else:  # Dict format
                 video_path = best_story["video"]["path"]
             
-            # Convert video path to the correct Worker URL format
-            # From: /stories/2025/08/27/story_20250827_pr34.mp4
-            # To: https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png
-            if video_path.startswith('/stories/'):
-                # Extract date and filename
-                parts = video_path.split('/')
-                if len(parts) >= 5:
-                    year = parts[2]  # 2025
-                    month = parts[3]  # 08
-                    day = parts[4]    # 27
-                    filename = parts[5]  # story_20250827_pr34.mp4
-                    
-                    # Convert filename to intro PNG
-                    base_name = filename.rsplit('.', 1)[0]  # Safely strip .mp4 extension
-                    intro_png = f"{base_name}_01_intro.png"
-                    
-                    # Generate Worker URL for the intro PNG
-                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
-            
-            # Fallback: try to convert existing path format
-            intro_png_path = video_path.replace(".mp4", "_01_intro.png")
-            if intro_png_path.startswith('/stories/'):
-                return f"https://{self.worker_domain}{intro_png_path.replace('.mp4', '_01_intro.png')}"
-        
-        return self.blog_default_image
+            # Delegate to the existing helper method for consistent thumbnail URL generation
+            thumbnail_url = self.get_video_thumbnail_url(video_path, best_story.id if hasattr(best_story, 'id') else '')
+            return thumbnail_url if thumbnail_url else self.blog_default_image
     
     def get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
         """
@@ -110,17 +88,18 @@ class DigestUtils:
             URL string for the thumbnail, or empty string if not available
         """
         try:
-            # Strip extension and split path into parts
-            base_name = video_path.rsplit('.', 1)[0]  # Safely strip extension
-            parts = base_name.split('/')
+            # Normalize incoming video_path: strip URL scheme and leading slashes
+            clean_path = video_path
+            if video_path.startswith('https://'):
+                from urllib.parse import urlsplit
+                clean_path = urlsplit(video_path).path
+            clean_path = clean_path.lstrip('/')
             
-            # Validate path structure before indexing
-            if len(parts) < 5:
-                logger.warning(f"Invalid video path structure (insufficient parts): {video_path}")
-                return ""
+            # Split the cleaned path into parts
+            parts = clean_path.split('/')
             
             # Handle stories paths: stories/YYYY/MM/DD/filename
-            if parts[0] == 'stories':
+            if parts[0] == 'stories' and len(parts) >= 5:
                 try:
                     year = parts[1]
                     month = parts[2]
@@ -129,7 +108,7 @@ class DigestUtils:
                     
                     # Validate date components
                     if not (year.isdigit() and month.isdigit() and day.isdigit()):
-                        logger.warning(f"Invalid date components in path: {video_path}")
+                        logger.warning(f"Invalid date components in stories path: {video_path}")
                         return ""
                     
                     # Construct intro PNG filename
@@ -141,7 +120,7 @@ class DigestUtils:
                     return ""
             
             # Handle out/videos paths: out/videos/YYYY-MM-DD/filename
-            elif parts[0] == 'out' and parts[1] == 'videos':
+            elif parts[0] == 'out' and parts[1] == 'videos' and len(parts) >= 4:
                 try:
                     date_part = parts[2]  # YYYY-MM-DD
                     filename = parts[3]
@@ -160,30 +139,12 @@ class DigestUtils:
                     logger.warning(f"Failed to parse out/videos path {video_path}: {e}")
                     return ""
             
-            # Handle absolute paths starting with /stories/
-            elif video_path.startswith('/stories/'):
-                # Remove leading slash and process as relative path
-                clean_path = video_path.lstrip('/')
-                return self.get_video_thumbnail_url(clean_path, story_id)
-            
-            # Handle HTTPS URLs
-            elif video_path.startswith('https://'):
-                from urllib.parse import urlsplit
-                path = urlsplit(video_path).path
-                if '/stories/' in path:
-                    stories_index = path.find('/stories/')
-                    if stories_index != -1:
-                        stories_path = path[stories_index:]
-                        # Convert video path to thumbnail path
-                        thumbnail_path = stories_path.replace('.mp4', '_01_intro.png')
-                        return f"https://{self.worker_domain}/assets{thumbnail_path}"
-            
             # Fallback: try to generate from story_id if available
-            if story_id and video_path:
+            if story_id and clean_path:
                 # Extract date from video path if possible
-                if '/stories/' in video_path:
+                if 'stories/' in clean_path:
                     import re
-                    date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', video_path)
+                    date_match = re.search(r'stories/(\d{4})/(\d{2})/(\d{2})/', clean_path)
                     if date_match:
                         year, month, day = date_match.groups()
                         return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
@@ -191,7 +152,7 @@ class DigestUtils:
             logger.warning(f"Could not determine thumbnail path for: {video_path}")
             return ""
             
-        except Exception as e:
+        except (IndexError, ValueError) as e:
             logger.warning(f"Failed to generate thumbnail URL for {video_path}: {e}")
             return ""
     

@@ -62,6 +62,16 @@ class BlogDigestBuilder:
         self.io = DigestIO(self.data_dir, self.blogs_dir)
         self.frontmatter_gen = FrontmatterGenerator(self.blog_author, self.blog_base_url, self.worker_domain)
     
+    def update_paths(self, data_dir: Path, blogs_dir: Path):
+        """Update data and blogs directories and recreate DigestIO instance."""
+        self.data_dir = data_dir
+        self.blogs_dir = blogs_dir
+        self.blogs_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Recreate DigestIO instance with new paths
+        from .digest_io import DigestIO
+        self.io = DigestIO(self.data_dir, self.blogs_dir)
+    
     def build_digest(self, target_date: str) -> Dict[str, Any]:
         """
         Build a digest for a specific date with story packets (v2).
@@ -557,7 +567,7 @@ class BlogDigestBuilder:
             return final_blog_data
             
         except Exception as e:
-            logger.exception(f"Failed to get blog API data for {target_date}")
+            logger.exception("Failed to get blog API data for %s", target_date)
             raise
     
     def _save_v3_api_response(self, target_date: str, api_data: Dict[str, Any]) -> None:
@@ -596,7 +606,7 @@ class BlogDigestBuilder:
                 # Don't fail the main operation for this
                 
         except Exception as e:
-            logger.error(f"Failed to save v3 API response for {target_date}: {e}")
+            logger.exception("Failed to save v3 API response for %s", target_date)
             # Don't raise - this is not critical for API functionality
     
     def get_blog_markdown(self, target_date: str) -> str:

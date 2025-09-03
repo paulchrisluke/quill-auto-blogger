@@ -4,8 +4,8 @@ Frontmatter generation for blog posts.
 
 import sys
 import yaml
-from datetime import datetime
-from typing import List, Dict, Any
+from datetime import datetime, date
+from typing import List, Dict, Any, Union
 
 from story_schema import FrontmatterInfo
 
@@ -25,7 +25,7 @@ class FrontmatterGenerator:
         events_data: List[Dict[str, Any]], 
         story_packets: List[Any],
         version: str = "v2"
-    ) -> FrontmatterInfo:
+    ) -> Union[str, FrontmatterInfo]:
         """
         Generate frontmatter with specified version.
         
@@ -37,7 +37,7 @@ class FrontmatterGenerator:
             version: Frontmatter version ("v1", "v2", "v3")
             
         Returns:
-            FrontmatterInfo object
+            FrontmatterInfo object for v2/v3, YAML string for v1
         """
         if version == "v1":
             return self._generate_frontmatter_v1(target_date, clips_data, events_data, story_packets)
@@ -80,7 +80,7 @@ class FrontmatterGenerator:
         video_objects = []
         for clip in clips_data:
             upload_date = clip.get("created_at")
-            if isinstance(upload_date, (datetime, date)):
+            if isinstance(upload_date, (datetime, datetime.date)):
                 upload_date = upload_date.isoformat()
             video_schema = {
                 "@type": "VideoObject",
@@ -300,7 +300,11 @@ class FrontmatterGenerator:
         # Count story types
         type_counts = {}
         for packet in story_packets:
-            story_type = packet.story_type.value
+            story_type_obj = getattr(packet, "story_type", None)
+            if story_type_obj and hasattr(story_type_obj, "value"):
+                story_type = story_type_obj.value
+            else:
+                story_type = "unknown"
             type_counts[story_type] = type_counts.get(story_type, 0) + 1
         
         # Generate lead based on most common types

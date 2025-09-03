@@ -321,7 +321,8 @@ def blog_regenerate_api(target_date: str):
         
         click.echo(f"[OK] Regenerated API v3 content for {target_date}")
         click.echo(f"[INFO] Title: {api_data['frontmatter']['title']}")
-        click.echo(f"[INFO] Stories: {len(api_data.get('content', {}).get('body', '').split('####')) - 1}")
+        story_packets = api_data.get('content', {}).get('story_packets', [])
+        click.echo(f"[INFO] Stories: {len(story_packets)}")
         click.echo(f"[INFO] API v3 file saved to blogs/{target_date}/API-v3-{target_date}_digest.json")
         
     except Exception as e:
@@ -424,7 +425,7 @@ def site_publish(dry_run):
         
         # Check overall success
         all_site_success = all(site_results.values()) if site_results else False
-        all_blog_success = all(blog_results.values()) if blog_results else False
+        all_blog_success = True if not blog_results else all(blog_results.values())
         
         if all_site_success and all_blog_success:
             click.echo("[OK] All files published successfully")

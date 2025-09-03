@@ -80,17 +80,16 @@ class DigestIO:
             else:
                 serializable_digest[key] = value
         
-        # Save JSON directly to ensure proper serialization
+        # Use CacheManager for atomic, durable JSON writing
+        if cache_manager is None:
+            from services.utils import CacheManager
+            cache_manager = CacheManager()
+        
         try:
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(serializable_digest, f, indent=2, default=str)
-        except Exception as e:
-            logger.warning(f"Direct JSON save failed: {e}, falling back to cache manager")
-            # Fall back to cache manager
-            if cache_manager is None:
-                from services.utils import CacheManager
-                cache_manager = CacheManager()
             cache_manager.atomic_write_json(json_path, serializable_digest, overwrite=True)
+        except Exception as e:
+            logger.error(f"Failed to write digest with CacheManager: {e}")
+            raise
         
         return json_path
     
@@ -144,10 +143,9 @@ class DigestIO:
             # Enhance digest with AI content
             enhanced_digest = self._enhance_digest_with_ai(digest, ai_service)
             
-            # Save as FINAL version
+            # Save as FINAL version using atomic write
             final_path = self.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
-            with open(final_path, 'w') as f:
-                json.dump(enhanced_digest, f, indent=2, default=str)
+            cache_manager.atomic_write_json(final_path, enhanced_digest, overwrite=True)
             
             logger.info(f"Created FINAL digest: {final_path}")
             return enhanced_digest

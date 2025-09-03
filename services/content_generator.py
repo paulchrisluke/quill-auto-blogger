@@ -111,12 +111,19 @@ class ContentGenerator:
                             # Convert relative video paths to public URLs
                             if video_path.startswith('out/videos/'):
                                 # Convert to public stories URL with consistent format
-                                date_part = video_path.split('/')[2]  # Get date from out/videos/YYYY-MM-DD/
-                                filename = video_path.split('/')[-1]  # Get filename
-                                # Convert to YYYY/MM/DD format
-                                date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                                public_path = f"stories/{date_obj.strftime('%Y/%m/%d')}/{filename}"
-                                video_path = public_path
+                                path_parts = video_path.split('/')
+                                if len(path_parts) >= 3:
+                                    try:
+                                        date_part = path_parts[2]  # Get date from out/videos/YYYY-MM-DD/
+                                        filename = path_parts[-1]  # Get filename
+                                        # Convert to YYYY/MM/DD format
+                                        date_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                                        public_path = f"stories/{date_obj.strftime('%Y/%m/%d')}/{filename}"
+                                        video_path = public_path
+                                    except (ValueError, IndexError) as e:
+                                        logger.warning(f"Failed to parse video path {video_path}: {e}")
+                                        # Fall back to original path
+                                        pass
                             
                             # Convert to Cloudflare R2 URL for API consumption
                             if video_path.startswith('stories/') or video_path.startswith('/stories/'):
@@ -147,8 +154,13 @@ class ContentGenerator:
                         
                         # Add PR link
                         if packet.get('links', {}).get('pr_url'):
-                            content_parts.append(f"**PR:** [{packet['links']['pr_url']}]({packet['links']['pr_url']})")
-                            content_parts.append("")
+                            pr_url = packet['links']['pr_url']
+                            # Sanitize PR URL to prevent markdown/script injection
+                            if self._is_safe_url(pr_url):
+                                content_parts.append(f"**PR:** [{pr_url}]({pr_url})")
+                                content_parts.append("")
+                            else:
+                                logger.warning(f"Skipping unsafe PR URL: {pr_url}")
                         
                         content_parts.append("---")
                         content_parts.append("")
@@ -211,7 +223,11 @@ class ContentGenerator:
         if related_enabled:
             content_parts.extend(self._generate_related_posts())
         
-        return "\n".join(content_parts)
+        # Generate the base markdown
+        markdown = "\n".join(content_parts)
+        
+        # Post-process with AI enhancements
+        return self.post_process_markdown(markdown, ai_enabled, force_ai)
     
     def _generate_related_posts(self) -> List[str]:
         """Generate related posts section."""
@@ -464,3 +480,36 @@ class ContentGenerator:
             lines.append(wrap_up)
         
         return '\n'.join(lines)
+    
+    def _is_safe_url(self, url: str) -> bool:
+        """
+        Check if a URL is safe for markdown rendering.
+        
+        Args:
+            url: URL string to validate
+            
+        Returns:
+            True if URL is safe, False otherwise
+        """
+        if not url or not isinstance(url, str):
+            return False
+        
+        # Only allow http/https schemes
+        if not url.startswith(('http://', 'https://')):
+            return False
+        
+        # Check for potentially dangerous characters that could break markdown
+        dangerous_chars = ['<', '>', '"', "'", '`', '\\', '{', '}', '[', ']', '|']
+        if any(char in url for char in dangerous_chars):
+            return False
+        
+        # Basic URL format validation
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            if not parsed.scheme or not parsed.netloc:
+                return False
+        except Exception:
+            return False
+        
+        return True
