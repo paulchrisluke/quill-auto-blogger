@@ -338,7 +338,7 @@ def site():
 
 @site.command("build")
 def site_build():
-    """Build out/site/{index.html, docs.html}."""
+    """Build out/site/index.html."""
     try:
         from services.site_builder import SiteBuilder
         

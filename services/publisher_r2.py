@@ -112,14 +112,14 @@ class R2Publisher:
             }
     
     def publish_site(self, local_dir: Path) -> Dict[str, bool]:
-        """Upload index.html and docs.html idempotently."""
+        """Upload index.html idempotently."""
         results = {}
         
         if not local_dir.exists():
             logger.error(f"Site directory does not exist: {local_dir}")
             return results
         
-        site_files = ['index.html', 'docs.html']
+        site_files = ['index.html']
         
         for filename in site_files:
             file_path = local_dir / filename

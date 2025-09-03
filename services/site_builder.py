@@ -35,19 +35,7 @@ class SiteBuilder:
             logger.warning("index.html not found in root directory")
             results["index.html"] = False
         
-        # Copy docs.html from root if it exists
-        docs_source = Path("docs.html")
-        if docs_source.exists():
-            try:
-                shutil.copy2(docs_source, self.output_dir / "docs.html")
-                logger.info(f"✓ Built docs.html")
-                results["docs.html"] = True
-            except Exception as e:
-                logger.error(f"✗ Failed to build docs.html: {e}")
-                results["docs.html"] = False
-        else:
-            logger.warning("docs.html not found in root directory")
-            results["docs.html"] = False
+
         
         return results
     

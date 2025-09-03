@@ -134,7 +134,6 @@ class TestR2Publisher:
                         results = publisher.publish_site(Path('out/site'))
                         
                         assert results['index.html'] is True
-                        assert results['docs.html'] is True
                         publisher.s3_client.put_object.assert_called()
     
     def test_publish_site_skip_identical(self, publisher):
@@ -146,7 +145,6 @@ class TestR2Publisher:
                         results = publisher.publish_site(Path('out/site'))
                         
                         assert results['index.html'] is True
-                        assert results['docs.html'] is True
                         publisher.s3_client.put_object.assert_not_called()
     
     def test_publish_site_directory_not_found(self, publisher):

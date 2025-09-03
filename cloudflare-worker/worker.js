@@ -21,8 +21,6 @@ export default {
       // Route requests based on path
       if (path === '/' || path === '') {
         return await handleIndexPage(request, env);
-      } else if (path === '/docs') {
-        return await handleDocsPage(request, env);
       } else if (path === '/blogs') {
         // Serve blogs index
         return await handleBlogsIndex(request, env);
@@ -79,10 +77,14 @@ function getCORSHeaders() {
 /**
  * Create error response with CORS headers
  */
-function createErrorResponse(message, status) {
+function createErrorResponse(message, status, cacheTag = null) {
+  const headers = getCORSHeaders();
+  if (cacheTag) {
+    headers['Cache-Tag'] = cacheTag;
+  }
   return new Response(message, { 
     status,
-    headers: getCORSHeaders()
+    headers
   });
 }
 
@@ -94,7 +96,7 @@ async function serveR2Asset(env, key) {
     const object = await env.BLOG_BUCKET.get(key);
     
     if (!object) {
-      return createErrorResponse('Asset not found', 404);
+      return createErrorResponse('Asset not found', 404, 'assets');
     }
     
     const headers = new Headers();
@@ -105,22 +107,35 @@ async function serveR2Asset(env, key) {
       headers.set('Content-Type', 'video/mp4');
       headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400'); // 24 hours
       headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
+      headers.set('Cache-Tag', 'video,assets');
     } else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
       headers.set('Content-Type', `image/${ext === 'jpg' ? 'jpeg' : ext}`);
       headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400'); // 24 hours
       headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
+      headers.set('Cache-Tag', 'image,assets');
     } else if (ext === 'json') {
       headers.set('Content-Type', 'application/json');
       headers.set('Cache-Control', 'public, max-age=300, s-maxage=1800'); // 5 min browser, 30 min edge
       headers.set('CDN-Cache-Control', 'public, max-age=1800'); // 30 min edge
+      headers.set('Cache-Tag', 'json,assets');
     } else if (ext === 'xml') {
       headers.set('Content-Type', 'application/xml');
       headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400'); // 1 hour browser, 24 hours edge
       headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
+      headers.set('Cache-Tag', 'xml,assets');
     } else {
       headers.set('Content-Type', 'application/octet-stream');
       headers.set('Cache-Control', 'public, max-age=300, s-maxage=1800'); // 5 min browser, 30 min edge
       headers.set('CDN-Cache-Control', 'public, max-age=1800'); // 30 min edge
+      headers.set('Cache-Tag', 'assets');
+    }
+    
+    // Add basic validators for better caching
+    if (object.etag) {
+      headers.set('ETag', object.etag);
+    }
+    if (object.httpMetadata && object.httpMetadata.lastModified) {
+      headers.set('Last-Modified', object.httpMetadata.lastModified.toUTCString());
     }
     
     // Add CORS headers
@@ -135,7 +150,7 @@ async function serveR2Asset(env, key) {
     
   } catch (error) {
     console.error('R2 asset error:', error);
-    return createErrorResponse('Failed to serve asset', 500);
+    return createErrorResponse('Failed to serve asset', 500, 'assets');
   }
 }
 
@@ -148,7 +163,7 @@ async function handleBlogsIndex(request, env) {
     const indexObject = await env.BLOG_BUCKET.get('blogs/index.json');
     
     if (!indexObject) {
-      return createErrorResponse('Blogs index not found', 404);
+      return createErrorResponse('Blogs index not found', 404, 'blogs-index');
     }
     
     const jsonContent = await indexObject.text();
@@ -159,6 +174,7 @@ async function handleBlogsIndex(request, env) {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'public, max-age=300, s-maxage=1800', // 5 min browser, 30 min edge
         'CDN-Cache-Control': 'public, max-age=1800', // 30 min edge
+        'Cache-Tag': 'blogs-index',
         'Vary': 'Accept-Encoding',
         ...getCORSHeaders()
       }
@@ -166,7 +182,7 @@ async function handleBlogsIndex(request, env) {
 
   } catch (error) {
     console.error('Blogs index error:', error);
-    return createErrorResponse('Failed to serve blogs index', 500);
+    return createErrorResponse('Failed to serve blogs index', 500, 'blogs-index');
   }
 }
 
@@ -179,7 +195,7 @@ async function handleRSSFeed(request, env) {
     const rssObject = await env.BLOG_BUCKET.get('rss.xml');
     
     if (!rssObject) {
-      return createErrorResponse('RSS feed not found', 404);
+      return createErrorResponse('RSS feed not found', 404, 'rss,feeds');
     }
     
     const xmlContent = await rssObject.text();
@@ -190,6 +206,7 @@ async function handleRSSFeed(request, env) {
         'Content-Type': 'application/rss+xml; charset=utf-8',
         'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
         'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
+        'Cache-Tag': 'rss,feeds',
         'Vary': 'Accept-Encoding',
         ...getCORSHeaders()
       }
@@ -197,7 +214,7 @@ async function handleRSSFeed(request, env) {
 
   } catch (error) {
     console.error('RSS feed error:', error);
-    return createErrorResponse('Failed to serve RSS feed', 500);
+    return createErrorResponse('Failed to serve RSS feed', 500, 'rss,feeds');
   }
 }
 
@@ -210,7 +227,7 @@ async function handleSitemap(request, env) {
     const sitemapObject = await env.BLOG_BUCKET.get('sitemap.xml');
     
     if (!sitemapObject) {
-      return createErrorResponse('Sitemap not found', 404);
+      return createErrorResponse('Sitemap not found', 404, 'sitemap,feeds');
     }
     
     const xmlContent = await sitemapObject.text();
@@ -221,6 +238,7 @@ async function handleSitemap(request, env) {
         'Content-Type': 'application/xml; charset=utf-8',
         'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
         'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
+        'Cache-Tag': 'sitemap,feeds',
         'Vary': 'Accept-Encoding',
         ...getCORSHeaders()
       }
@@ -228,7 +246,7 @@ async function handleSitemap(request, env) {
 
   } catch (error) {
     console.error('Sitemap error:', error);
-    return createErrorResponse('Failed to serve sitemap', 500);
+    return createErrorResponse('Failed to serve sitemap', 500, 'sitemap,feeds');
   }
 }
 
@@ -241,7 +259,7 @@ async function handleIndexPage(request, env) {
     const indexObject = await env.BLOG_BUCKET.get('index.html');
     
     if (!indexObject) {
-      return createErrorResponse('Index page not found', 404);
+      return createErrorResponse('Index page not found', 404, 'index,html');
     }
     
     const htmlContent = await indexObject.text();
@@ -252,6 +270,7 @@ async function handleIndexPage(request, env) {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'public, max-age=3600, s-maxage=86400', // 1 hour browser, 24 hours edge
         'CDN-Cache-Control': 'public, max-age=86400', // 24 hours edge
+        'Cache-Tag': 'index,html',
         'Vary': 'Accept-Encoding',
         ...getCORSHeaders()
       }
@@ -259,41 +278,8 @@ async function handleIndexPage(request, env) {
 
   } catch (error) {
     console.error('Index page error:', error);
-    return createErrorResponse('Failed to serve index page', 500);
+    return createErrorResponse('Failed to serve index page', 500, 'index,html');
   }
 }
 
-/**
- * Handle docs page requests
- */
-async function handleDocsPage(request, env) {
-  try {
-    console.log("Docs page requested, checking bucket...");
-    // Serve the static docs.html file
-    const docsObject = await env.BLOG_BUCKET.get("docs.html");
-    
-    console.log("Docs object result:", docsObject ? "found" : "not found");
-    
-    if (!docsObject) {
-      return createErrorResponse("Docs page not found", 404);
-    }
-    
-    const htmlContent = await docsObject.text();
-    console.log("Docs content length:", htmlContent.length);
-    
-    return new Response(htmlContent, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "public, max-age=3600, s-maxage=86400", // 1 hour browser, 24 hours edge
-        "CDN-Cache-Control": "public, max-age=86400", // 24 hours edge
-        "Vary": "Accept-Encoding",
-        ...getCORSHeaders()
-      }
-    });
 
-  } catch (error) {
-    console.error("Docs page error:", error);
-    return createErrorResponse("Failed to serve docs page", 500);
-  }
-}
