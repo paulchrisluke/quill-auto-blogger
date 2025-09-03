@@ -21,8 +21,11 @@ export default {
       // Route requests based on path
       if (path === '/' || path === '') {
         return await handleIndexPage(request, env);
-      } else if (path.startsWith('/blog/')) {
-        return await handleBlogAPI(request, env, requestCtx, path);
+      } else if (path === '/docs') {
+        return await handleDocsPage(request, env);
+      } else if (path.startsWith('/blogs/')) {
+        // Serve raw JSON files directly from R2
+        return await serveR2Asset(env, path.substring(1)); // Remove leading slash
       } else if (path.startsWith('/assets/')) {
         // Simple asset serving - just remove /assets/ prefix and serve from R2
         const assetKey = path.substring(8); // Remove '/assets/' prefix
@@ -75,71 +78,6 @@ function createErrorResponse(message, status) {
 }
 
 /**
- * Handle blog API requests with edge caching
- * 
- * Pure JSON approach: Serves digest data directly as JSON.
- * Frontend handles rendering and HTML generation.
- * JSON-LD schema data is included in the digest frontmatter.
- */
-async function handleBlogAPI(request, env, ctx, path) {
-  const segments = path.split('/');
-  const date = segments[2]; // For /blog/2025-08-27, date is at index 2
-  
-  if (!date || segments.length < 3) {
-    return createErrorResponse('Invalid blog path', 400);
-  }
-  
-  // Validate date format (YYYY-MM-DD)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return createErrorResponse('Invalid date format. Use YYYY-MM-DD', 400);
-  }
-  
-  try {
-    // Get digest data from R2 bucket (primary data source)
-    const digestKey = `blogs/${date}/FINAL-${date}_digest.json`;
-    
-    let digestData = null;
-    
-    // Try to get the digest data
-    try {
-      const digestObject = await env.BLOG_BUCKET.get(digestKey);
-      if (digestObject) {
-        digestData = await digestObject.json();
-      }
-    } catch (error) {
-      console.log('Digest fetch failed', { 
-        date, 
-        digestKey, 
-        error: error.message 
-      });
-    }
-    
-    // If we have digest data, return it as JSON
-    if (digestData) {
-      const response = new Response(JSON.stringify(digestData), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=300, s-maxage=1800',
-          'CDN-Cache-Control': 'public, max-age=1800',
-          'Vary': 'Accept-Encoding',
-          ...getCORSHeaders()
-        }
-      });
-      
-      return response;
-    }
-    
-    // If no digest found, return 404
-    return createErrorResponse('Blog not found', 404);
-    
-  } catch (error) {
-    console.error('Blog API error:', error);
-    return createErrorResponse('Failed to fetch blog data', 500);
-  }
-}
-
-/**
  * Serve static assets directly from R2 (for future use)
  */
 async function serveR2Asset(env, key) {
@@ -160,6 +98,10 @@ async function serveR2Asset(env, key) {
       headers.set('Content-Type', 'video/mp4');
     } else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
       headers.set('Content-Type', `image/${ext === 'jpg' ? 'jpeg' : ext}`);
+    } else if (ext === 'json') {
+      headers.set('Content-Type', 'application/json');
+      headers.set('Cache-Control', 'public, max-age=300, s-maxage=1800'); // 5 min browser, 30 min edge
+      headers.set('CDN-Cache-Control', 'public, max-age=1800'); // 30 min edge
     }
     
     // Add CORS headers
@@ -206,5 +148,40 @@ async function handleIndexPage(request, env) {
   } catch (error) {
     console.error('Index page error:', error);
     return createErrorResponse('Failed to serve index page', 500);
+  }
+}
+
+/**
+ * Handle docs page requests
+ */
+async function handleDocsPage(request, env) {
+  try {
+    console.log("Docs page requested, checking bucket...");
+    // Serve the static docs.html file
+    const docsObject = await env.BLOG_BUCKET.get("docs.html");
+    
+    console.log("Docs object result:", docsObject ? "found" : "not found");
+    
+    if (!docsObject) {
+      return createErrorResponse("Docs page not found", 404);
+    }
+    
+    const htmlContent = await docsObject.text();
+    console.log("Docs content length:", htmlContent.length);
+    
+    return new Response(htmlContent, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "public, max-age=3600, s-maxage=86400", // 1 hour browser, 24 hours edge
+        "CDN-Cache-Control": "public, max-age=86400", // 24 hours edge
+        "Vary": "Accept-Encoding",
+        ...getCORSHeaders()
+      }
+    });
+
+  } catch (error) {
+    console.error("Docs page error:", error);
+    return createErrorResponse("Failed to serve docs page", 500);
   }
 }

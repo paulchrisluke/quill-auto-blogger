@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quill Auto Blogger - Recent Posts</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --panel: #161b22;
+            --line: #30363d;
+            --text: #f0f6fc;
+            --muted: #8b949e;
+            --accent: #3fb950;
+            --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .logo {
+            width: 120px;
+            height: auto;
+            margin-bottom: 20px;
+            opacity: 0.9;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 1.1rem;
+            margin-bottom: 20px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-bottom: 40px;
+        }
+
+        .nav-link {
+            color: var(--accent);
+            text-decoration: none;
+            padding: 8px 16px;
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .nav-link:hover {
+            background: var(--accent);
+            color: var(--bg);
+        }
+
+        .posts-section {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: var(--text);
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: 10px;
+        }
+
+        .post-list {
+            list-style: none;
+        }
+
+        .post-item {
+            padding: 20px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            margin-bottom: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .post-item:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .post-date {
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+        }
+
+        .post-title {
+            font-size: 1.2rem;
+            margin-bottom: 8px;
+            color: var(--text);
+        }
+
+        .post-description {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .api-info {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .api-info h3 {
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+
+        .api-info p {
+            color: var(--muted);
+            margin-bottom: 20px;
+        }
+
+        .endpoint {
+            background: #21262d;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 0.9rem;
+            color: var(--text);
+            margin: 10px 0;
+            display: inline-block;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 20px 16px;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            .nav-links {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header class="header">
+            <img src="https://www.paulchrisluke.com/pcl-labs-logo.svg" alt="PCL Labs" class="logo">
+            <h1>Quill Auto Blogger</h1>
+            <p class="subtitle">AI-enhanced daily devlogs and story content</p>
+            <nav class="nav-links">
+                <a href="/docs" class="nav-link">API Docs</a>
+                <a href="https://github.com/paulchrisluke/quill-auto-blogger" target="_blank"
+                    class="nav-link">GitHub</a>
+            </nav>
+        </header>
+
+        <section class="posts-section">
+            <h2 class="section-title">Recent Posts</h2>
+            <ul class="post-list" id="post-list">
+                <li class="post-item">
+                    <div class="post-date">Loading recent posts...</div>
+                    <div class="post-title">Please wait</div>
+                    <div class="post-description">Fetching latest content from the API</div>
+                </li>
+            </ul>
+        </section>
+
+        <section class="api-info">
+            <h3>API Access</h3>
+            <p>Access the full API documentation and endpoints:</p>
+            <div class="endpoint">GET /blog/{date}</div>
+            <div class="endpoint">GET /assets/*</div>
+            <div class="endpoint">POST /control/record/start</div>
+            <p><a href="/docs" style="color: var(--accent); text-decoration: none;">View Full API Documentation →</a>
+            </p>
+        </section>
+    </div>
+
+    <script>
+        // Fetch recent posts from the API
+        async function fetchRecentPosts() {
+            try {
+                // Get today's date and a few recent dates
+                const dates = [];
+                const today = new Date();
+                for (let i = 0; i < 5; i++) {
+                    const date = new Date(today);
+                    date.setDate(date.getDate() - i);
+                    dates.push(date.toISOString().split('T')[0]);
+                }
+
+                const postList = document.getElementById('post-list');
+                postList.innerHTML = '';
+
+                for (const date of dates) {
+                    try {
+                        const response = await fetch(`/blog/${date}`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            const postItem = createPostItem(data);
+                            postList.appendChild(postItem);
+                        }
+                    } catch (error) {
+                        console.log(`No post found for ${date}`);
+                    }
+                }
+
+                if (postList.children.length === 0) {
+                    postList.innerHTML = `
+                        <li class="post-item">
+                            <div class="post-date">No recent posts found</div>
+                            <div class="post-title">Check back later</div>
+                            <div class="post-description">New content will appear here automatically</div>
+                        </li>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error fetching posts:', error);
+                document.getElementById('post-list').innerHTML = `
+                    <li class="post-item">
+                        <div class="post-date">Error</div>
+                        <div class="post-title">Unable to load posts</div>
+                        <div class="post-description">Please try again later or check the API status</div>
+                    </li>
+                `;
+            }
+        }
+
+        function createPostItem(postData) {
+            const li = document.createElement('li');
+            li.className = 'post-item';
+
+            const storyCount = postData.story_packets ? postData.story_packets.length : 0;
+            const title = postData.frontmatter?.title || `Daily Devlog — ${postData.date}`;
+            const description = postData.frontmatter?.description || `${storyCount} stories from ${postData.date}`;
+
+            li.innerHTML = `
+                <div class="post-date">${formatDate(postData.date)}</div>
+                <div class="post-title">${title}</div>
+                <div class="post-description">${description}</div>
+            `;
+
+            return li;
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        // Load posts when page loads
+        document.addEventListener('DOMContentLoaded', fetchRecentPosts);
+    </script>
+</body>
+
+</html>

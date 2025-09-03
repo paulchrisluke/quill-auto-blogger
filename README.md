@@ -150,6 +150,11 @@ python main.py build-latest-digest
 # Blog generation (M4)
 devlog blog generate --date 2025-01-15
 devlog blog preview --date 2025-01-15
+
+# Static site publishing (M6)
+devlog site build
+devlog site publish         # uploads index/docs + all API-v3 digests
+devlog site publish --dry-run
 ```
 
 ### Examples
@@ -368,16 +373,20 @@ curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-01-15"
 - `/assets/*` - Static assets (images, videos)
 - `/health` - Health check endpoint
 
+### Static Site Publishing
 
+The project includes a minimal R2 publisher for static site files and blog JSON:
 
+- **`devlog site build`**: Creates `out/site/{index.html, docs.html}` from root HTML files
+- **`devlog site publish`**: Uploads site files and API-v3 digests to R2 with idempotency
+- **Idempotent uploads**: Files are only uploaded if content has changed (MD5/ETag comparison)
+- **Proper headers**: HTML gets `text/html; charset=utf-8` with 1-hour cache, JSON gets `application/json` with 5-minute cache
+- **R2 integration**: Uses existing R2 credentials via `AuthService.get_r2_credentials()`
 
-
-
-
-
-  og:site_name: "Daily Devlog"
----
-```
+The publisher uploads:
+- `index.html` → R2 root
+- `docs.html` → R2 root  
+- `blogs/YYYY-MM-DD/API-v3-YYYY-MM-DD_digest.json` → R2 `blogs/` path
 
 ## Video Rendering (M3)
 
