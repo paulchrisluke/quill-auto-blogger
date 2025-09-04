@@ -64,6 +64,9 @@ async function handleApiDomain(request, env, path) {
   // Route requests based on path
   if (path === '/' || path === '') {
     return await handleIndexPage(request, env);
+  } else if (path === '/favicon.ico') {
+    // Serve favicon directly from R2
+    return await serveR2Asset(env, 'favicon.ico', request);
   } else if (path === '/blogs') {
     // Serve blogs index
     return await handleBlogsIndex(request, env);
@@ -167,11 +170,31 @@ async function serveR2Asset(env, key, request) {
       
       // Add SEO headers for blog JSON files
       if (key.includes('API-v3-') && key.includes('_digest.json')) {
-        headers.set('X-Robots-Tag', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
-        headers.set('X-Content-Type-Options', 'nosniff');
-        headers.set('X-Frame-Options', 'SAMEORIGIN');
-        headers.set('X-XSS-Protection', '1; mode=block');
-        headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        // Try to get SEO headers from the JSON data
+        try {
+          const jsonData = await object.json();
+          const seoHeaders = jsonData.seo_headers || {};
+          
+          // Set SEO headers from data, with fallbacks
+          headers.set('X-Robots-Tag', seoHeaders['X-Robots-Tag'] || 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
+          headers.set('Cache-Control', seoHeaders['Cache-Control'] || 'public, max-age=300, s-maxage=1800');
+          if (seoHeaders['ETag']) {
+            headers.set('ETag', seoHeaders['ETag']);
+          }
+          
+          // Set security headers
+          headers.set('X-Content-Type-Options', 'nosniff');
+          headers.set('X-Frame-Options', 'SAMEORIGIN');
+          headers.set('X-XSS-Protection', '1; mode=block');
+          headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        } catch (e) {
+          // Fallback to hardcoded headers if JSON parsing fails
+          headers.set('X-Robots-Tag', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
+          headers.set('X-Content-Type-Options', 'nosniff');
+          headers.set('X-Frame-Options', 'SAMEORIGIN');
+          headers.set('X-XSS-Protection', '1; mode=block');
+          headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        }
       }
     } else if (ext === 'xml') {
       headers.set('Content-Type', 'application/xml');

@@ -127,10 +127,15 @@ class R2Publisher:
             logger.error(f"Site directory does not exist: {local_dir}")
             return results
         
-        site_files = ['index.html']
+        site_files = ['index.html', 'favicon.ico']
         
         for filename in site_files:
-            file_path = local_dir / filename
+            # Look for favicon.ico in public directory, index.html in root
+            if filename == 'favicon.ico':
+                file_path = Path("public") / filename
+            else:
+                file_path = local_dir / filename
+                
             if not file_path.exists():
                 logger.warning(f"Site file not found: {file_path}")
                 results[filename] = False
@@ -236,6 +241,9 @@ class R2Publisher:
                 
                 # Upload assets for this blog (images, videos, etc.)
                 self._upload_blog_assets(file_path.parent)
+                
+                # Upload video files for this blog
+                self._upload_blog_videos(file_path.parent)
                 
                 # Purge cache for this blog post
                 blog_date = blog_data.get('date')
@@ -400,17 +408,12 @@ class R2Publisher:
             
             for asset_file in asset_files:
                 try:
-                    # Calculate R2 key: assets/stories/YYYY/MM/DD/filename
+                    # Calculate R2 key: blogs/YYYY-MM-DD/filename (to match API expectations)
                     filename = asset_file.name
                     
                     # Extract date from blog directory name (YYYY-MM-DD)
                     blog_date = blog_dir.name
-                    if len(blog_date) == 10 and blog_date[4] == '-' and blog_date[7] == '-':
-                        year, month, day = blog_date.split('-')
-                        r2_key = f"assets/stories/{year}/{month}/{day}/{filename}"
-                    else:
-                        # Fallback: use the blog directory name as-is
-                        r2_key = f"assets/stories/{blog_date}/{filename}"
+                    r2_key = f"blogs/{blog_date}/{filename}"
                     
                     # Check if file already exists and is identical
                     local_md5 = self._hash_md5(asset_file)
@@ -434,3 +437,55 @@ class R2Publisher:
                     
         except Exception as e:
             logger.error(f"Failed to upload blog assets from {blog_dir}: {e}")
+    
+    def _upload_blog_videos(self, blog_dir: Path) -> None:
+        """Upload video files for a blog post to R2."""
+        try:
+            # Extract date from blog directory name (YYYY-MM-DD)
+            blog_date = blog_dir.name
+            
+            # Look for video files in out/videos/YYYY-MM-DD/
+            video_dir = Path("out/videos") / blog_date
+            
+            if not video_dir.exists():
+                logger.info(f"No video directory found: {video_dir}")
+                return
+            
+            # Find all video files
+            video_files = list(video_dir.glob("*.mp4"))
+            
+            if not video_files:
+                logger.info(f"No video files found in {video_dir}")
+                return
+            
+            logger.info(f"Found {len(video_files)} video files to upload from {video_dir}")
+            
+            for video_file in video_files:
+                try:
+                    # Calculate R2 key: stories/YYYY/MM/DD/filename (consistent with images)
+                    filename = video_file.name
+                    year, month, day = blog_date.split('-')
+                    r2_key = f"stories/{year}/{month}/{day}/{filename}"
+                    
+                    # Check if file already exists and is identical
+                    local_md5 = self._hash_md5(video_file)
+                    if self._should_skip(r2_key, local_md5):
+                        logger.info(f"↻ Skipped {r2_key} (identical content)")
+                        continue
+                    
+                    # Upload to R2
+                    with open(video_file, 'rb') as f:
+                        self.s3_client.put_object(
+                            Bucket=self.bucket,
+                            Key=r2_key,
+                            Body=f,
+                            **self._headers_for(video_file)
+                        )
+                    
+                    logger.info(f"✓ Uploaded video {r2_key}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to upload video {video_file}: {e}")
+                    
+        except Exception as e:
+            logger.exception("Failed to upload blog videos from %s", blog_dir)

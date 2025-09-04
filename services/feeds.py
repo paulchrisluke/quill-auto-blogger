@@ -312,7 +312,6 @@ class FeedGenerator:
                 "canonical_url": canonical_url,
                 "api_url": f"{self.api_domain}/blogs/{date_str}/API-v3-{date_str}_digest.json",
                 "tags": frontmatter.get('tags', []),
-                "lead": frontmatter.get('lead', ''),
                 "description": frontmatter.get('description', ''),
                 "story_count": len(blog.get('story_packets', [])),
                 "has_video": any(

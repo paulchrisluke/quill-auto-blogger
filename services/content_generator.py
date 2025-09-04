@@ -292,7 +292,7 @@ class ContentGenerator:
             if self._is_safe_url(video_path):
                 return f'**Video:** [Watch Story]({video_path})'
             else:
-                return f'**Video:** Watch Story'
+                return '**Video:** Watch (unavailable)'
         markdown = re.sub(r'\[video: ([^\]]+)\]', replace_video_safe, markdown)
         
         # Replace PR placeholders with simple links
@@ -301,7 +301,7 @@ class ContentGenerator:
             if self._is_safe_url(pr_url):
                 return f'**PR:** [{pr_url}]({pr_url})'
             else:
-                return f'**PR:** {pr_url}'
+                return '**PR:** Link unavailable'
         markdown = re.sub(r'\[pr: ([^\]]+)\]', replace_pr_safe, markdown)
         
         # Replace clip placeholders with simple links
@@ -310,7 +310,7 @@ class ContentGenerator:
             if self._is_safe_url(clip_url):
                 return f'**Clip:** [Watch]({clip_url})'
             else:
-                return f'**Clip:** Watch'
+                return '**Clip:** Watch (unavailable)'
         markdown = re.sub(r'\[clip: ([^\]]+)\]', replace_clip_safe, markdown)
         
         # Replace event placeholders with simple links
@@ -319,7 +319,7 @@ class ContentGenerator:
             if self._is_safe_url(event_url):
                 return f'**Event:** [View]({event_url})'
             else:
-                return f'**Event:** View'
+                return '**Event:** View (unavailable)'
         markdown = re.sub(r'\[event: ([^\]]+)\]', replace_event_safe, markdown)
         
         # Remove AI placeholders
@@ -522,3 +522,95 @@ class ContentGenerator:
             return False
         
         return True
+
+    def normalize_assets(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize assets in digest data by converting local paths to CDN URLs
+        and ensuring thumbnails are attached to video objects.
+        
+        Args:
+            data: Digest data dictionary
+            
+        Returns:
+            Digest data with normalized assets
+        """
+        # Create a copy to avoid modifying the original
+        normalized_data = data.copy()
+        
+        # Normalize story packet video paths
+        story_packets = normalized_data.get("story_packets", [])
+        for packet in story_packets:
+            if packet.get("video", {}).get("path"):
+                video_path = packet["video"]["path"]
+                # Convert local video paths to Cloudflare URLs
+                if not video_path.startswith('http'):
+                    clean_path = video_path.lstrip('/')
+                    cloudflare_url = self.utils.get_cloudflare_url(clean_path)
+                    packet["video"]["path"] = cloudflare_url
+        
+        # Ensure thumbnails are attached to video objects in schema
+        frontmatter = normalized_data.get("frontmatter", {})
+        if frontmatter.get("schema"):
+            schema = frontmatter["schema"]
+            # Handle both old and new schema formats
+            if "blogPosting" in schema:
+                # Old format: schema contains blogPosting dict
+                blog_posting = schema["blogPosting"]
+                if "video" in blog_posting:
+                    self._attach_thumbnails_to_video_objects(blog_posting["video"], story_packets)
+            elif "video" in schema:
+                # New format: schema is the BlogPosting object directly
+                self._attach_thumbnails_to_video_objects(schema["video"], story_packets)
+        
+        # Ensure all images are absolute URLs
+        self._normalize_image_urls(normalized_data)
+        
+        return normalized_data
+
+    def _attach_thumbnails_to_video_objects(self, video_objects: List[Dict[str, Any]], story_packets: List[Dict[str, Any]]) -> None:
+        """Attach thumbnails to video objects in schema if missing."""
+        if not isinstance(video_objects, list):
+            return
+            
+        for video_obj in video_objects:
+            if not video_obj.get("thumbnailUrl"):
+                # Find matching story packet by contentUrl
+                content_url = video_obj.get("contentUrl", "")
+                for packet in story_packets:
+                    packet_video_path = packet.get("video", {}).get("path", "")
+                    if packet_video_path == content_url:
+                        # Get thumbnail from packet
+                        thumbnails = packet.get("video", {}).get("thumbnails", {})
+                        # Prefer intro/highlight thumbnails
+                        for key in ("intro", "highlight", "why", "outro"):
+                            if key in thumbnails and thumbnails[key]:
+                                video_obj["thumbnailUrl"] = thumbnails[key]
+                                break
+                        break
+
+    def _normalize_image_urls(self, data: Dict[str, Any]) -> None:
+        """Ensure all image URLs are absolute."""
+        frontmatter = data.get("frontmatter", {})
+        
+        # Normalize og:image
+        if frontmatter.get("og", {}).get("og:image"):
+            og_image = frontmatter["og"]["og:image"]
+            if not og_image.startswith('http'):
+                clean_path = og_image.lstrip('/')
+                frontmatter["og"]["og:image"] = self.utils.get_cloudflare_url(clean_path)
+        
+        # Normalize schema image
+        if frontmatter.get("schema"):
+            schema = frontmatter["schema"]
+            if "blogPosting" in schema and schema["blogPosting"].get("image"):
+                # Old format
+                image = schema["blogPosting"]["image"]
+                if not image.startswith('http'):
+                    clean_path = image.lstrip('/')
+                    schema["blogPosting"]["image"] = self.utils.get_cloudflare_url(clean_path)
+            elif schema.get("image"):
+                # New format
+                image = schema["image"]
+                if not image.startswith('http'):
+                    clean_path = image.lstrip('/')
+                    schema["image"] = self.utils.get_cloudflare_url(clean_path)

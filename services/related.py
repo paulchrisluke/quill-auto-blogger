@@ -125,15 +125,18 @@ class RelatedPostsService:
                     # Convert plain YYYY-MM-DD to YYYY-MM-DDTHH:MM:SSZ
                     date_str = f"{date_str}T00:00:00Z"
                 
+                # Use canonical URL if available, otherwise fallback to date-based URL
+                canonical_url = post.get("canonical") or post.get("url") or f"https://paulchrisluke.com/blog/{post.get('date', '')}"
+                
                 related_post = {
                     "title": post["title"],
-                    "url": post.get("url", f"https://paulchrisluke.com/blog/{post.get('date', '')}"),
+                    "url": canonical_url,
                     "score": round(score, 3),
                     "date": date_str,
                     "image": self._get_featured_image(post),
                     "description": post.get("description", ""),
                     "tags": post.get("tags", []),
-                    "path": post.get('path', post.get('url', f"https://paulchrisluke.com/blog/{post.get('date', '')}"))
+                    "path": post.get('path', canonical_url)
                 }
                 scored_posts.append(related_post)
             else:
@@ -454,7 +457,8 @@ class RelatedPostsService:
                         "date": post_date,
                         "tags": frontmatter.get("tags", []),
                         "description": frontmatter.get("description", ""),
-                        "url": f"https://paulchrisluke.com/blog/{post_date}",
+                        "url": frontmatter.get("canonical") or f"https://paulchrisluke.com/blog/{post_date}",
+                        "canonical": frontmatter.get("canonical") or f"https://paulchrisluke.com/blog/{post_date}",
                         "path": f"/blog/{post_date}",
                         "digest": digest
                     }
@@ -492,7 +496,8 @@ class RelatedPostsService:
                         "date": post_date,
                         "tags": frontmatter.get("tags", []),
                         "description": frontmatter.get("description", ""),
-                        "url": f"https://paulchrisluke.com/blog/{post_date}",
+                        "url": frontmatter.get("canonical") or f"https://paulchrisluke.com/blog/{post_date}",
+                        "canonical": frontmatter.get("canonical") or f"https://paulchrisluke.com/blog/{post_date}",
                         "path": f"/blog/{post_date}",
                         "digest": digest
                     }

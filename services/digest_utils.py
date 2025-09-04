@@ -202,11 +202,36 @@ class DigestUtils:
             Full Worker API URL for the asset
         """
         try:
-            # Convert the asset path to the Worker's asset format
-            # Local path: stories/2025/08/29/story_123.mp4
-            # Worker path: /assets/stories/2025/08/29/story_123.mp4
-            worker_path = f"/assets/{asset_path}"
+            # Handle different asset types with correct paths
+            if asset_path.startswith("blogs/"):
+                # Thumbnail files are stored directly in blogs/ path
+                worker_path = f"/{asset_path}"
+            elif asset_path.startswith("out/videos/"):
+                # Convert out/videos/YYYY-MM-DD/filename to stories/YYYY/MM/DD/filename
+                # e.g., out/videos/2025-08-27/story_123.mp4 -> stories/2025/08/27/story_123.mp4
+                try:
+                    path_parts = asset_path.split('/')
+                    if len(path_parts) >= 3:
+                        date_part = path_parts[2]  # Get YYYY-MM-DD
+                        filename = path_parts[3]   # Get filename
+                        year, month, day = date_part.split('-')
+                        worker_path = f"/stories/{year}/{month}/{day}/{filename}"
+                    else:
+                        worker_path = f"/{asset_path}"
+                except Exception as e:
+                    logger.warning(f"Failed to convert out/videos path {asset_path}: {e}")
+                    worker_path = f"/{asset_path}"
+            elif asset_path.startswith("assets/"):
+                # Other assets in assets/ path
+                worker_path = f"/{asset_path}"
+            elif asset_path.startswith("stories/"):
+                # Story images are stored in stories/ path
+                worker_path = f"/{asset_path}"
+            else:
+                # Default: add /assets/ prefix for other paths
+                worker_path = f"/assets/{asset_path}"
             
+            # Use media_domain for all assets (videos and images)
             return f"{self.media_domain}{worker_path}"
                 
         except Exception as e:
@@ -295,6 +320,10 @@ class DigestUtils:
             
         Returns:
             List of enhanced story packets with thumbnail manifest
+            
+        Note:
+            Thumbnail paths are generated for Worker assets served at /assets/blogs/.
+            All thumbnails use .jpg extension for consistency.
         """
         enhanced_packets = []
         
@@ -311,15 +340,14 @@ class DigestUtils:
                 # Generate thumbnail paths based on story ID
                 story_id = enhanced_packet.get("id", "")
                 if story_id:
-                    # Convert story ID to thumbnail paths
-                    # e.g., story_20250827_pr34 -> story_story_20250827_pr34_01_intro.jpg
-                    base_name = story_id.replace("story_", "story_story_")
+                    # Use raw story_id as base (do not modify "story_" prefix)
+                    # e.g., story_20250827_pr34 -> /assets/blogs/2025-08-27/story_20250827_pr34_01_intro.jpg
                     
                     thumbnails = {
-                        "intro": f"blogs/{target_date}/{base_name}_01_intro.jpg",
-                        "why": f"blogs/{target_date}/{base_name}_02_why.jpg", 
-                        "outro": f"blogs/{target_date}/{base_name}_99_outro.jpg",
-                        "highlight": f"blogs/{target_date}/{base_name}_hl_01.jpg"
+                        "intro": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_01_intro.jpg"),
+                        "why": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_02_why.jpg"), 
+                        "outro": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_99_outro.jpg"),
+                        "highlight": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_hl_01.jpg")
                     }
                     
                     enhanced_packet["video"]["thumbnails"] = thumbnails

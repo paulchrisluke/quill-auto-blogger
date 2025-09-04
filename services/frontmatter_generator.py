@@ -2,6 +2,8 @@
 Frontmatter generation for blog posts.
 """
 
+import re
+import unicodedata
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from story_schema import FrontmatterInfo
@@ -17,6 +19,64 @@ class FrontmatterGenerator:
         self.media = media_domain
         self.frontend = frontend_domain.rstrip("/") if frontend_domain else self.base_url
 
+    def slugify(self, title: str) -> str:
+        """Generate a clean slug from title following the specified rules."""
+        s = unicodedata.normalize("NFKD", title)
+        s = s.encode("ascii", "ignore").decode("ascii")
+        s = s.lower()
+        s = re.sub(r"[^a-z0-9\s-]", "", s)
+        s = re.sub(r"\s+", "-", s)
+        s = re.sub(r"-{2,}", "-", s).strip("-")
+        
+        # Split into words and prioritize important keywords
+        words = s.split("-")
+        
+        # If we have more than 8 words, try to preserve important SEO keywords
+        if len(words) > 8:
+            # Keywords that are important for SEO
+            important_keywords = ['ai', 'automation', 'schema', 'content', 'blog', 'gen', 'powered', 'api', 'seo']
+            
+            # Keep first few words (usually brand/context)
+            result_words = words[:3]  # e.g., ['pcl', 'labs', 'devlog']
+            
+            # Add important keywords from the rest
+            remaining_words = words[3:]
+            for word in remaining_words:
+                if word in important_keywords and word not in result_words:
+                    result_words.append(word)
+            
+            # Add remaining words (no character limit)
+            for word in remaining_words:
+                if word not in result_words:
+                    result_words.append(word)
+            
+            s = "-".join(result_words)
+        else:
+            # Use all words if 8 or fewer
+            s = "-".join(words)
+        
+        return s or "post"
+
+    def generate_canonical_url(self, title: str, date_str: str, existing_slugs: List[str] = None) -> str:
+        """Generate canonical URL with collision handling."""
+        base_slug = self.slugify(title)
+        yyyy, mm, dd = date_str.split("-")
+        
+        # Handle collisions if existing slugs are provided
+        if existing_slugs:
+            slug = base_slug
+            counter = 2
+            while slug in existing_slugs:
+                # Truncate base slug to make room for suffix
+                max_base_length = 60 - len(f"-{counter}")
+                truncated_base = base_slug[:max_base_length].rstrip("-")
+                slug = f"{truncated_base}-{counter}"
+                counter += 1
+        else:
+            slug = base_slug
+            
+        return f"https://paulchrisluke.com/blog/{yyyy}/{mm}/{dd}/{slug}/"
+
     def generate(
         self,
         date_str: str,
@@ -28,13 +88,15 @@ class FrontmatterGenerator:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
         headline = f"PCL Labs Devlog — {date_obj.strftime('%b %d, %Y')}"
 
+        # Generate canonical URL with slug (will be updated after AI enhancement if needed)
+        canonical = self.generate_canonical_url(headline, date_str)
+
         # Best image from stories
-        utils = DigestUtils(self.media, f"{self.media}/default.jpg")
+        utils = DigestUtils(self.media, f"{self.media}/assets/pcl-labs-logo.svg")
         best_image = utils.select_best_image(stories)
 
         # Placeholders for AI
         seo_description = "[AI_GENERATE_SEO_DESCRIPTION]"
-        lead = "[AI_GENERATE_LEAD]"
 
         # Unified tags
         tags = self._generate_keywords(stories, clips, events)
@@ -64,7 +126,7 @@ class FrontmatterGenerator:
                 }
             },
             "keywords": tags,
-            "url": f"{self.frontend}/blog/{date_str}",
+            "url": canonical,
             "image": best_image,
             "inLanguage": "en-US",
         }
@@ -74,7 +136,7 @@ class FrontmatterGenerator:
             "og:title": headline,
             "og:description": seo_description,  # Use same description as schema
             "og:type": "article",
-            "og:url": f"{self.frontend}/blog/{date_str}",
+            "og:url": canonical,
             "og:image": best_image,
             "og:site_name": "Paul Chris Luke - PCL Labs",
         }
@@ -83,10 +145,9 @@ class FrontmatterGenerator:
             title=headline,
             date=date_str,
             author=self.author,
-            canonical=f"{self.frontend}/blog/{date_str}",
+            canonical=canonical,
             description=seo_description,
             tags=tags,
-            lead=lead,
             image=best_image,
             schema=schema,
             og=og,

@@ -8,9 +8,12 @@ import json
 import logging
 import os
 import sys
+import hashlib
+import re
 from datetime import datetime, timezone, date
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, TypedDict
+from html import unescape
 import yaml
 from dotenv import load_dotenv
 
@@ -57,7 +60,7 @@ class BlogDigestBuilder:
         # Blog metadata from environment
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
-        self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
+        self.blog_default_image = "https://media.paulchrisluke.com/assets/pcl-labs-logo.svg"
         self.worker_domain = os.getenv("WORKER_DOMAIN", "https://quill-blog-api-prod.paulchrisluke.workers.dev")
         self.media_domain = os.getenv("MEDIA_DOMAIN", "https://media.paulchrisluke.com")
         
@@ -504,158 +507,267 @@ class BlogDigestBuilder:
         return None
     
     def get_blog_api_data(self, target_date: str) -> Dict[str, Any]:
-        """Get complete blog data for API consumption with enhanced schema.org and Cloudflare URLs."""
+        """Get complete blog data for API consumption following the correct order of operations."""
         try:
-            # Load the FINAL digest with AI enhancements instead of building fresh
-            logger.info(f"Loading FINAL digest with AI enhancements for API v3: {target_date}")
-            final_digest_path = self.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
+            # Step 1: Ensure FINAL digest exists (AI-enhanced)
+            final_path = self.io.get_digest_path(target_date, kind="FINAL")
             
-            if not final_digest_path.exists():
-                logger.warning(f"FINAL digest not found, falling back to building fresh digest: {final_digest_path}")
-                digest = self.build_digest(target_date)
+            if not final_path.exists():
+                logger.info(f"FINAL digest not found, building it from PRE-CLEANED: {final_path}")
+                
+                # Build raw digest first
+                pre_path = self.io.build_digest(target_date, kind="PRE-CLEANED")
+                data = self.io.load_digest(pre_path)
+                
+                # Enhance with AI (blog + stories)
+                data = self.io.enhance_with_ai(data)
+                
+                # Normalize assets (videos/thumbnails → CDN)
+                content_gen = ContentGenerator(data, self.utils)
+                data = content_gen.normalize_assets(data)
+                
+                # Save FINAL digest
+                self.io.save_digest(data, target_date, kind="FINAL")
+                logger.info(f"Created FINAL digest with AI enhancements: {final_path}")
             else:
-                with open(final_digest_path, 'r') as f:
-                    digest = json.load(f)
-                logger.info(f"Loaded FINAL digest with AI enhancements for {target_date}")
-                
+                logger.info(f"Loading existing FINAL digest: {final_path}")
+                data = self.io.load_digest(final_path)
             
-            # Update story packets with Cloudflare URLs and preserve thumbnails
-            updated_story_packets = []
-            for story in digest.get("story_packets", []):
-                updated_story = story.copy()
-                
-                # Update video path to Cloudflare URL - handle all local asset patterns
-                if story.get("video", {}).get("path"):
-                    video_path = story["video"]["path"]
-                    # Convert any local path (stories/, out/videos/, relative paths without http)
-                    if not video_path.startswith('http'):
-                        clean_path = video_path.lstrip('/')
-                        cloudflare_url = self.utils.get_cloudflare_url(clean_path)
-                        updated_story["video"]["path"] = cloudflare_url
-                
-                # Preserve thumbnails if they exist
-                if story.get("video", {}).get("thumbnails"):
-                    updated_story["video"]["thumbnails"] = story["video"]["thumbnails"]
-                
-                updated_story_packets.append(updated_story)
+            # Step 2: Generate content with AI enhancements
+            content_gen = ContentGenerator(data, self.utils)
+            consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
             
-            # Create updated digest with Cloudflare URLs for markdown generation
-            updated_digest = digest.copy()
-            updated_digest["story_packets"] = updated_story_packets
+            # Step 3: Apply final SEO polish (slug + canonical + meta coherence)
+            final_blog_data = self._apply_final_seo_polish(data, target_date, consolidated_content)
             
-            # Generate consolidated content with enhanced schema.org and AI enhancements
-            content_gen = ContentGenerator(updated_digest, self.utils)
-            # Generate full content with story packets and video assets
-            # Use ai_enabled=False since AI content is already in the FINAL digest
-            consolidated_content = content_gen.generate(ai_enabled=False, related_enabled=True)
+            # Step 4: Build API-v3 payload
+            api_data = self._build_api_v3(final_blog_data, target_date, consolidated_content, content_gen.frontmatter)
             
-            # Fix: Replace [AI_GENERATE_LEAD] placeholder with actual lead content
-            if "[AI_GENERATE_LEAD]" in consolidated_content:
-                lead_content = updated_digest.get("frontmatter", {}).get("holistic_intro", "")
-                if lead_content:
-                    consolidated_content = consolidated_content.replace("[AI_GENERATE_LEAD]", lead_content)
-                else:
-                    # Fallback: remove the placeholder if no lead content available
-                    consolidated_content = consolidated_content.replace("[AI_GENERATE_LEAD]", "")
+            # Step 5: Save and upload
+            self._save_v3_api_response(target_date, api_data)
+            self._upload_to_r2(target_date, api_data)
             
-            # Fix: Remove duplicate intro paragraph
-            holistic_intro = updated_digest.get("frontmatter", {}).get("holistic_intro", "")
-            if holistic_intro and holistic_intro in consolidated_content:
-                # Count occurrences of the intro paragraph
-                intro_count = consolidated_content.count(holistic_intro)
-                if intro_count > 1:
-                    # Replace all but the first occurrence with empty string
-                    parts = consolidated_content.split(holistic_intro)
-                    if len(parts) > 1:
-                        # Keep first occurrence, remove duplicates
-                        consolidated_content = parts[0] + holistic_intro + "".join(parts[1:])
-            
-            # Add the blog signature if enabled
-            if self.signature_enabled and self.signature_text:
-                consolidated_content += f"\n\n---\n\n{self.signature_text}"
-            
-            
-            # Build the restructured final blog data with enhanced schema.org JSON-LD
-            # Clean frontmatter for API consumption (remove content fields)
-            cleaned_frontmatter = self.frontmatter_gen.clean_frontmatter_for_api(content_gen.frontmatter)
-            
-            # Add thumbnails to story packets BEFORE adding video objects to schema
-            updated_story_packets = self.utils.attach_blog_thumbnail_manifest(updated_story_packets, target_date)
-            
-            # Add video objects to the frontmatter schema
-            enhanced_schema = self.frontmatter_gen.add_video_objects_to_schema(
-                cleaned_frontmatter.get("schema", {}), 
-                updated_story_packets
-            )
-            cleaned_frontmatter["schema"] = enhanced_schema
-            
-            final_blog_data = {
-                "@context": "https://schema.org",
-                "@type": "BlogPosting",
-                "date": target_date,
-                "frontmatter": cleaned_frontmatter,  # Clean frontmatter with video objects
-                "content": {
-                    "body": consolidated_content
-                },
-                "story_packets": updated_story_packets,  # Use updated story packets with Cloudflare URLs
-                "metadata": digest.get("metadata", {}),
-                "related_posts": digest.get("related_posts", []),  # Related posts from FINAL digest
-                "api_metadata": {
-                    "generated_at": datetime.now(timezone.utc).isoformat(),  # UTC timestamp
-                    "api_endpoint": f"/api/blog/{target_date}"
-                }
-            }
-            
-            
-            # Enhance the schema.org data at root level
-            if cleaned_frontmatter and cleaned_frontmatter.get('schema'):
-                blog_posting_schema = cleaned_frontmatter['schema']
-                # Merge the enhanced schema into the root level
-                final_blog_data.update({
-                    "headline": blog_posting_schema.get('headline'),
-                    "description": blog_posting_schema.get('description'),
-                    "author": blog_posting_schema.get('author'),
-                    "datePublished": blog_posting_schema.get('datePublished'),
-                    "dateModified": blog_posting_schema.get('dateModified'),
-                    "url": blog_posting_schema.get('url'),
-                    "mainEntityOfPage": blog_posting_schema.get('mainEntityOfPage'),
-                    "publisher": blog_posting_schema.get('publisher'),
-                    "image": blog_posting_schema.get('image'),
-                    "keywords": blog_posting_schema.get('keywords'),
-                    "wordCount": blog_posting_schema.get('wordCount'),
-                    "video": blog_posting_schema.get('video')
-                })
-            
-            
-            # Related posts are already added in the FINAL digest
-            
-            # Save v3 API response to file for R2 serving
-            self._save_v3_api_response(target_date, final_blog_data)
-            
-            # Upload API v3 to R2 for Worker consumption using R2Publisher for consistency
-            try:
-                from services.publisher_r2 import R2Publisher
-                r2_publisher = R2Publisher()
-                # Save to temporary file for R2Publisher to process
-                temp_api_file = self.blogs_dir / target_date / f"API-v3-{target_date}_digest.json"
-                with open(temp_api_file, 'w', encoding='utf-8') as f:
-                    json.dump(final_blog_data, f, indent=2, ensure_ascii=False)
-                
-                # Use R2Publisher's publish_blogs method for idempotent upload with proper caching
-                results = r2_publisher.publish_blogs(self.blogs_dir)
-                if str(temp_api_file.relative_to(self.blogs_dir)) in results and results[str(temp_api_file.relative_to(self.blogs_dir))]:
-                    logger.info(f"Successfully uploaded API v3 to R2 for {target_date}")
-                else:
-                    logger.warning(f"Failed to upload API v3 to R2 for {target_date}")
-            except Exception as e:
-                logger.warning(f"Failed to upload API v3 to R2 for {target_date}: {e}")
-                # Don't fail the main operation for this
-            
-            return final_blog_data
+            return api_data
             
         except Exception as e:
             logger.exception("Failed to get blog API data for %s", target_date)
             raise
+
+    def _apply_final_seo_polish(self, data: Dict[str, Any], target_date: str, content: str) -> Dict[str, Any]:
+        """
+        Apply final SEO polish to blog data after all other processing is complete.
+        This runs LAST and ensures canonical coherence, word count, and metadata consistency.
+        """
+        # Create a copy to avoid modifying the original
+        polished_data = data.copy()
+        frontmatter = polished_data.get("frontmatter", {})
+        
+        # 1. Generate slug from title and build canonical URL
+        title = frontmatter.get("title", "")
+        if title:
+            slug = self._generate_slug(title)
+            canonical = f"https://paulchrisluke.com/blog/{target_date.replace('-', '/')}/{slug}/"
+            
+            # Mirror canonical to all required fields
+            polished_data["url"] = canonical
+            polished_data.setdefault("seo_meta", {})["canonical"] = canonical
+            
+            # Mirror to frontmatter fields
+            if frontmatter.get("og"):
+                frontmatter["og"]["og:url"] = canonical
+            if frontmatter.get("schema"):
+                frontmatter["schema"]["url"] = canonical
+        
+        # 2. Calculate word count and reading time
+        word_count = self._word_count(content)
+        reading_time = self._read_time_minutes(word_count)
+        
+        polished_data["wordCount"] = word_count
+        polished_data["timeRequired"] = f"PT{reading_time}M"
+        
+        # Update schema with word count
+        if frontmatter.get("schema"):
+            frontmatter["schema"]["wordCount"] = word_count
+        
+        # 3. Ensure all images are absolute URLs
+        self._ensure_absolute_images(polished_data)
+        
+        # 4. Clean up any remaining AI placeholders
+        self._clean_ai_placeholders(polished_data, content)
+        
+        return polished_data
+
+    def _build_api_v3(self, data: Dict[str, Any], target_date: str, content: str, content_gen_frontmatter: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Build the final API-v3 payload structure."""
+        # Use ContentGenerator's frontmatter if provided, otherwise fall back to data frontmatter
+        frontmatter = content_gen_frontmatter if content_gen_frontmatter else data.get("frontmatter", {})
+        
+        # Clean frontmatter for API consumption
+        cleaned_frontmatter = self.frontmatter_gen.clean_frontmatter_for_api(frontmatter)
+        
+        # Add thumbnails to story packets
+        story_packets = self.utils.attach_blog_thumbnail_manifest(
+            data.get("story_packets", []), target_date
+        )
+        
+        # Add video objects to schema
+        enhanced_schema = self.frontmatter_gen.add_video_objects_to_schema(
+            cleaned_frontmatter.get("schema", {}), 
+            story_packets
+        )
+        cleaned_frontmatter["schema"] = enhanced_schema
+            
+        # Build the API-v3 structure
+        api_data = {
+                "@context": "https://schema.org",
+                "@type": "BlogPosting",
+                "date": target_date,
+            "frontmatter": cleaned_frontmatter,
+                "content": {
+                "body": content
+            },
+            "story_packets": story_packets,
+            "metadata": data.get("metadata", {}),
+            "related_posts": data.get("related_posts", []),
+            "api_metadata": {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "api_endpoint": f"/api/blog/{target_date}"
+            }
+        }
+            
+        # Copy SEO and timing data from polished data
+        if "seo_meta" in data:
+            api_data["seo_meta"] = data["seo_meta"]
+        if "wordCount" in data:
+            api_data["wordCount"] = data["wordCount"]
+        if "timeRequired" in data:
+            api_data["timeRequired"] = data["timeRequired"]
+        
+        # Merge schema.org data at root level
+        if cleaned_frontmatter.get('schema'):
+            blog_posting_schema = cleaned_frontmatter['schema']
+            api_data.update({
+                "headline": blog_posting_schema.get('headline'),
+                "description": blog_posting_schema.get('description'),
+                "author": blog_posting_schema.get('author'),
+                "datePublished": blog_posting_schema.get('datePublished'),
+                "dateModified": blog_posting_schema.get('dateModified'),
+                "url": blog_posting_schema.get('url'),
+                "mainEntityOfPage": blog_posting_schema.get('mainEntityOfPage'),
+                "publisher": blog_posting_schema.get('publisher'),
+                "image": blog_posting_schema.get('image'),
+                "keywords": blog_posting_schema.get('keywords'),
+                "wordCount": blog_posting_schema.get('wordCount'),
+                "video": blog_posting_schema.get('video')
+            })
+            
+        return api_data
+
+    def _upload_to_r2(self, target_date: str, api_data: Dict[str, Any]) -> None:
+        """Upload API v3 to R2 for Worker consumption."""
+        try:
+            from services.publisher_r2 import R2Publisher
+            r2_publisher = R2Publisher()
+            
+            # Save to temporary file for R2Publisher to process
+            temp_api_file = self.blogs_dir / target_date / f"API-v3-{target_date}_digest.json"
+            with open(temp_api_file, 'w', encoding='utf-8') as f:
+                json.dump(api_data, f, indent=2, ensure_ascii=False)
+            
+            # Use R2Publisher's publish_blogs method for idempotent upload
+            results = r2_publisher.publish_blogs(self.blogs_dir)
+            if str(temp_api_file.relative_to(self.blogs_dir)) in results and results[str(temp_api_file.relative_to(self.blogs_dir))]:
+                logger.info(f"Successfully uploaded API v3 to R2 for {target_date}")
+            else:
+                logger.warning(f"Failed to upload API v3 to R2 for {target_date}")
+        except Exception as e:
+            logger.warning(f"Failed to upload API v3 to R2 for {target_date}: {e}")
+            # Don't fail the main operation for this
+            
+    def _generate_slug(self, title: str) -> str:
+        """Generate a URL-safe slug from a title."""
+        import re
+        import unicodedata
+        
+        # Convert to lowercase and normalize unicode
+        slug = unicodedata.normalize('NFKD', title.lower())
+        
+        # Remove emojis and special characters, keep only alphanumeric and spaces
+        slug = re.sub(r'[^\w\s-]', '', slug)
+        
+        # Replace spaces and multiple hyphens with single hyphen
+        slug = re.sub(r'[-\s]+', '-', slug)
+        
+        # Remove leading/trailing hyphens
+        slug = slug.strip('-')
+        
+        # Limit length
+        if len(slug) > 60:
+            slug = slug[:60].rstrip('-')
+        
+        return slug or "untitled"
+
+    def _word_count(self, content: str) -> int:
+        """Count words in content."""
+        import re
+        from html import unescape
+        
+        # Strip markdown and HTML
+        plain = re.sub(r'`{1,3}.*?`{1,3}', '', content, flags=re.S)
+        plain = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', plain)
+        plain = re.sub(r'\[([^\]]*)\]\([^)]+\)', r'\1', plain)
+        plain = re.sub(r'<[^>]+>', '', plain)
+        plain = re.sub(r'^\s*#{1,6}\s*', '', plain, flags=re.M)
+        plain = re.sub(r'\s+', ' ', plain).strip()
+        plain = unescape(plain)
+        
+        return len(plain.split()) if plain else 0
+
+    def _read_time_minutes(self, words: int, wpm: int = 225) -> int:
+        """Calculate reading time in minutes."""
+        return max(1, round(words / wpm))
+
+    def _ensure_absolute_images(self, data: Dict[str, Any]) -> None:
+        """Ensure all image URLs are absolute."""
+        frontmatter = data.get("frontmatter", {})
+        
+        # Normalize og:image
+        if frontmatter.get("og", {}).get("og:image"):
+            og_image = frontmatter["og"]["og:image"]
+            if not og_image.startswith('http'):
+                clean_path = og_image.lstrip('/')
+                frontmatter["og"]["og:image"] = self.utils.get_cloudflare_url(clean_path)
+        
+        # Normalize schema image
+        if frontmatter.get("schema"):
+            schema = frontmatter["schema"]
+            if "blogPosting" in schema and schema["blogPosting"].get("image"):
+                image = schema["blogPosting"]["image"]
+                if not image.startswith('http'):
+                    clean_path = image.lstrip('/')
+                    schema["blogPosting"]["image"] = self.utils.get_cloudflare_url(clean_path)
+            elif schema.get("image"):
+                image = schema["image"]
+                if not image.startswith('http'):
+                    clean_path = image.lstrip('/')
+                    schema["image"] = self.utils.get_cloudflare_url(clean_path)
+
+    def _clean_ai_placeholders(self, data: Dict[str, Any], content: str) -> None:
+        """Remove any remaining AI placeholders from data and content."""
+        def clean_text(text):
+            if not isinstance(text, str):
+                return text
+            text = text.replace("[AI_GENERATE_SEO_DESCRIPTION]", "")
+            text = text.replace("[AI_GENERATE_LEAD]", "")
+            text = text.replace("[AI_GENERATE", "")
+            return text.strip()
+        
+        # Clean frontmatter
+        frontmatter = data.get("frontmatter", {})
+        if frontmatter.get("description"):
+            frontmatter["description"] = clean_text(frontmatter["description"])
+        if frontmatter.get("og", {}).get("og:description"):
+            frontmatter["og"]["og:description"] = clean_text(frontmatter["og"]["og:description"])
     
     def _generate_related_posts(self, target_date: str, blog_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate related posts for the current blog."""
@@ -800,4 +912,265 @@ class BlogDigestBuilder:
         except Exception as e:
             logger.exception("Failed to get story assets for %s", story_id)
             return StoryAssets(video=None, images=[], highlights=[])
+
+
+def _safe_strip_md(text: str) -> str:
+    """Very light markdown strip for description/lead safety."""
+    if not isinstance(text, str):
+        return ""
+    t = re.sub(r"`{1,3}.*?`{1,3}", "", text, flags=re.S)        # inline/blocks
+    t = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", t)                  # images
+    t = re.sub(r"\[([^\]]*)\]\([^)]+\)", r"\1", t)              # links -> text
+    t = re.sub(r"<[^>]+>", "", t)                               # HTML tags (e.g., <video>)
+    t = re.sub(r"^\s*#{1,6}\s*", "", t, flags=re.M)             # headings
+    t = re.sub(r"\s+", " ", t).strip()
+    return unescape(t)
+
+
+def _word_count(md: str) -> int:
+    """Count words in markdown content."""
+    plain = _safe_strip_md(md)
+    return len(plain.split()) if plain else 0
+
+
+def _read_time_minutes(words: int, wpm: int = 225) -> int:
+    """Calculate reading time in minutes."""
+    return max(1, round(words / wpm))
+
+
+def _iso_minutes(minutes: int) -> str:
+    """Convert minutes to ISO 8601 duration format."""
+    return f"PT{int(minutes)}M"
+
+
+def _hash_for_etag(obj) -> str:
+    """Generate hash for ETag from object."""
+    raw = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _first_nonempty(*vals):
+    """Return first non-empty string value."""
+    for v in vals:
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _ensure_abs(url: Optional[str]) -> Optional[str]:
+    """Ensure URL is absolute; return None if relative."""
+    if not url or url.startswith("http://") or url.startswith("https://"):
+        return url
+    return None
+
+
+def _trim(s: str, max_len: int) -> str:
+    """Trim string to max length with ellipsis."""
+    if not s:
+        return s
+    s = s.strip()
+    return s if len(s) <= max_len else s[: max_len - 1].rstrip() + "…"
+
+
+def _dedupe_seq(seq):
+    """Deduplicate sequence while preserving order."""
+    seen = set()
+    out = []
+    for x in seq or []:
+        if not isinstance(x, str): 
+            continue
+        k = x.strip().lower()
+        if k and k not in seen:
+            seen.add(k)
+            out.append(x.strip())
+    return out
+
+
+def _ensure_video_objects(final_blog_data: dict) -> None:
+    """Guarantee schema.org VideoObject list with thumbnailUrl for each story video."""
+    videos = []
+    for sp in final_blog_data.get("story_packets", []):
+        v = (sp.get("video") or {})
+        path = v.get("path") or ""
+        if not path or not path.startswith("http"):
+            continue
+        name = sp.get("title_human") or sp.get("title_raw") or "Video"
+        thumb = None
+        thumbs = (v.get("thumbnails") or {})
+        # prefer intro/highlight if present
+        for key in ("intro", "highlight", "why", "outro"):
+            if key in thumbs and thumbs[key]:
+                thumb = thumbs[key]
+                break
+        # normalize thumb to absolute (media domain should already produce absolute if via utils)
+        if thumb and not thumb.startswith("http"):
+            thumb = None
+        videos.append({
+            "@type": "VideoObject",
+            "name": name,
+            "description": _trim(_first_nonempty(sp.get("why"), sp.get("ai_comprehensive_intro"), ""), 300),
+            "contentUrl": path,
+            "thumbnailUrl": thumb,
+            "uploadDate": sp.get("merged_at"),
+            "duration": "PT90S" if (sp.get("explainer") or {}).get("target_seconds") == 90 else None
+        })
+    # attach to both root and (if present) frontmatter.schema
+    if videos:
+        final_blog_data["video"] = videos
+        fm_schema = (((final_blog_data.get("frontmatter") or {}).get("schema")) or {})
+        if fm_schema:
+            fm_schema["video"] = videos
+            final_blog_data["frontmatter"]["schema"] = fm_schema
+
+
+def _apply_final_seo_polish(final_blog_data: dict) -> dict:
+    """Apply final SEO polish to blog data after all other processing is complete."""
+    data = final_blog_data.copy()
+
+    # 1) Content body & placeholder hygiene
+    body = (((data.get("content") or {}).get("body")) or data.get("articleBody") or "")
+    # remove any leaked placeholders or duplicate intros
+    body = body.replace("[AI_GENERATE_LEAD]", "")
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    data.setdefault("content", {})["body"] = body
+    data["articleBody"] = body  # keep parity at root for consumers that expect it
+    
+    # Clean up AI_GENERATE placeholders in other fields
+    def _clean_placeholders(text):
+        if not isinstance(text, str):
+            return text
+        # Remove common AI generation placeholders
+        text = text.replace("[AI_GENERATE_SEO_DESCRIPTION]", "")
+        text = text.replace("[AI_GENERATE_LEAD]", "")
+        text = text.replace("[AI_GENERATE", "")  # Catch any incomplete placeholders
+        return text.strip()
+    
+    # Clean up description fields and ensure consistency
+    # Get the best description from og:description if available
+    og_description = data.get("frontmatter", {}).get("og", {}).get("og:description", "")
+    
+    # Use og:description if it exists and is not a placeholder
+    if og_description and "[AI_GENERATE" not in og_description:
+        best_description = og_description
+    else:
+        # Clean up existing descriptions
+        best_description = _clean_placeholders(data.get("description", ""))
+    
+    # Set description consistently across all fields
+    if best_description:
+        data["description"] = best_description
+        data.setdefault("frontmatter", {})["description"] = best_description
+        data.setdefault("frontmatter", {}).setdefault("og", {})["og:description"] = best_description
+        data.setdefault("seo_meta", {})["description"] = best_description
+    else:
+        # Clean up any remaining placeholders
+        if data.get("description"):
+            data["description"] = _clean_placeholders(data["description"])
+        if data.get("frontmatter", {}).get("description"):
+            data["frontmatter"]["description"] = _clean_placeholders(data["frontmatter"]["description"])
+        if data.get("frontmatter", {}).get("og", {}).get("og:description"):
+            data["frontmatter"]["og"]["og:description"] = _clean_placeholders(data["frontmatter"]["og"]["og:description"])
+        if data.get("seo_meta", {}).get("description"):
+            data["seo_meta"]["description"] = _clean_placeholders(data["seo_meta"]["description"])
+    
+
+    # 2) wordCount + read time
+    wc = _word_count(body)
+    minutes = _read_time_minutes(wc)
+    data["wordCount"] = wc
+    data["timeRequired"] = _iso_minutes(minutes)
+
+    # 3) Canonical/URL sanity - ensure coherence across all fields
+    canonical = _first_nonempty(
+        (data.get("seo_meta") or {}).get("canonical"),
+        (data.get("frontmatter") or {}).get("og", {}).get("og:url"),
+        data.get("url"),
+    )
+    if canonical:
+        # Mirror canonical to all required fields for consistency
+        data["url"] = canonical
+        data.setdefault("seo_meta", {})["canonical"] = canonical
+        
+        # Mirror to frontmatter fields
+        if data.get("frontmatter"):
+            # Mirror to og:url
+            if data["frontmatter"].get("og"):
+                data["frontmatter"]["og"]["og:url"] = canonical
+            # Mirror to schema.url
+            if data["frontmatter"].get("schema"):
+                data["frontmatter"]["schema"]["url"] = canonical
+
+    # 4) Title/description consolidation
+    title = _first_nonempty(
+        (data.get("seo_meta") or {}).get("title"),
+        (data.get("frontmatter") or {}).get("title"),
+        data.get("headline"),
+    )
+    desc = _first_nonempty(
+        (data.get("seo_meta") or {}).get("description"),
+        (data.get("frontmatter") or {}).get("description"),
+        data.get("description"),
+    )
+    # trim to sensible lengths for SERP/snippets
+    if title:
+        title = _trim(title, 70)
+        data["headline"] = title
+        data.setdefault("seo_meta", {})["title"] = title
+        if data.get("frontmatter"):
+            data["frontmatter"]["title"] = title
+            if data["frontmatter"].get("og"):
+                data["frontmatter"]["og"]["og:title"] = title
+    if desc:
+        desc = _trim(_safe_strip_md(desc), 160)
+        data["description"] = desc
+        data.setdefault("seo_meta", {})["description"] = desc
+        if data.get("frontmatter"):
+            data["frontmatter"]["description"] = desc
+            if data["frontmatter"].get("og"):
+                data["frontmatter"]["og"]["og:description"] = desc
+
+    # 5) Image normalization (prefer OG image; ensure absolute)
+    og_img = _first_nonempty(
+        (data.get("seo_meta") or {}).get("og:image"),
+        (data.get("frontmatter") or {}).get("og", {}).get("og:image"),
+        (data.get("frontmatter") or {}).get("schema", {}).get("image"),
+        data.get("image"),
+    )
+    if _ensure_abs(og_img):
+        data["image"] = og_img
+        data.setdefault("seo_meta", {})["og:image"] = og_img
+        if data.get("frontmatter"):
+            data["frontmatter"].setdefault("og", {})["og:image"] = og_img
+            if data["frontmatter"].get("schema"):
+                data["frontmatter"]["schema"]["image"] = og_img
+
+    # 6) Keywords/tags dedupe
+    kw = _dedupe_seq(
+        (data.get("keywords") or []) +
+        ((data.get("frontmatter") or {}).get("schema", {}).get("keywords") or []) +
+        ((data.get("frontmatter") or {}).get("tags") or [])
+    )
+    if kw:
+        data["keywords"] = kw[:20]
+        if data.get("frontmatter"):
+            data["frontmatter"]["tags"] = kw[:20]
+            if data["frontmatter"].get("schema"):
+                data["frontmatter"]["schema"]["keywords"] = kw[:20]
+
+    # 7) Language + mainEntityOfPage/publisher/author IDs if easy to infer
+    data.setdefault("seo_schema", {})
+    data["seo_schema"]["inLanguage"] = data.get("seo_schema", {}).get("inLanguage") or "en-US"
+
+    # 8) Video objects from story packets (with thumbnails)
+    _ensure_video_objects(data)
+
+    # 9) Stable ETag & cache hints
+    etag = _hash_for_etag({"url": data.get("url"), "wc": wc, "updated": data.get("dateModified"), "body": body[:2048]})
+    data["seo_headers"] = {
+        "X-Robots-Tag": "index, follow",
+        "Cache-Control": "public, max-age=3600",
+        "ETag": f"\"{data.get('date','')}-{etag[:16]}\""
+    }
+
+    return data
 

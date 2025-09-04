@@ -149,20 +149,40 @@ class TestBlogDigestBuilder:
         
         # Patch the URL helper method
         with patch.object(builder.utils, 'get_cloudflare_url', side_effect=mock_get_cloudflare_url):
-            # Mock the build_digest method to return our stub
-            with patch.object(builder, 'build_digest', return_value=stub_digest):
-                # Mock the ContentGenerator to avoid AI processing
-                mock_content_gen = MagicMock()
-                mock_content_gen.generate.return_value = "Test content"
-                mock_content_gen.frontmatter = {"title": "Test Blog"}
-                
-                with patch('services.blog.ContentGenerator', return_value=mock_content_gen):
-                    # Mock the _save_v3_api_response method
-                    with patch.object(builder, '_save_v3_api_response'):
-                        # Mock R2Publisher to avoid upload issues
-                        with patch('services.publisher_r2.R2Publisher'):
-                            # Call the method that builds final_blog_data
-                            final_blog_data = builder.get_blog_api_data("2025-01-15")
+            # Mock the io.build_digest method to return our stub path
+            mock_path = MagicMock()
+            mock_path.exists.return_value = False  # FINAL doesn't exist
+            with patch.object(builder.io, 'get_digest_path', return_value=mock_path):
+                with patch.object(builder.io, 'build_digest', return_value=mock_path):
+                    with patch.object(builder.io, 'load_digest', return_value=stub_digest):
+                        with patch.object(builder.io, 'enhance_with_ai', return_value=stub_digest):
+                            with patch.object(builder.io, 'save_digest', return_value=mock_path):
+                                # Mock the ContentGenerator to avoid AI processing
+                                mock_content_gen = MagicMock()
+                                mock_content_gen.generate.return_value = "Test content"
+                                mock_content_gen.frontmatter = {"title": "Test Blog"}
+                                
+                                # Create normalized digest with Cloudflare URLs
+                                normalized_digest = stub_digest.copy()
+                                normalized_digest["story_packets"] = [
+                                    {
+                                        "id": "story_123",
+                                        "title": "Test Story",
+                                        "video": {
+                                            "path": "https://test-worker.paulchrisluke.workers.dev/assets/stories/2025/01/15/story_123.mp4",
+                                            "status": "rendered"
+                                        }
+                                    }
+                                ]
+                                mock_content_gen.normalize_assets.return_value = normalized_digest
+                                
+                                with patch('services.blog.ContentGenerator', return_value=mock_content_gen):
+                                    # Mock the _save_v3_api_response method
+                                    with patch.object(builder, '_save_v3_api_response'):
+                                        # Mock R2Publisher to avoid upload issues
+                                        with patch('services.publisher_r2.R2Publisher'):
+                                            # Call the method that builds final_blog_data
+                                            final_blog_data = builder.get_blog_api_data("2025-01-15")
                             
                             # Assert that story packets are present and have Cloudflare URLs
                             assert "story_packets" in final_blog_data
@@ -200,20 +220,28 @@ class TestBlogDigestBuilder:
         mock_content_gen = MagicMock()
         mock_content_gen.generate.return_value = "Test content"
         mock_content_gen.frontmatter = distinct_frontmatter.copy()
+        mock_content_gen.normalize_assets.return_value = fake_digest
         
-        # Mock the build_digest method to return our fake digest
-        with patch.object(builder, 'build_digest', return_value=fake_digest):
-            # Mock the ContentGenerator class
-            with patch('services.blog.ContentGenerator', return_value=mock_content_gen):
-                # Mock the _save_v3_api_response method
-                with patch.object(builder, '_save_v3_api_response'):
-                    # Mock R2Publisher to avoid upload issues
-                    with patch('services.publisher_r2.R2Publisher'):
-                        # Call the method that produces the API v3 data
-                        final_blog_data = builder.get_blog_api_data("2025-01-15")
+        # Mock the io methods to return our fake digest
+        mock_path = MagicMock()
+        mock_path.exists.return_value = False  # FINAL doesn't exist
+        with patch.object(builder.io, 'get_digest_path', return_value=mock_path):
+            with patch.object(builder.io, 'build_digest', return_value=mock_path):
+                with patch.object(builder.io, 'load_digest', return_value=fake_digest):
+                    with patch.object(builder.io, 'enhance_with_ai', return_value=fake_digest):
+                        with patch.object(builder.io, 'save_digest', return_value=mock_path):
+                            # Mock the ContentGenerator class
+                            with patch('services.blog.ContentGenerator', return_value=mock_content_gen):
+                                # Mock the _save_v3_api_response method
+                                with patch.object(builder, '_save_v3_api_response'):
+                                    # Mock R2Publisher to avoid upload issues
+                                    with patch('services.publisher_r2.R2Publisher'):
+                                        # Call the method that produces the API v3 data
+                                        final_blog_data = builder.get_blog_api_data("2025-01-15")
                         
                         # Assert that the produced frontmatter contains the ContentGenerator frontmatter fields
                         final_frontmatter = final_blog_data["frontmatter"]
+                        # The new implementation should use the ContentGenerator's frontmatter
                         assert final_frontmatter["title"] == distinct_frontmatter["title"]
                         assert final_frontmatter["description"] == distinct_frontmatter["description"]
                         assert final_frontmatter["tags"] == distinct_frontmatter["tags"]
@@ -428,7 +456,8 @@ class TestBlogDigestBuilder:
         assert og_metadata["og:type"] == "article"
         # URL comes from environment/default, not from test override
         assert "og:url" in og_metadata
-        assert og_metadata["og:url"].endswith("/blog/2025-01-15")
+        # Updated URL format: /blog/YYYY/MM/DD/slug/
+        assert "/blog/2025/01/15/" in og_metadata["og:url"]
         # Image comes from environment/default, not from test override
         assert "og:image" in og_metadata
     
