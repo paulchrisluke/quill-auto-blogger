@@ -223,9 +223,19 @@ class VideoProcessor:
         
         # Convert URL to local path if needed
         if video_path.startswith("http"):
-            # Extract filename from URL
-            video_filename = Path(video_path).name
-            video_path = Path("out/videos") / video_filename
+            # Extract path from URL and convert to local path
+            from urllib.parse import urlparse
+            parsed_url = urlparse(video_path)
+            # Remove leading slash and convert to local path
+            url_path = parsed_url.path.lstrip('/')
+            # Convert from assets/out/videos/YYYY-MM-DD/filename to out/videos/YYYY-MM-DD/filename
+            if url_path.startswith('assets/out/videos/'):
+                local_path = url_path.replace('assets/out/videos/', 'out/videos/')
+                video_path = Path(local_path)
+            else:
+                # Fallback: extract filename and look in out/videos/
+                video_filename = Path(video_path).name
+                video_path = Path("out/videos") / video_filename
         else:
             video_path = Path(video_path)
         

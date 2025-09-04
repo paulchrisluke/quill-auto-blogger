@@ -321,27 +321,20 @@
         </div>
 
         <div class="nav-title">Blog API</div>
-        <a class="nav-link active" href="#ep-blog">/api/blog/{date}</a>
-        <a class="nav-link" href="#ep-blog-markdown">/api/blog/{date}/markdown</a>
-        <a class="nav-link" href="#ep-blog-digest">/api/blog/{date}/digest</a>
+        <a class="nav-link active" href="#ep-blog">/blogs/{date}/API-v3-{date}_digest.json</a>
+        <a class="nav-link" href="#ep-blog-markdown">/blogs/{date}/FINAL-{date}_digest.json</a>
+        <a class="nav-link" href="#ep-blog-digest">/blogs/{date}/PRE-CLEANED-{date}_digest.json</a>
 
         <div class="nav-title">Feeds & Discovery</div>
-        <a class="nav-link" href="#ep-blogs-index">/blogs</a>
+        <a class="nav-link" href="#ep-blogs-index">/blogs/index.json</a>
         <a class="nav-link" href="#ep-rss-feed">/rss.xml</a>
         <a class="nav-link" href="#ep-sitemap">/sitemap.xml</a>
 
-        <div class="nav-title">Stories</div>
-        <a class="nav-link" href="#ep-stories">/stories/{date}</a>
-
         <div class="nav-title">Assets</div>
-        <a class="nav-link" href="#ep-assets-stories">/api/assets/stories/{date}</a>
-        <a class="nav-link" href="#ep-assets-story">/api/assets/stories/{date}/{story_id}</a>
-        <a class="nav-link" href="#ep-assets-blog">/api/assets/blog/{date}</a>
+        <a class="nav-link" href="#ep-assets-stories">/assets/stories/{year}/{month}/{day}/</a>
+        <a class="nav-link" href="#ep-assets-story">/assets/stories/{year}/{month}/{day}/{filename}</a>
+        <a class="nav-link" href="#ep-assets-blog">/assets/blog/{date}/</a>
         <a class="nav-link" href="#ep-assets">/assets/*</a>
-
-        <div class="nav-title">Control</div>
-        <a class="nav-link" href="#ep-start">/control/record/start</a>
-        <a class="nav-link" href="#ep-stop">/control/record/stop</a>
 
         <div class="nav-title">System</div>
         <a class="nav-link" href="#ep-health">/health</a>
@@ -359,14 +352,15 @@
     <!-- MAIN -->
     <main class="main" id="content">
         <h1>API Reference</h1>
-        <p class="lead">Complete API for AI-enhanced blog content, story management, and recording control. Serves FINAL
+        <p class="lead">Complete API for AI-enhanced blog content and media asset serving. Serves
             digest data with AI enrichments, structured SEO, and discovery feeds (RSS, sitemap, blogs index).</p>
-        <div class="notes"><strong>Pipeline:</strong> PRE-CLEANED (raw) → FINAL (AI-enhanced). Blog endpoints return
-            FINAL data.</div>
+        <div class="notes"><strong>Pipeline:</strong> PRE-CLEANED (raw) → FINAL (AI-enhanced) → API-v3 (processed). Blog
+            endpoints serve different stages of the pipeline. <strong>Domains:</strong> API endpoints and
+            media assets use api.paulchrisluke.com.</div>
 
-        <!-- GET /api/blog/{date} -->
+        <!-- GET /blogs/{date}/API-v3-{date}_digest.json -->
         <section id="ep-blog" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-27"' data-json='{
+            data-curl='curl "https://api.paulchrisluke.com/blogs/2025-08-27/API-v3-2025-08-27_digest.json"' data-json='{
   "version": "3",
   "date": "2025-08-27",
   "twitch_clips": [],
@@ -383,12 +377,14 @@
       "id": "story_20250827_pr34",
       "title_human": "Shipped: New API Endpoint",
       "ai_micro_intro": "This change enhances the developer experience by providing a cleaner interface for data retrieval.",
-      "ai_comprehensive_intro": "In this feature update, we' ve introduced a new API endpoint that streamlines the
-            process of fetching blog data. This improvement addresses several pain points identified in user feedback
-            and significantly reduces response times." } ] }'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/blog/{date}</span></div>
+      "ai_comprehensive_intro": "In this feature update, we have introduced a new API endpoint that streamlines the process of fetching blog data. This improvement addresses several pain points identified in user feedback and significantly reduces response times."
+    }
+  ]
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span
+                    class="path">/blogs/{date}/API-v3-{date}_digest.json</span></div>
             <p class="desc">Retrieve complete AI-enhanced blog data including story packets, GitHub events, and
-                AI-generated content.</p>
+                AI-generated content. Served directly from R2 bucket via Cloudflare Worker.</p>
             <div class="subttl">Path Parameters</div>
             <dl class="kv">
                 <dt>date</dt>
@@ -396,40 +392,23 @@
             </dl>
             <div class="subttl">Example</div>
             <dl class="kv">
-                <dd>/api/blog/2025-08-27</dd>
+                <dd>/blogs/2025-08-27/API-v3-2025-08-27_digest.json</dd>
             </dl>
         </section>
 
-        <!-- GET /api/blog/{date}/markdown -->
+        <!-- GET /blogs/{date}/FINAL-{date}_digest.json -->
         <section id="ep-blog-markdown" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-27/markdown"'
-            data-json='{
+            data-curl='curl "https://api.paulchrisluke.com/blogs/2025-08-27/FINAL-2025-08-27_digest.json"' data-json='{
+  "version": "3",
   "date": "2025-08-27",
-  "markdown": "# Daily Devlog — Aug 27, 2025\n\n## Shipped: New API Endpoint\n\nToday we launched a new API endpoint that significantly improves the developer experience. The new `/api/blog/{date}/markdown` endpoint provides raw markdown content for easier integration with external tools.\n\n## Key Improvements\n\n- **Faster Response Times**: Reduced from 2.3s to 0.8s average\n- **Cleaner Data Structure**: Simplified JSON response format\n- **Better Error Handling**: More descriptive error messages\n\n## Next Steps\n\nWe'
-            re planning to add support for custom date ranges and bulk operations in the next iteration." }'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/blog/{date}/markdown</span>
-            </div>
-            <p class="desc">Get raw markdown content for a specific date's blog post.</p>
-            <div class="subttl">Path Parameters</div>
-            <dl class="kv">
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD)</dd>
-            </dl>
-        </section>
-
-        <!-- GET /api/blog/{date}/digest -->
-        <section id="ep-blog-digest" class="endpoint"
-            data-curl='curl "http://localhost:8000/api/blog/2025-08-27/digest"' data-json='{
-  "date": "2025-08-27",
-  "digest": {
-    "version": "3",
-    "date": "2025-08-27",
-    "story_packets": [...]
-  }
+  "markdown": "# Daily Devlog — Aug 27, 2025\n\n## Shipped: New API Endpoint\n\nToday we launched a new API endpoint that significantly improves the developer experience. The new blog endpoint provides raw markdown content for easier integration with external tools.\n\n## Key Improvements\n\n- **Faster Response Times**: Reduced from 2.3s to 0.8s average\n- **Cleaner Data Structure**: Simplified JSON response format\n- **Better Error Handling**: More descriptive error messages\n\n## Next Steps\n\nWe are planning to add support for custom date ranges and bulk operations in the next iteration.",
+  "story_packets": [...]
 }'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/blog/{date}/digest</span>
+            <div class="ep-head"><span class="method GET">GET</span><span
+                    class="path">/blogs/{date}/FINAL-{date}_digest.json</span>
             </div>
-            <p class="desc">Get digest data for a specific date's blog post.</p>
+            <p class="desc">Get FINAL digest data with AI-enhanced markdown content for a specific date's blog post.
+                Served directly from R2 bucket via Cloudflare Worker.</p>
             <div class="subttl">Path Parameters</div>
             <dl class="kv">
                 <dt>date</dt>
@@ -437,9 +416,67 @@
             </dl>
         </section>
 
-        <!-- GET /blogs -->
-        <section id="ep-blogs-index" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/blogs"' data-json='{
+        <!-- GET /blogs/{date}/PRE-CLEANED-{date}_digest.json -->
+        <section id="ep-blog-digest" class="endpoint"
+            data-curl='curl "https://api.paulchrisluke.com/blogs/2025-08-27/PRE-CLEANED-2025-08-27_digest.json"'
+            data-json='{
+  "version": "2",
+  "date": "2025-08-27",
+  "frontmatter": {
+    "title": "Daily Devlog — Aug 27, 2025",
+    "date": "2025-08-27",
+    "author": "Paul Chris Luke",
+    "og": {
+      "og:title": "Daily Devlog — Aug 27, 2025",
+      "og:description": "Daily development log with 1 story from 0 Twitch clips and 1 GitHub event",
+      "og:type": "article",
+      "og:url": "https://quill-auto-blogger.com/blog/2025-08-27",
+      "og:image": "https://api.paulchrisluke.com/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png",
+      "og:site_name": "Daily Devlog"
+    },
+    "schema": {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "headline": "Daily Devlog — Aug 27, 2025",
+      "datePublished": "2025-08-27",
+      "author": {
+        "@type": "Person",
+        "name": "Paul Chris Luke"
+      }
+    },
+    "tags": ["development", "api"],
+    "lead": "Today we shipped a new API endpoint that enhances the developer experience."
+  },
+  "story_packets": [
+    {
+      "id": "story_20250827_pr34",
+      "title_human": "Shipped: New API Endpoint",
+      "why": "This change enhances the developer experience by providing a cleaner interface for data retrieval.",
+      "highlights": [
+        "Improved API response times",
+        "Better error handling",
+        "Simplified data structure"
+      ]
+    }
+  ],
+  "github_events": [...],
+  "twitch_clips": [...]
+}'>
+            <div class="ep-head"><span class="method GET">GET</span><span
+                    class="path">/blogs/{date}/PRE-CLEANED-{date}_digest.json</span>
+            </div>
+            <p class="desc">Get raw PRE-CLEANED digest data for a specific date's blog post. Contains unprocessed data
+                from GitHub events and Twitch clips. Served directly from R2 bucket via Cloudflare Worker.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>date</dt>
+                <dd>string (YYYY-MM-DD)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /blogs/index.json -->
+        <section id="ep-blogs-index" class="endpoint" data-curl='curl "https://api.paulchrisluke.com/blogs/index.json"'
+            data-json='{
   "blogs": [
     {
       "id": "blog_20250827",
@@ -449,18 +486,17 @@
     }
   ]
 }'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/blogs</span></div>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/blogs/index.json</span></div>
             <p class="desc">Get the blogs index listing all available blog posts. Served from Cloudflare Worker with
                 enhanced caching.</p>
         </section>
 
         <!-- GET /rss.xml -->
-        <section id="ep-rss-feed" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/rss.xml"' data-json='{
+        <section id="ep-rss-feed" class="endpoint" data-curl='curl "https://api.paulchrisluke.com/rss.xml"' data-json='{
   "feed": {
     "title": "Quill Auto Blogger",
     "description": "AI-enhanced blog posts and stories.",
-    "link": "https://quill-auto-blogger.com/rss.xml",
+    "link": "https://api.paulchrisluke.com/rss.xml",
     "items": [...]
   }
 }'>
@@ -470,21 +506,21 @@
         </section>
 
         <!-- GET /sitemap.xml -->
-        <section id="ep-sitemap" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/sitemap.xml"' data-json='{
+        <section id="ep-sitemap" class="endpoint" data-curl='curl "https://api.paulchrisluke.com/sitemap.xml"'
+            data-json='{
   "sitemap": {
     "urlset": {
       "url": [
         {
-          "loc": "https://quill-auto-blogger.com",
+          "loc": "https://api.paulchrisluke.com",
           "lastmod": "2025-08-27"
         },
         {
-          "loc": "https://quill-auto-blogger.com/blogs",
+          "loc": "https://api.paulchrisluke.com/blogs/index.json",
           "lastmod": "2025-08-27"
         },
         {
-          "loc": "https://quill-auto-blogger.com/api/blog/2025-08-27",
+          "loc": "https://api.paulchrisluke.com/blogs/2025-08-27/API-v3-2025-08-27_digest.json",
           "lastmod": "2025-08-27"
         }
       ]
@@ -496,92 +532,69 @@
                 caching.</p>
         </section>
 
-        <!-- GET /stories/{date} -->
-        <section id="ep-stories" class="endpoint" data-curl='curl "http://localhost:8000/stories/2025-08-27"' data-json='{
-  "stories": [
-    {
-      "id": "story_20250827_pr34",
-      "title_human": "Shipped: Feature Name"
-    }
+
+        <!-- GET /assets/stories/{year}/{month}/{day}/ -->
+        <section id="ep-assets-stories" class="endpoint"
+            data-curl='curl "https://api.paulchrisluke.com/assets/stories/2025/08/27/"' data-json='{
+  "assets": [
+    "story_20250827_pr34.mp4",
+    "story_20250827_pr35.mp4",
+    "story_20250827_pr36.mp4",
+    "story_20250827_pr34_01_intro.png",
+    "story_20250827_pr34_02_why.png",
+    "story_20250827_pr34_99_outro.png",
+    "story_20250827_pr34_hl_01.png"
   ]
 }'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/stories/{date}</span></div>
-            <p class="desc">List story packets for a given date.</p>
-            <div class="subttl">Path Parameters</div>
-            <dl class="kv">
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD)</dd>
-            </dl>
-        </section>
-
-        <!-- GET /api/assets/stories/{date} -->
-        <section id="ep-assets-stories" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/api/assets/stories/2025-08-27"' data-json='{
-  "date": "2025-08-27",
-  "assets": {
-    "stories": [
-      "story_20250827_pr34.mp4",
-      "story_20250827_pr35.mp4",
-      "story_20250827_pr36.mp4"
-    ],
-    "images": [
-      "story_20250827_pr34_01_intro.png",
-      "story_20250827_pr34_02_why.png",
-      "story_20250827_pr34_99_outro.png",
-      "story_20250827_pr34_hl_01.png"
-    ],
-    "videos": [
-      "story_20250827_pr34.mp4",
-      "story_20250827_pr35.mp4",
-      "story_20250827_pr36.mp4"
-    ]
-  }
-}'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/assets/stories/{date}</span>
-            </div>
-            <p class="desc">List all story assets for a specific date.</p>
-            <div class="subttl">Path Parameters</div>
-            <dl class="kv">
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD)</dd>
-            </dl>
-        </section>
-
-        <!-- GET /api/assets/stories/{date}/{story_id} -->
-        <section id="ep-assets-story" class="endpoint"
-            data-curl='curl "http://localhost:8000/api/assets/stories/2025-08-27/story_20250827_pr34"' data-json='{
-  "date": "2025-08-27",
-  "story_id": "story_20250827_pr34",
-  "assets": {
-    "video": "story_20250827_pr34.mp4",
-    "thumbnails": ["story_20250827_pr34_01_intro.png"]
-  }
-}'>
             <div class="ep-head"><span class="method GET">GET</span><span
-                    class="path">/api/assets/stories/{date}/{story_id}</span></div>
-            <p class="desc">Get all assets for a specific story.</p>
+                    class="path">/assets/stories/{year}/{month}/{day}/</span>
+            </div>
+            <p class="desc">List all story assets for a specific date. Served directly from R2 bucket via Cloudflare
+                Worker.</p>
             <div class="subttl">Path Parameters</div>
             <dl class="kv">
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD)</dd>
-                <dt>story_id</dt>
-                <dd>string (story identifier)</dd>
+                <dt>year</dt>
+                <dd>string (YYYY)</dd>
+                <dt>month</dt>
+                <dd>string (MM)</dd>
+                <dt>day</dt>
+                <dd>string (DD)</dd>
             </dl>
         </section>
 
-        <!-- GET /api/assets/blog/{date} -->
+        <!-- GET /assets/stories/{year}/{month}/{day}/{filename} -->
+        <section id="ep-assets-story" class="endpoint"
+            data-curl='curl "https://api.paulchrisluke.com/assets/stories/2025/08/27/story_20250827_pr34.mp4"'
+            data-json='Direct asset serving from R2 bucket'>
+            <div class="ep-head"><span class="method GET">GET</span><span
+                    class="path">/assets/stories/{year}/{month}/{day}/{filename}</span></div>
+            <p class="desc">Get specific story assets (videos, images, thumbnails) for a specific story. Served directly
+                from R2 bucket via Cloudflare Worker.</p>
+            <div class="subttl">Path Parameters</div>
+            <dl class="kv">
+                <dt>year</dt>
+                <dd>string (YYYY)</dd>
+                <dt>month</dt>
+                <dd>string (MM)</dd>
+                <dt>day</dt>
+                <dd>string (DD)</dd>
+                <dt>filename</dt>
+                <dd>string (asset filename)</dd>
+            </dl>
+        </section>
+
+        <!-- GET /assets/blog/{date}/ -->
         <section id="ep-assets-blog" class="endpoint"
-            data-curl='curl "http://localhost:8000/api/assets/blog/2025-08-27"' data-json='{
-  "date": "2025-08-27",
-  "assets": {
-    "stories": ["story_20250827_pr34.mp4"],
-    "images": ["story_20250827_pr34_01_intro.png"],
-    "videos": ["story_20250827_pr34.mp4"]
-  }
+            data-curl='curl "https://api.paulchrisluke.com/assets/blog/2025-08-27/"' data-json='{
+  "assets": [
+    "story_20250827_pr34.mp4",
+    "story_20250827_pr34_01_intro.png",
+    "story_20250827_pr34_02_why.png"
+  ]
 }'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/api/assets/blog/{date}</span>
+            <div class="ep-head"><span class="method GET">GET</span><span class="path">/assets/blog/{date}/</span>
             </div>
-            <p class="desc">Get all assets for a blog post.</p>
+            <p class="desc">Get all assets for a blog post. Served directly from R2 bucket via Cloudflare Worker.</p>
             <div class="subttl">Path Parameters</div>
             <dl class="kv">
                 <dt>date</dt>
@@ -591,7 +604,7 @@
 
         <!-- GET /assets/* -->
         <section id="ep-assets" class="endpoint"
-            data-curl='curl "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png"'
+            data-curl='curl "https://api.paulchrisluke.com/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png"'
             data-json='Direct asset serving from R2 bucket'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/assets/*</span></div>
             <p class="desc">Serve static assets (images, videos, highlights) directly from R2 bucket via Cloudflare
@@ -605,62 +618,11 @@
             </dl>
         </section>
 
-        <!-- POST /control/record/start -->
-        <section id="ep-start" class="endpoint" data-curl='curl -X POST "http://localhost:8000/control/record/start" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d ' \''{"story_id":"test_story","bounded":false}'\'' '
-      data-json=' {"status":"started","mode":"bounded","story_id":"test_story","prep_delay":5,"duration":15}'>
-            <div class="ep-head"><span class="method POST">POST</span><span class="path">/control/record/start</span>
-            </div>
-            <p class="desc">Start recording for a story (requires token). Supports optional <code
-                    style="font-family:var(--mono)">bounded</code> mode.</p>
-            <div class="subttl">Headers</div>
-            <dl class="kv">
-                <dt>Authorization</dt>
-                <dd>Bearer &lt;CONTROL_API_TOKEN&gt;</dd>
-            </dl>
-            <div class="subttl">Request Body</div>
-            <dl class="kv">
-                <dt>story_id</dt>
-                <dd>string</dd>
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD, optional)</dd>
-                <dt>bounded</dt>
-                <dd>boolean (default: false)</dd>
-            </dl>
-        </section>
-
-        <!-- POST /control/record/stop -->
-        <section id="ep-stop" class="endpoint" data-curl='curl -X POST "http://localhost:8000/control/record/stop" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d ' \''{"story_id":"test_story"}'\'' '
-      data-json=' {"status":"stopped","story_id":"test_story"}'>
-            <div class="ep-head"><span class="method POST">POST</span><span class="path">/control/record/stop</span>
-            </div>
-            <p class="desc">Stop recording for a story (requires token).</p>
-            <div class="subttl">Headers</div>
-            <dl class="kv">
-                <dt>Authorization</dt>
-                <dd>Bearer &lt;CONTROL_API_TOKEN&gt;</dd>
-            </dl>
-            <div class="subttl">Request Body</div>
-            <dl class="kv">
-                <dt>story_id</dt>
-                <dd>string</dd>
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD, optional)</dd>
-            </dl>
-        </section>
 
         <!-- GET /health -->
-        <section id="ep-health" class="endpoint" data-curl='curl "http://localhost:8000/health"' data-json='{
-  "status": "healthy",
-  "timestamp": "2025-08-27T12:00:00Z"
-}'>
+        <section id="ep-health" class="endpoint" data-curl='curl "https://api.paulchrisluke.com/health"' data-json='OK'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/health</span></div>
-            <p class="desc">Health check endpoint for monitoring system status.</p>
+            <p class="desc">Health check endpoint for monitoring system status. Served from Cloudflare Worker.</p>
         </section>
     </main>
 
@@ -668,12 +630,12 @@
     <aside class="panel">
         <div class="label">cURL</div>
         <div class="code" id="code-curl"><button class="copy">Copy</button>
-            curl "https://quill-blog-api.paulchrisluke.workers.dev/api/blog/2025-08-27"
+            curl "https://api.paulchrisluke.com/blogs/2025-08-27/API-v3-2025-08-27_digest.json"
         </div>
         <div class="label">200 Example</div>
         <div class="code" id="code-json"><button class="copy">Copy</button>
             {
-            "version": "3",
+            "version": "2",
             "date": "2025-08-27",
             "github_events": [
             {
@@ -683,15 +645,42 @@
             "message": "feat: add new API endpoint"
             }
             ],
+            "frontmatter": {
+            "title": "Daily Devlog — Aug 27, 2025",
+            "date": "2025-08-27",
+            "author": "Paul Chris Luke",
+            "og": {
+            "og:title": "Daily Devlog — Aug 27, 2025",
+            "og:description": "Daily development log with 1 story from 0 Twitch clips and 1 GitHub event",
+            "og:type": "article",
+            "og:url": "https://quill-auto-blogger.com/blog/2025-08-27",
+            "og:image":
+            "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png",
+            "og:site_name": "Daily Devlog"
+            },
+            "schema": {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": "Daily Devlog — Aug 27, 2025",
+            "datePublished": "2025-08-27",
+            "author": {
+            "@type": "Person",
+            "name": "Paul Chris Luke"
+            }
+            },
+            "tags": ["development", "api"],
+            "lead": "Today we shipped a new API endpoint that enhances the developer experience."
+            },
             "story_packets": [
             {
             "id": "story_20250827_pr34",
             "title_human": "Shipped: New API Endpoint",
-            "ai_micro_intro": "This change enhances the developer experience by providing a cleaner interface for data
-            retrieval.",
-            "ai_comprehensive_intro": "In this feature update, we've introduced a new API endpoint that streamlines the
-            process of fetching blog data. This improvement addresses several pain points identified in user feedback
-            and significantly reduces response times."
+            "why": "This change enhances the developer experience by providing a cleaner interface for data retrieval.",
+            "highlights": [
+            "Improved API response times",
+            "Better error handling",
+            "Simplified data structure"
+            ]
             }
             ]
             }

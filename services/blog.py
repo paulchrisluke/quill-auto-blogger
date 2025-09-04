@@ -51,7 +51,7 @@ class BlogDigestBuilder:
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
-        self.worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+        self.worker_domain = os.getenv("WORKER_DOMAIN", "api.paulchrisluke.com")
         
         # Initialize extracted services
         from .digest_utils import DigestUtils
