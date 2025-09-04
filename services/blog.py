@@ -8,13 +8,20 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, TypedDict
 import yaml
 from dotenv import load_dotenv
 
 from models import TwitchClip, GitHubEvent
+
+class DateEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle date and datetime objects."""
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
 from story_schema import (
     StoryPacket, FrontmatterInfo, 
     make_story_packet, pair_with_clip,
@@ -51,16 +58,17 @@ class BlogDigestBuilder:
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
-        self.worker_domain = os.getenv("WORKER_DOMAIN", "quill-blog-api.paulchrisluke.workers.dev")
+        self.worker_domain = os.getenv("WORKER_DOMAIN", "https://quill-blog-api-prod.paulchrisluke.workers.dev")
+        self.media_domain = os.getenv("MEDIA_DOMAIN", "https://media.paulchrisluke.com")
         
         # Initialize extracted services
         from .digest_utils import DigestUtils
         from .digest_io import DigestIO
         from .frontmatter_generator import FrontmatterGenerator
         
-        self.utils = DigestUtils(self.worker_domain, self.blog_default_image)
+        self.utils = DigestUtils(self.media_domain, self.blog_default_image)
         self.io = DigestIO(self.data_dir, self.blogs_dir)
-        self.frontmatter_gen = FrontmatterGenerator(self.blog_author, self.blog_base_url, self.worker_domain)
+        self.frontmatter_gen = FrontmatterGenerator(self.blog_author, self.blog_base_url, self.media_domain)
     
     def update_paths(self, data_dir: Path, blogs_dir: Path):
         """Update data and blogs directories and recreate DigestIO instance."""
@@ -308,7 +316,7 @@ class BlogDigestBuilder:
             "total_clips": len(clips),
             "total_events": len(events),
             "keywords": sorted(keywords),
-            "date_parsed": datetime.strptime(target_date, "%Y-%m-%d").date()
+            "date_parsed": target_date
         }
     
     def _generate_frontmatter_v1(self, digest: Dict[str, Any]) -> str:
@@ -462,10 +470,10 @@ class BlogDigestBuilder:
             updated_digest = digest.copy()
             updated_digest["story_packets"] = updated_story_packets
             
-            # Generate consolidated content with enhanced schema.org (AI disabled to preserve schema)
+            # Generate consolidated content with enhanced schema.org and AI enhancements
             content_gen = ContentGenerator(updated_digest, self.utils)
             # Generate full content with story packets and video assets
-            consolidated_content = content_gen.generate(ai_enabled=False, related_enabled=False)
+            consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
             # Add the blog signature
             consolidated_content += "\n\n---\n\n[https://upwork.com/freelancers/paulchrisluke](https://upwork.com/freelancers/paulchrisluke)\n\n_Hi. I'm Chris. I am a morally ambiguous technology marketer. Ridiculously rich people ask me to solve problems they didn't know they have. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _like a high-class hooker or find someone who knows how to get ahold of me._"
             
@@ -473,12 +481,15 @@ class BlogDigestBuilder:
             assets = self.get_blog_assets(target_date)
             
             # Build the restructured final blog data with enhanced schema.org JSON-LD
+            # Clean frontmatter for API consumption (remove content fields)
+            cleaned_frontmatter = self.frontmatter_gen.clean_frontmatter_for_api(content_gen.frontmatter)
+            
             final_blog_data = {
                 "@context": "https://schema.org",
                 "@type": "BlogPosting",
                 "date": target_date,
                 "version": "3",  # Increment version for new structure
-                "frontmatter": content_gen.frontmatter,  # Keep full frontmatter with AI content
+                "frontmatter": cleaned_frontmatter,  # Clean frontmatter without content fields
                 "content": {
                     "body": consolidated_content
                 },
@@ -555,7 +566,7 @@ class BlogDigestBuilder:
             # Save v3 API response to main blogs directory
             api_file_path = date_dir / f"API-v3-{target_date}_digest.json"
             with open(api_file_path, 'w', encoding='utf-8') as f:
-                json.dump(api_data, f, indent=2, ensure_ascii=False)
+                json.dump(api_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
             
             logger.info(f"Saved v3 API response to {api_file_path}")
             
@@ -566,7 +577,7 @@ class BlogDigestBuilder:
                 
                 cloudflare_worker_file_path = cloudflare_worker_dir / f"API-v3-{target_date}_digest.json"
                 with open(cloudflare_worker_file_path, 'w', encoding='utf-8') as f:
-                    json.dump(api_data, f, indent=2, ensure_ascii=False)
+                    json.dump(api_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
                 
                 logger.info(f"Saved v3 API response to cloudflare-worker directory: {cloudflare_worker_file_path}")
                 

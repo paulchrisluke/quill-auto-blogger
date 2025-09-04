@@ -37,8 +37,9 @@ export default {
         // Serve raw JSON files directly from R2
         return await serveR2Asset(env, path.substring(1), request); // Remove leading slash
       } else if (path.startsWith('/assets/')) {
-        // Simple asset serving - just remove /assets/ prefix and serve from R2
-        const assetKey = path.substring(8); // Remove '/assets/' prefix
+        // Asset serving - keep the full path including 'assets/' for R2
+        const assetKey = path.substring(1); // Remove leading '/' but keep 'assets/'
+        console.log('Asset request:', path, '-> R2 key:', assetKey);
         return await serveR2Asset(env, assetKey, request);
       } else if (path === '/health') {
         return new Response('OK', { 
@@ -96,11 +97,15 @@ function createErrorResponse(message, status, cacheTag = null) {
  */
 async function serveR2Asset(env, key, request) {
   try {
+    console.log('serveR2Asset: Looking for key:', key);
     const object = await env.BLOG_BUCKET.get(key);
     
     if (!object) {
+      console.log('serveR2Asset: Object not found for key:', key);
       return createErrorResponse('Asset not found', 404, 'assets');
     }
+    
+    console.log('serveR2Asset: Found object for key:', key);
     
     const headers = new Headers();
     

@@ -164,6 +164,9 @@ class FeedGenerator:
             # Get canonical URL
             canonical_url = frontmatter.get('canonical', f"{self.frontend_domain}/blog/{date_str}")
             
+            # Get the best image for this blog post
+            best_image = blog.get('image')  # Use the image field directly from the blog data
+            
             # Create BlogPosting schema entry
             blog_posting = {
                 "@type": "BlogPosting",
@@ -184,6 +187,10 @@ class FeedGenerator:
                     }
                 }
             }
+            
+            # Add image if available
+            if best_image:
+                blog_posting["image"] = best_image
             blog_posts.append(blog_posting)
             
             # Create API-friendly blog entry

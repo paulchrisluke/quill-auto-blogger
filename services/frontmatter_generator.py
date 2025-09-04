@@ -60,7 +60,7 @@ class FrontmatterGenerator:
         
         # Select the best image for this blog post
         from .digest_utils import DigestUtils
-        utils = DigestUtils(self.worker_domain, "https://example.com/default.jpg")
+        utils = DigestUtils(self.media_domain, "https://example.com/default.jpg")
         best_image = utils.select_best_image(story_packets)
         
         # Build schema.org Article with canonical URL
@@ -188,7 +188,7 @@ class FrontmatterGenerator:
         
         # Select the best image for this blog post
         from .digest_utils import DigestUtils
-        utils = DigestUtils(self.worker_domain, "https://example.com/default.jpg")
+        utils = DigestUtils(self.media_domain, "https://example.com/default.jpg")
         best_image = utils.select_best_image(story_packets)
         
         # Build Open Graph metadata with canonical URL
@@ -251,7 +251,7 @@ class FrontmatterGenerator:
         
         # Select the best image for this blog post
         from .digest_utils import DigestUtils
-        utils = DigestUtils(self.worker_domain, "https://example.com/default.jpg")
+        utils = DigestUtils(self.media_domain, "https://example.com/default.jpg")
         best_image = utils.select_best_image(story_packets)
         
         # Generate description from lead and content summary
@@ -362,12 +362,12 @@ class FrontmatterGenerator:
         """
         # Fields to keep (metadata only)
         metadata_fields = {
-            'title', 'date', 'author', 'og', 'schema', 'tags', 'lead', 'description'
+            'title', 'date', 'author', 'og', 'schema', 'tags', 'description'
         }
         
         # Fields to remove (content that should be in content.body)
         content_fields = {
-            'holistic_intro', 'wrap_up'
+            'holistic_intro', 'wrap_up', 'lead'
         }
         
         cleaned = {}

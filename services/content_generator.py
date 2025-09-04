@@ -413,7 +413,7 @@ class ContentGenerator:
         return markdown
     
     def _insert_story_micro_intros(self, markdown: str, ai_service, force_ai: bool = False) -> str:
-        """Insert comprehensive story intros under each story heading."""
+        """Insert story micro-intros under each story heading."""
         for packet in self.story_packets:
             story_title = packet.get("title_human", "")
             if not story_title:
@@ -422,18 +422,21 @@ class ContentGenerator:
             # Find the story heading
             heading_pattern = rf"^(#### {re.escape(story_title)})$"
             
-            # Prepare inputs for AI
-            story_inputs = {
-                "title": story_title,
-                "why": packet.get("why", ""),
-                "highlights_csv": ",".join(packet.get("highlights", []))
-            }
+            # Use existing micro-intro if available, otherwise generate one
+            micro_intro = packet.get("ai_micro_intro")
+            if not micro_intro:
+                # Prepare inputs for AI
+                story_inputs = {
+                    "title": story_title,
+                    "why": packet.get("why", ""),
+                    "highlights_csv": ",".join(packet.get("highlights", []))
+                }
+                micro_intro = ai_service.make_story_micro_intro(self.target_date, story_inputs, force_ai)
             
-            comprehensive_intro = ai_service.make_story_comprehensive_intro(self.target_date, story_inputs, force_ai)
-            
-            # Insert comprehensive intro after heading
-            replacement = rf"\1\n\n{comprehensive_intro}\n"
-            markdown = re.sub(heading_pattern, replacement, markdown, flags=re.MULTILINE)
+            # Insert micro-intro after heading
+            if micro_intro:
+                replacement = rf"\1\n\n{micro_intro}\n"
+                markdown = re.sub(heading_pattern, replacement, markdown, flags=re.MULTILINE)
         
         return markdown
     
