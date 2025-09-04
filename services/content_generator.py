@@ -215,9 +215,12 @@ class ContentGenerator:
                 content_parts.append("")
         
         # 7. Wrap-up paragraph (if available)
-        if self.frontmatter.get("wrap_up"):
+        wrap_up_existing = (self.frontmatter.get("wrap_up") or "").strip()
+        if wrap_up_existing:
             content_parts.append("")
-            content_parts.append(self.frontmatter["wrap_up"])
+            content_parts.append("## Wrap-Up")
+            content_parts.append("")
+            content_parts.append(wrap_up_existing)
             content_parts.append("")
         
         # 8. Related posts block
@@ -372,8 +375,8 @@ class ContentGenerator:
             if holistic_intro:
                 markdown = self._insert_holistic_intro(markdown, holistic_intro)
             
-            # Only generate wrap-up if one doesn't already exist in frontmatter
-            if not self.frontmatter.get("wrap_up"):
+            # Only generate wrap-up if one doesn't already exist in frontmatter (trimmed)
+            if not self.frontmatter.get("wrap_up", "").strip():
                 wrap_up = ai_service.make_wrap_up(self.target_date, inputs, force_ai)
                 if wrap_up:
                     markdown = self._insert_wrap_up(markdown, wrap_up)
@@ -481,9 +484,13 @@ class ContentGenerator:
         """Insert wrap-up section before the Related posts section."""
         lines = markdown.splitlines()
         
+        # Idempotency: if a Wrap-Up section is already present, no-op
+        if re.search(r'(?mi)^\s*##\s*Wrap[- ]?Up\s*$', markdown):
+            return markdown
+
         # Find the "Related posts" section
         for i, line in enumerate(lines):
-            if line.strip() == "## Related posts":
+            if re.match(r'^\s*##\s*Related\s+posts\s*$', line, re.IGNORECASE):
                 # Insert wrap-up section before Related posts
                 # Insert in correct order: header, blank, content, blank
                 lines.insert(i, "## Wrap-Up")
