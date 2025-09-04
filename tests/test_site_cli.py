@@ -22,8 +22,7 @@ class TestSiteCLI:
         """Test successful site build."""
         mock_builder = Mock()
         mock_builder.build.return_value = {
-            'index.html': True,
-            'docs.html': True
+            'index.html': True
         }
         
         with patch('services.site_builder.SiteBuilder', return_value=mock_builder):
@@ -31,23 +30,20 @@ class TestSiteCLI:
             
             assert result.exit_code == 0
             assert '✓ index.html' in result.output
-            assert '✓ docs.html' in result.output
             assert 'All site files built successfully' in result.output
     
     def test_site_build_partial_failure(self, runner):
         """Test site build with partial failure."""
         mock_builder = Mock()
         mock_builder.build.return_value = {
-            'index.html': True,
-            'docs.html': False
+            'index.html': False
         }
         
         with patch('services.site_builder.SiteBuilder', return_value=mock_builder):
             result = runner.invoke(site, ['build'])
             
             assert result.exit_code == 1
-            assert '✓ index.html' in result.output
-            assert '✗ docs.html' in result.output
+            assert '✗ index.html' in result.output
             assert 'Some site files failed to build' in result.output
     
     def test_site_build_exception(self, runner):
@@ -61,7 +57,7 @@ class TestSiteCLI:
     def test_site_publish_dry_run(self, runner):
         """Test site publish dry run."""
         site_dir = Path('out/site')
-        site_files = [Path('out/site/index.html'), Path('out/site/docs.html')]
+        site_files = [Path('out/site/index.html')]
         
         with patch('pathlib.Path.exists', return_value=True):
             with patch('pathlib.Path.glob', return_value=site_files):
@@ -70,7 +66,6 @@ class TestSiteCLI:
                 assert result.exit_code == 0
                 assert 'DRY RUN - No files will be uploaded' in result.output
                 assert 'index.html' in result.output
-                assert 'docs.html' in result.output
     
     def test_site_publish_site_dir_missing(self, runner):
         """Test site publish when site directory doesn't exist."""
@@ -94,12 +89,11 @@ class TestSiteCLI:
     def test_site_publish_success(self, runner):
         """Test successful site publish."""
         site_dir = Path('out/site')
-        site_files = [Path('out/site/index.html'), Path('out/site/docs.html')]
+        site_files = [Path('out/site/index.html')]
         
         mock_publisher = Mock()
         mock_publisher.publish_site.return_value = {
-            'index.html': True,
-            'docs.html': True
+            'index.html': True
         }
         mock_publisher.publish_blogs.return_value = {
             '2025-01-15/API-v3-2025-01-15_digest.json': True
@@ -112,18 +106,16 @@ class TestSiteCLI:
                     
                     assert result.exit_code == 0
                     assert '✓ index.html' in result.output
-                    assert '✓ docs.html' in result.output
                     assert 'All files published successfully' in result.output
     
     def test_site_publish_partial_failure(self, runner):
         """Test site publish with partial failure."""
         site_dir = Path('out/site')
-        site_files = [Path('out/site/index.html'), Path('out/site/docs.html')]
+        site_files = [Path('out/site/index.html')]
         
         mock_publisher = Mock()
         mock_publisher.publish_site.return_value = {
-            'index.html': True,
-            'docs.html': False
+            'index.html': False
         }
         mock_publisher.publish_blogs.return_value = {}
         

@@ -377,7 +377,7 @@ curl "https://quill-blog-api.paulchrisluke.workers.dev/blog/2025-01-15"
 
 The project includes a minimal R2 publisher for static site files and blog JSON:
 
-- **`devlog site build`**: Creates `out/site/{index.html, docs.html}` from root HTML files
+- **`devlog site build`**: Creates `out/site/index.html` from root HTML files
 - **`devlog site publish`**: Uploads site files and API-v3 digests to R2 with idempotency
 - **Idempotent uploads**: Files are only uploaded if content has changed (MD5/ETag comparison)
 - **Proper headers**: HTML gets `text/html; charset=utf-8` with 1-hour cache, JSON gets `application/json` with 5-minute cache
@@ -385,7 +385,7 @@ The project includes a minimal R2 publisher for static site files and blog JSON:
 
 The publisher uploads:
 - `index.html` → R2 root
-- `docs.html` → R2 root  
+  
 - `blogs/YYYY-MM-DD/API-v3-YYYY-MM-DD_digest.json` → R2 `blogs/` path
 
 ## Video Rendering (M3)

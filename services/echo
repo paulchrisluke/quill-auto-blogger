@@ -1,1 +1,0 @@
-        if 'content' in story_titles:             potential_tags.append('content')
