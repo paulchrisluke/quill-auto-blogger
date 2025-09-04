@@ -176,6 +176,11 @@ async function serveR2Asset(env, key, request) {
       headers.set('Cache-Tag', 'assets');
     }
     
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     // Set standard validator headers using R2's metadata
     if (object.httpEtag) {
       headers.set('ETag', object.httpEtag);
@@ -208,11 +213,6 @@ async function serveR2Asset(env, key, request) {
       }
     }
     
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
-    
     return new Response(object.body, {
       headers,
       status: 200
@@ -242,6 +242,11 @@ async function handleBlogsIndex(request, env) {
       'CDN-Cache-Control': 'public, max-age=1800', // 30 min edge
       'Cache-Tag': 'blogs-index',
       'Vary': 'Accept-Encoding'
+    });
+    
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
     });
     
     // Set standard validator headers using R2's metadata
@@ -275,11 +280,6 @@ async function handleBlogsIndex(request, env) {
         });
       }
     }
-    
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
     
     const jsonContent = await indexObject.text();
     
@@ -314,6 +314,11 @@ async function handleRSSFeed(request, env) {
       'Vary': 'Accept-Encoding'
     });
     
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     // Set standard validator headers using R2's metadata
     if (rssObject.httpEtag) {
       headers.set('ETag', rssObject.httpEtag);
@@ -345,11 +350,6 @@ async function handleRSSFeed(request, env) {
         });
       }
     }
-    
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
     
     const xmlContent = await rssObject.text();
     
@@ -384,6 +384,11 @@ async function handleSitemap(request, env) {
       'Vary': 'Accept-Encoding'
     });
     
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     // Set standard validator headers using R2's metadata
     if (sitemapObject.httpEtag) {
       headers.set('ETag', sitemapObject.httpEtag);
@@ -415,11 +420,6 @@ async function handleSitemap(request, env) {
         });
       }
     }
-    
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
     
     const xmlContent = await sitemapObject.text();
     
@@ -454,6 +454,11 @@ async function handleIndexPage(request, env) {
       'Vary': 'Accept-Encoding'
     });
     
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     // Set standard validator headers using R2's metadata
     if (indexObject.httpEtag) {
       headers.set('ETag', indexObject.httpEtag);
@@ -485,11 +490,6 @@ async function handleIndexPage(request, env) {
         });
       }
     }
-    
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
     
     const htmlContent = await indexObject.text();
     
