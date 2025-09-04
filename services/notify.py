@@ -185,7 +185,7 @@ def _send_discord_webhook(webhook_url: str, content: str) -> bool:
         return False
 
 
-def notify_draft_approval(date: str, webhook_url: str = None) -> bool:
+def notify_draft_approval(date: str, webhook_url: Optional[str] = None) -> bool:
     """
     Send Discord notification for draft approval workflow.
     
@@ -245,7 +245,7 @@ def notify_draft_approval(date: str, webhook_url: str = None) -> bool:
         return False
 
 
-def notify_blog_published(date: str, webhook_url: str = None) -> bool:
+def notify_blog_published(date: str, webhook_url: Optional[str] = None) -> bool:
     """
     Send Discord notification when a blog is published.
     
@@ -263,8 +263,6 @@ def notify_blog_published(date: str, webhook_url: str = None) -> bool:
         if not webhook_url:
             logger.error("No Discord webhook URL available")
             return False
-        
-        checker = BlogStatusChecker()
         
         # Get blog info from FINAL digest
         final_path = Path("blogs") / date / f"FINAL-{date}_digest.json"

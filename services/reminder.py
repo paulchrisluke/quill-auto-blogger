@@ -4,10 +4,31 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import schedule, time
 from typing import Dict, List
+import zoneinfo
 
 from .blog_status import BlogStatusChecker, format_daily_rollup_message, format_weekly_backlog_message, format_missing_reminder_message
 
 DATA_DIR = Path("blogs")
+
+
+def _check_timezone_is_utc() -> bool:
+    """Check if the system timezone is UTC and log error if not."""
+    try:
+        # Check if system timezone is UTC
+        now = datetime.now()
+        utc_offset = now.astimezone().utcoffset()
+        
+        if utc_offset.total_seconds() != 0:
+            print(f"ERROR: System timezone is not UTC (offset: {utc_offset}). "
+                  f"Schedule jobs may run at incorrect times. "
+                  f"Set TZ=UTC environment variable or run in UTC timezone.")
+            return False
+        
+        print("System timezone is UTC - scheduling will work correctly")
+        return True
+    except Exception as e:
+        print(f"Warning: Could not verify timezone: {e}")
+        return False
 
 def _post_discord(msg: str) -> None:
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
@@ -23,6 +44,59 @@ def _post_discord(msg: str) -> None:
                     "allowed_mentions": {"parse": []}  # Block @everyone/@here
                 }
             )
+    except (httpx.RequestError, httpx.TimeoutException) as e:
+        # Log the error but don't crash the reminder service
+        print(f"Discord webhook error: {e}")
+
+
+def _post_discord_chunked(msg: str) -> None:
+    """Post Discord message with chunking for long messages."""
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        return
+    
+    # Split content into chunks if it exceeds Discord's 2000 character limit
+    max_chunk_size = 1900  # Leave buffer for safety
+    chunks = []
+    
+    if len(msg) <= max_chunk_size:
+        chunks = [msg]
+    else:
+        # Split by lines to avoid breaking in the middle of a line
+        lines = msg.split('\n')
+        current_chunk = ""
+        
+        for line in lines:
+            # If adding this line would exceed the limit, start a new chunk
+            if len(current_chunk) + len(line) + 1 > max_chunk_size:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = line
+                else:
+                    # Single line is too long, split it
+                    while len(line) > max_chunk_size:
+                        chunks.append(line[:max_chunk_size])
+                        line = line[max_chunk_size:]
+                    current_chunk = line
+            else:
+                current_chunk += ('\n' + line) if current_chunk else line
+        
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+    
+    # Send each chunk
+    try:
+        import httpx
+        with httpx.Client(timeout=5) as client:
+            for i, chunk in enumerate(chunks):
+                client.post(
+                    webhook_url, 
+                    json={
+                        "content": chunk,
+                        "allowed_mentions": {"parse": []}  # Block @everyone/@here
+                    }
+                )
+                print(f"Discord chunk {i+1}/{len(chunks)} sent")
     except (httpx.RequestError, httpx.TimeoutException) as e:
         # Log the error but don't crash the reminder service
         print(f"Discord webhook error: {e}")
@@ -47,7 +121,7 @@ def weekly_backlog_report() -> None:
     backlog = checker.get_weekly_backlog(end_date)
     
     message = format_weekly_backlog_message(backlog)
-    _post_discord(message)
+    _post_discord_chunked(message)
 
 def missing_blog_reminder() -> None:
     """Check for missing blogs and send reminders."""
@@ -97,6 +171,10 @@ def scan_and_notify() -> None:
                     _post_discord(f"⏰ Reminder: `{p.get('id')}` **{p.get('title_human','Story')}** still needs an explainer. Try `/record_start {p.get('id')}`.")
                     
 def run_forever():
+    # Check timezone before scheduling
+    if not _check_timezone_is_utc():
+        print("WARNING: Continuing with scheduling despite timezone issues")
+    
     # Blog-centric scheduling
     schedule.every().day.at("09:00").do(daily_rollup_report)  # 9am UTC daily
     schedule.every().monday.at("09:00").do(weekly_backlog_report)  # Monday 9am UTC

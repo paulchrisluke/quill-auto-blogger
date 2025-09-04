@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class BlogStatusChecker:
     """Helper class for checking blog publication status."""
     
-    def __init__(self, blogs_dir: Path = None):
+    def __init__(self, blogs_dir: Optional[Path] = None):
         self.blogs_dir = blogs_dir or Path("blogs")
     
     def is_published(self, date: str) -> bool:

@@ -12,6 +12,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     
     steps:
     - uses: actions/checkout@v4
@@ -40,10 +43,7 @@ jobs:
         "
     
     - name: Deploy to Cloudflare Workers (if configured)
-      if: secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != ''
-      env:
-        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
       run: |
         echo "Deploying webhook server to Cloudflare Workers..."
         # Add deployment logic here if using Cloudflare Workers
@@ -53,6 +53,12 @@ jobs:
       env:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       run: |
-        curl -X POST "$DISCORD_WEBHOOK_URL" \
-          -H "Content-Type: application/json" \
-          -d '{"content": "🚀 **Webhook Server Deployed**\n\nBlog-centric notifications and Discord button interactions are now live!"}'
+        if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+          echo "Sending deployment notification to Discord..."
+          curl -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "🚀 **Webhook Server Deployed**\n\nBlog-centric notifications and Discord button interactions are now live!"}' \
+            || echo "Failed to send Discord notification, but deployment succeeded"
+        else
+          echo "DISCORD_WEBHOOK_URL not set, skipping notification"
+        fi

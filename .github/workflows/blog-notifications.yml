@@ -38,9 +38,25 @@ jobs:
         from services.reminder import daily_rollup_report
         daily_rollup_report()
         "
+
+  weekly-backlog:
+    if: github.event.schedule == '5 9 * * 1' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     
-    - name: Send Weekly Backlog Report (Mondays)
-      if: github.event.schedule == '5 9 * * 1' || github.event_name == 'workflow_dispatch'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Send Weekly Backlog Report
       env:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       run: |

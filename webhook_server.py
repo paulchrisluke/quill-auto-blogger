@@ -12,6 +12,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -57,6 +58,29 @@ DISCORD_DEFERRED_RESPONSE_TIMEOUT = 15  # 15 minutes for deferred responses
 # Rate limiting store (IP -> list of timestamps)
 _discord_rate_limit_store = {}
 _discord_rate_limit_lock = threading.Lock()
+
+# Thread pool for blocking operations
+_thread_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="blog_ops")
+
+
+def _create_final_digest_sync(date: str) -> bool:
+    """Synchronous version of create_final_digest for thread execution."""
+    try:
+        builder = BlogDigestBuilder()
+        final_digest = builder.create_final_digest(date)
+        return final_digest is not None
+    except Exception as e:
+        logger.error(f"Error creating final digest for {date}: {e}")
+        return False
+
+
+def _notify_blog_published_sync(date: str) -> bool:
+    """Synchronous version of notify_blog_published for thread execution."""
+    try:
+        return notify_blog_published(date)
+    except Exception as e:
+        logger.error(f"Error sending blog published notification for {date}: {e}")
+        return False
 
 
 def _validate_story_id(story_id: str) -> bool:
@@ -646,7 +670,12 @@ def _verify_discord_signature(request: Request, body: bytes) -> bool:
         # Check if client has exceeded rate limit
         if len(_discord_rate_limit_store[client_ip]) >= DISCORD_RATE_LIMIT_COUNT:
             logger.warning(f"Discord rate limit exceeded for IP {client_ip}: {len(_discord_rate_limit_store[client_ip])} requests in {DISCORD_RATE_LIMIT_WINDOW}s")
-            return False
+            # Return HTTP 429 response instead of False
+            raise HTTPException(
+                status_code=429,
+                detail="Too Many Requests",
+                headers={"Retry-After": str(DISCORD_RATE_LIMIT_WINDOW)}
+            )
         
         # Add current request timestamp
         _discord_rate_limit_store[client_ip].append(current_time)
@@ -815,13 +844,14 @@ async def handle_deferred_discord_response(request: Request):
 async def _process_deferred_blog_approval(date: str) -> str:
     """Process blog approval as a deferred operation."""
     try:
-        # Create FINAL digest using BlogDigestBuilder
-        builder = BlogDigestBuilder()
-        final_digest = builder.create_final_digest(date)
+        # Run blocking operations in thread pool
+        loop = asyncio.get_event_loop()
+        final_digest_created = await loop.run_in_executor(_thread_pool, _create_final_digest_sync, date)
         
-        if final_digest:
-            # Send published notification
-            if notify_blog_published(date):
+        if final_digest_created:
+            # Send published notification in thread pool
+            notification_sent = await loop.run_in_executor(_thread_pool, _notify_blog_published_sync, date)
+            if notification_sent:
                 return f"✅ **Blog Approved & Published** — {date}\n\nBlog has been approved and published successfully!"
             else:
                 return f"✅ **Blog Approved** — {date}\n\nBlog approved but failed to send published notification."
@@ -852,13 +882,14 @@ async def _process_deferred_blog_edit(date: str) -> str:
 async def _handle_blog_approval(interaction_data: dict, date: str) -> dict:
     """Handle blog approval button click."""
     try:
-        # Create FINAL digest using BlogDigestBuilder
-        builder = BlogDigestBuilder()
-        final_digest = builder.create_final_digest(date)
+        # Run blocking operations in thread pool
+        loop = asyncio.get_event_loop()
+        final_digest_created = await loop.run_in_executor(_thread_pool, _create_final_digest_sync, date)
         
-        if final_digest:
-            # Send published notification
-            if notify_blog_published(date):
+        if final_digest_created:
+            # Send published notification in thread pool
+            notification_sent = await loop.run_in_executor(_thread_pool, _notify_blog_published_sync, date)
+            if notification_sent:
                 content = f"✅ **Blog Approved & Published** — {date}\n\nBlog has been approved and published successfully!"
             else:
                 content = f"✅ **Blog Approved** — {date}\n\nBlog approved but failed to send published notification."
