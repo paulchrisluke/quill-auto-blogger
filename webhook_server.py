@@ -18,9 +18,14 @@ from fastapi import FastAPI, Request, HTTPException, Query, BackgroundTasks, Dep
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator, ConfigDict
 from dotenv import load_dotenv
+import nacl.signing
+import nacl.encoding
+import json
 
 from story_schema import StoryPacket, make_story_packet, pair_with_clip
 from services.utils import validate_story_id
+from services.blog import BlogDigestBuilder
+from services.notify import notify_blog_published
 
 # Load environment variables
 load_dotenv()
@@ -34,6 +39,7 @@ app = FastAPI(title="Story Pipeline Webhook Server", version="1.0.0")
 # Configuration
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 ALLOW_INSECURE_WEBHOOKS = os.getenv("ALLOW_INSECURE_WEBHOOKS") == "1"
+DISCORD_PUBLIC_KEY = os.getenv("DISCORD_PUBLIC_KEY")
 STORY_DIR = Path("./story_packets")
 STORY_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -593,6 +599,125 @@ async def get_blog_assets(date: str):
     except Exception as e:
         logger.error(f"Error getting blog assets for {date}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def _verify_discord_signature(request: Request, body: bytes) -> bool:
+    """Verify Discord interaction signature."""
+    if not DISCORD_PUBLIC_KEY:
+        logger.warning("No Discord public key configured")
+        return False
+    
+    signature = request.headers.get("X-Signature-Ed25519")
+    timestamp = request.headers.get("X-Signature-Timestamp")
+    
+    if not signature or not timestamp:
+        return False
+    
+    try:
+        # Create the message to verify
+        message = timestamp.encode() + body
+        
+        # Verify the signature
+        public_key_bytes = bytes.fromhex(DISCORD_PUBLIC_KEY)
+        verify_key = nacl.signing.VerifyKey(public_key_bytes)
+        verify_key.verify(message, bytes.fromhex(signature))
+        return True
+    except Exception as e:
+        logger.error(f"Discord signature verification failed: {e}")
+        return False
+
+
+@app.post("/discord/interactions")
+async def handle_discord_interaction(request: Request):
+    """Handle Discord button interactions for blog approval workflow."""
+    try:
+        # Get request body
+        body = await request.body()
+        
+        # Verify Discord signature
+        if not _verify_discord_signature(request, body):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        # Parse interaction data
+        interaction_data = json.loads(body)
+        interaction_type = interaction_data.get("type")
+        
+        # Handle PING (Discord verification)
+        if interaction_type == 1:
+            return {"type": 1}
+        
+        # Handle button interactions
+        if interaction_type == 3:  # APPLICATION_COMMAND_INTERACTION
+            custom_id = interaction_data.get("data", {}).get("custom_id", "")
+            
+            if custom_id.startswith("approve_blog_"):
+                date = custom_id.replace("approve_blog_", "")
+                return await _handle_blog_approval(interaction_data, date)
+                
+            elif custom_id.startswith("edit_blog_"):
+                date = custom_id.replace("edit_blog_", "")
+                return await _handle_blog_edit_request(interaction_data, date)
+        
+        # Unknown interaction type
+        return {"type": 4, "data": {"content": "Unknown interaction type"}}
+        
+    except Exception as e:
+        logger.error(f"Error handling Discord interaction: {e}")
+        return {"type": 4, "data": {"content": f"Error: {str(e)}"}}
+
+
+async def _handle_blog_approval(interaction_data: dict, date: str) -> dict:
+    """Handle blog approval button click."""
+    try:
+        # Create FINAL digest using BlogDigestBuilder
+        builder = BlogDigestBuilder()
+        final_digest = builder.create_final_digest(date)
+        
+        if final_digest:
+            # Send published notification
+            if notify_blog_published(date):
+                content = f"✅ **Blog Approved & Published** — {date}\n\nBlog has been approved and published successfully!"
+            else:
+                content = f"✅ **Blog Approved** — {date}\n\nBlog approved but failed to send published notification."
+        else:
+            content = f"❌ **Approval Failed** — {date}\n\nFailed to create FINAL digest. Check logs for details."
+        
+        return {
+            "type": 4,  # CHANNEL_MESSAGE_WITH_SOURCE
+            "data": {"content": content}
+        }
+        
+    except Exception as e:
+        logger.error(f"Error approving blog {date}: {e}")
+        return {
+            "type": 4,
+            "data": {"content": f"❌ **Approval Error** — {date}\n\nError: {str(e)}"}
+        }
+
+
+async def _handle_blog_edit_request(interaction_data: dict, date: str) -> dict:
+    """Handle blog edit request button click."""
+    try:
+        content = (
+            f"📝 **Blog Edit Request** — {date}\n\n"
+            f"Blog marked as needing edits. You can:\n"
+            f"• Edit the PRE-CLEANED digest directly\n"
+            f"• Regenerate content using the blog CLI\n"
+            f"• Request another review when ready\n\n"
+            f"Use: `python tools/blog_cli.py request-approval {date}` when ready for review again."
+        )
+        
+        return {
+            "type": 4,  # CHANNEL_MESSAGE_WITH_SOURCE
+            "data": {"content": content}
+        }
+        
+    except Exception as e:
+        logger.error(f"Error handling edit request for {date}: {e}")
+        return {
+            "type": 4,
+            "data": {"content": f"❌ **Edit Request Error** — {date}\n\nError: {str(e)}"}
+        }
 
 
 if __name__ == "__main__":

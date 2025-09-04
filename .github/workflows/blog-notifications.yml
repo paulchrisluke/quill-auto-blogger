@@ -1,0 +1,115 @@
+name: Blog Notifications
+
+on:
+  schedule:
+    # Daily rollup at 9am UTC
+    - cron: '0 9 * * *'
+    # Weekly backlog report on Mondays at 9am UTC  
+    - cron: '0 9 * * 1'
+    # Missing blog reminder at 10am UTC
+    - cron: '0 10 * * *'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  daily-rollup:
+    if: github.event.schedule == '0 9 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Send Daily Rollup Report
+      env:
+        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      run: |
+        python -c "
+        import sys
+        sys.path.append('.')
+        from services.reminder import daily_rollup_report
+        daily_rollup_report()
+        "
+    
+    - name: Send Weekly Backlog Report (Mondays)
+      if: github.event.schedule == '0 9 * * 1'
+      env:
+        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      run: |
+        python -c "
+        import sys
+        sys.path.append('.')
+        from services.reminder import weekly_backlog_report
+        weekly_backlog_report()
+        "
+
+  missing-reminder:
+    if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Send Missing Blog Reminder
+      env:
+        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      run: |
+        python -c "
+        import sys
+        sys.path.append('.')
+        from services.reminder import missing_blog_reminder
+        missing_blog_reminder()
+        "
+
+  manual-notifications:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Send All Notifications
+      env:
+        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      run: |
+        echo "Sending all blog notifications..."
+        python -c "
+        import sys
+        sys.path.append('.')
+        from services.reminder import daily_rollup_report, weekly_backlog_report, missing_blog_reminder
+        print('Sending daily rollup...')
+        daily_rollup_report()
+        print('Sending weekly backlog...')
+        weekly_backlog_report()
+        print('Sending missing reminder...')
+        missing_blog_reminder()
+        print('All notifications sent!')
+        "

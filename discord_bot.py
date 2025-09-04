@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from services.story_state import StoryState
 from services.outline import generate_outline
 from services.utils import validate_story_id
+from services.blog import BlogDigestBuilder
+from services.notify import notify_blog_published
 import subprocess
 import logging
 
@@ -320,6 +322,75 @@ async def story_outline(interaction: discord.Interaction, story_id: str, date: O
     except Exception as e:
         logger.exception("Unexpected error in story_outline")
         await interaction.response.send_message("Unexpected error.", ephemeral=True)
+
+@client.event
+async def on_interaction(interaction: discord.Interaction):
+    """Handle button interactions for blog approval workflow."""
+    if not interaction.type == discord.InteractionType.component:
+        return
+    
+    if not _guard_role(interaction):
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+    
+    custom_id = interaction.data.get("custom_id", "")
+    
+    try:
+        if custom_id.startswith("approve_blog_"):
+            # Handle blog approval
+            date = custom_id.replace("approve_blog_", "")
+            await _handle_blog_approval(interaction, date)
+            
+        elif custom_id.startswith("edit_blog_"):
+            # Handle blog edit request
+            date = custom_id.replace("edit_blog_", "")
+            await _handle_blog_edit_request(interaction, date)
+            
+    except Exception as e:
+        logger.error(f"Error handling button interaction {custom_id}: {e}")
+        await interaction.response.send_message(f"❌ Error processing request: {str(e)}", ephemeral=True)
+
+
+async def _handle_blog_approval(interaction: discord.Interaction, date: str):
+    """Handle blog approval button click."""
+    try:
+        # Show "processing" message
+        await interaction.response.send_message(f"⏳ Processing blog approval for {date}...", ephemeral=True)
+        
+        # Create FINAL digest using BlogDigestBuilder
+        builder = BlogDigestBuilder()
+        final_digest = builder.create_final_digest(date)
+        
+        if final_digest:
+            # Send published notification
+            if notify_blog_published(date):
+                await interaction.followup.send(f"✅ **Blog Approved & Published** — {date}\n\nBlog has been approved and published successfully!", ephemeral=False)
+            else:
+                await interaction.followup.send(f"✅ **Blog Approved** — {date}\n\nBlog approved but failed to send published notification.", ephemeral=False)
+        else:
+            await interaction.followup.send(f"❌ **Approval Failed** — {date}\n\nFailed to create FINAL digest. Check logs for details.", ephemeral=False)
+            
+    except Exception as e:
+        logger.error(f"Error approving blog {date}: {e}")
+        await interaction.followup.send(f"❌ **Approval Error** — {date}\n\nError: {str(e)}", ephemeral=False)
+
+
+async def _handle_blog_edit_request(interaction: discord.Interaction, date: str):
+    """Handle blog edit request button click."""
+    try:
+        await interaction.response.send_message(
+            f"📝 **Blog Edit Request** — {date}\n\n"
+            f"Blog marked as needing edits. You can:\n"
+            f"• Edit the PRE-CLEANED digest directly\n"
+            f"• Regenerate content using the blog CLI\n"
+            f"• Request another review when ready\n\n"
+            f"Use: `python tools/blog_cli.py request-approval {date}` when ready for review again.",
+            ephemeral=False
+        )
+    except Exception as e:
+        logger.error(f"Error handling edit request for {date}: {e}")
+        await interaction.followup.send(f"❌ **Edit Request Error** — {date}\n\nError: {str(e)}", ephemeral=False)
+
 
 @client.event
 async def on_ready():
