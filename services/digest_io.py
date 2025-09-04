@@ -1,15 +1,16 @@
 """
-File I/O operations for digest building.
+File I/O operations for digest building with new clean architecture.
 """
 
 import json
 import logging
 import requests
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
+from datetime import datetime
 
 from pydantic import ValidationError
-from models import TwitchClip, GitHubEvent
+from models import TwitchClip, GitHubEvent, Meta, RawEvents, NormalizedDigest, EnrichedDigest, PublishPackage
 from .ai_inserts import AIInsertsService
 from .ai_client import AIClientError
 from services.utils import CacheManager
@@ -45,12 +46,29 @@ class DigestIO:
                 logger.warning(f"Skipping bad GitHub event {fp}: {e}")
         return events
 
-    def save_digest(self, digest: Dict[str, Any], target_date: str) -> Path:
-        """Save PRE-CLEANED digest as JSON."""
-        date_dir = self.blogs_dir / target_date
+    def save_raw_events(self, events: Dict[str, Any], target_date: str) -> Path:
+        """Save Raw Events as JSON."""
+        date_dir = self.data_dir / target_date
         date_dir.mkdir(parents=True, exist_ok=True)
-        path = date_dir / f"PRE-CLEANED-{target_date}_digest.json"
+        path = date_dir / "raw_events.json"
+        
+        # Ensure proper meta structure
+        if "meta" not in events:
+            events["meta"] = {"kind": "RawEvents", "version": 1, "generated_at": datetime.now().isoformat()}
+        
+        self.cache.atomic_write_json(path, events, overwrite=True)
+        return path
 
+    def save_normalized_digest(self, digest: Dict[str, Any], target_date: str) -> Path:
+        """Save Normalized Digest as JSON."""
+        date_dir = self.data_dir / target_date
+        date_dir.mkdir(parents=True, exist_ok=True)
+        path = date_dir / "digest.normalized.json"
+        
+        # Ensure proper meta structure
+        if "meta" not in digest:
+            digest["meta"] = {"kind": "NormalizedDigest", "version": 1, "generated_at": datetime.now().isoformat()}
+        
         # Convert Pydantic models to dicts
         serializable = {
             k: (v.model_dump(mode="json") if hasattr(v, "model_dump") else v)
@@ -58,6 +76,43 @@ class DigestIO:
         }
         self.cache.atomic_write_json(path, serializable, overwrite=True)
         return path
+
+    def save_enriched_digest(self, digest: Dict[str, Any], target_date: str) -> Path:
+        """Save Enriched Digest as JSON."""
+        date_dir = self.data_dir / target_date
+        date_dir.mkdir(parents=True, exist_ok=True)
+        path = date_dir / "digest.enriched.json"
+        
+        # Ensure proper meta structure
+        if "meta" not in digest:
+            digest["meta"] = {"kind": "EnrichedDigest", "version": 1, "generated_at": datetime.now().isoformat()}
+        
+        # Convert Pydantic models to dicts
+        serializable = {
+            k: (v.model_dump(mode="json") if hasattr(v, "model_dump") else v)
+            for k, v in digest.items()
+        }
+        self.cache.atomic_write_json(path, serializable, overwrite=True)
+        return path
+
+    def save_publish_package(self, package: Dict[str, Any], target_date: str) -> Path:
+        """Save Publish Package as JSON."""
+        date_dir = self.data_dir / target_date
+        date_dir.mkdir(parents=True, exist_ok=True)
+        path = date_dir / "page.publish.json"
+        
+        # Ensure proper meta structure (check for _meta for API v3 format)
+        if "_meta" not in package and "meta" not in package:
+            package["_meta"] = {"kind": "PublishPackage", "version": 1, "generated_at": datetime.now().isoformat()}
+        
+        # Convert Pydantic models to dicts
+        serializable = {
+            k: (v.model_dump(mode="json") if hasattr(v, "model_dump") else v)
+            for k, v in package.items()
+        }
+        self.cache.atomic_write_json(path, serializable, overwrite=True)
+        return path
+
 
     def save_markdown(self, date: str, markdown: str) -> Path:
         """Save markdown content to drafts/DATE.md."""
@@ -68,18 +123,68 @@ class DigestIO:
         logger.info(f"Saved markdown to {path}")
         return path
 
-    def enhance_with_ai(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_meta_kind(self, data: Dict[str, Any], expected_kind: str) -> None:
+        """Validate that data has the expected meta kind."""
+        meta = data.get("meta", {})
+        actual_kind = meta.get("kind")
+        if actual_kind != expected_kind:
+            raise ValueError(f"Expected {expected_kind} but got {actual_kind}")
+
+    def load_raw_events(self, target_date: str) -> Dict[str, Any]:
+        """Load Raw Events for a date."""
+        path = self.data_dir / target_date / "raw_events.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Raw events not found: {path}")
+        
+        data = json.loads(path.read_text())
+        self._validate_meta_kind(data, "RawEvents")
+        return data
+
+    def load_normalized_digest(self, target_date: str) -> Dict[str, Any]:
+        """Load Normalized Digest for a date."""
+        path = self.data_dir / target_date / "digest.normalized.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Normalized digest not found: {path}")
+        
+        data = json.loads(path.read_text())
+        self._validate_meta_kind(data, "NormalizedDigest")
+        return data
+
+    def load_enriched_digest(self, target_date: str) -> Dict[str, Any]:
+        """Load Enriched Digest for a date."""
+        path = self.data_dir / target_date / "digest.enriched.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Enriched digest not found: {path}")
+        
+        data = json.loads(path.read_text())
+        self._validate_meta_kind(data, "EnrichedDigest")
+        return data
+
+    def load_publish_package(self, target_date: str) -> Dict[str, Any]:
+        """Load Publish Package for a date."""
+        path = self.data_dir / target_date / "page.publish.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Publish package not found: {path}")
+        
+        data = json.loads(path.read_text())
+        self._validate_meta_kind(data, "PublishPackage")
+        return data
+
+    def enhanceDigestWithAI(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Public method to enhance digest data with AI content.
         Idempotent: skips fields that already exist.
         
         Args:
-            data: Digest data dictionary
+            data: Digest data dictionary (must be NormalizedDigest)
             
         Returns:
-            Enhanced digest data with AI content
+            Enhanced digest data with AI content (EnrichedDigest)
         """
         try:
+            # Validate input is NormalizedDigest
+            self._validate_meta_kind(data, "NormalizedDigest")
+            
             # Extract date from data for AI service
             target_date = data.get("date", "")
             if not target_date:
@@ -87,29 +192,33 @@ class DigestIO:
                 return data
             
             ai = AIInsertsService()
-            return self._enhance_with_ai(target_date, data, ai)
+            enhanced_data = self._enhance_with_ai(target_date, data, ai)
+            
+            # Update meta to EnrichedDigest
+            enhanced_data["meta"] = {"kind": "EnrichedDigest", "version": 1, "generated_at": datetime.now().isoformat()}
+            
+            return enhanced_data
         except (AIClientError, requests.exceptions.RequestException, ValueError, RuntimeError) as e:
             logger.exception(f"AI enhancement failed: {e}")
             return data  # Return original data on error
 
-    def create_final_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
-        """Enhance digest with AI and save FINAL version."""
-        pre_path = self.blogs_dir / target_date / f"PRE-CLEANED-{target_date}_digest.json"
-        if not pre_path.exists():
-            logger.error(f"No PRE-CLEANED digest at {pre_path}")
+    def create_enriched_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
+        """Enhance normalized digest with AI and save enriched version."""
+        try:
+            # Load normalized digest
+            digest = self.load_normalized_digest(target_date)
+            
+            # Enhance with AI
+            enriched_digest = self.enhance_with_ai(digest)
+            
+            # Save enriched digest
+            self.save_enriched_digest(enriched_digest, target_date)
+            logger.info(f"Created enriched digest for {target_date}")
+            return enriched_digest
+        except Exception as e:
+            logger.exception(f"Enriched digest creation failed: {e}")
             return None
 
-        digest = json.loads(pre_path.read_text())
-        
-        try:
-            digest = self.enhance_with_ai(digest)
-            final_path = self.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
-            self.cache.atomic_write_json(final_path, digest, overwrite=True)
-            logger.info(f"Created FINAL digest: {final_path}")
-            return digest
-        except Exception as e:
-            logger.exception(f"FINAL digest creation failed: {e}")
-            return None
 
     def _enhance_with_ai(self, date: str, digest: Dict[str, Any], ai: AIInsertsService) -> Dict[str, Any]:
         """Inject AI-generated content into digest. Idempotent - skips existing fields."""
@@ -181,7 +290,7 @@ class DigestIO:
 
         return digest
 
-    def build_digest(self, target_date: str, kind: str = "PRE-CLEANED") -> Path:
+    def buildNormalizedDigest(self, target_date: str, kind: str = "PRE-CLEANED") -> Path:
         """
         Build a digest for a specific date and kind.
         

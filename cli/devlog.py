@@ -328,7 +328,7 @@ def blog_regenerate_api(target_date: str):
         click.echo(f"[INFO] Title: {api_data['frontmatter']['title']}")
         story_packets = api_data.get('story_packets', [])
         click.echo(f"[INFO] Stories: {len(story_packets)}")
-        click.echo(f"[INFO] API v3 file saved to blogs/{target_date}/API-v3-{target_date}_digest.json")
+        click.echo(f"[INFO] API v3 file saved to blogs/{target_date}/{target_date}_page.publish.json")
         
     except Exception as e:
         click.echo(f"[ERR] Failed to regenerate API v3 content: {e}")
@@ -370,7 +370,7 @@ def site_build():
 @site.command("publish")
 @click.option("--dry-run", is_flag=True, help="List actions without uploading.")
 def site_publish(dry_run):
-    """Publish out/site/ files and blogs/*/API-v3-*_digest.json to R2 with idempotency."""
+    """Publish out/site/ files and blogs/*/*_page.publish.json to R2 with idempotency."""
     try:
         from services.publisher_r2 import R2Publisher
         from pathlib import Path
@@ -394,7 +394,7 @@ def site_publish(dry_run):
             # Check blogs directory
             blogs_dir = Path("blogs")
             if blogs_dir.exists():
-                api_v3_files = list(blogs_dir.rglob("API-v3-*_digest.json"))
+                api_v3_files = list(blogs_dir.rglob("*_page.publish.json"))
                 click.echo(f"[INFO] API-v3 files to check: {len(api_v3_files)}")
                 for f in api_v3_files[:5]:  # Show first 5
                     click.echo(f"  - {f}")

@@ -218,7 +218,7 @@ class CacheManager:
             True if successful, False otherwise
         """
         urls_to_purge = [
-            f"{api_domain}/blogs/{blog_date}/API-v3-{blog_date}_digest.json",
+            f"{api_domain}/blogs/{blog_date}/{blog_date}_page.publish.json",
             f"{api_domain}/blogs/index.json",
             f"{api_domain}/rss.xml",
             f"{api_domain}/sitemap.xml",

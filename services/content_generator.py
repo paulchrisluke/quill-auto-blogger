@@ -372,12 +372,12 @@ class ContentGenerator:
         """Generate AI description for a video."""
         try:
             # Convert video path to proper URL format
-            if video_path.startswith('out/videos/'):
+            if video_path.startswith('blogs/'):
                 # Convert to public stories URL with consistent format
                 path_parts = video_path.split('/')
                 if len(path_parts) >= 3:
                     try:
-                        date_part = path_parts[2]  # Get date from out/videos/YYYY-MM-DD/
+                        date_part = path_parts[1]  # Get date from blogs/YYYY-MM-DD/
                         filename = path_parts[-1]  # Get filename
                         # Convert to YYYY/MM/DD format
                         date_obj = datetime.strptime(date_part, "%Y-%m-%d")

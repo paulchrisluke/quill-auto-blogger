@@ -151,11 +151,11 @@ class DigestUtils:
                     logger.warning(f"Failed to parse assets/out/videos path {video_path}: {e}")
                     return ""
             
-            # Handle out/videos paths: out/videos/YYYY-MM-DD/filename (legacy format)
-            elif len(parts) >= 4 and parts[0] == 'out' and parts[1] == 'videos':
+            # Handle blogs paths: blogs/YYYY-MM-DD/filename (new format)
+            elif len(parts) >= 3 and parts[0] == 'blogs':
                 try:
-                    date_part = parts[2]  # YYYY-MM-DD
-                    filename = parts[3]
+                    date_part = parts[1]  # YYYY-MM-DD
+                    filename = parts[2]
                     
                     # Parse date and convert to YYYY/MM/DD format
                     date_obj = datetime.strptime(date_part, "%Y-%m-%d")
@@ -170,7 +170,7 @@ class DigestUtils:
                     return f"{self.media_domain}/stories/{year}/{month}/{day}/{intro_jpg}"
                     
                 except (IndexError, ValueError) as e:
-                    logger.warning(f"Failed to parse out/videos path {video_path}: {e}")
+                    logger.warning(f"Failed to parse blogs path {video_path}: {e}")
                     return ""
             
             # Fallback: try to generate from story_id if available
@@ -182,7 +182,7 @@ class DigestUtils:
                     if date_match:
                         year, month, day = date_match.groups()
                         # Use the story_id directly as it should match the actual filename
-                        return f"{self.media_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.jpg"
+                        return f"{self.media_domain}/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
             
             logger.error(f"Could not determine thumbnail path for: {video_path}")
             raise ValueError(f"Failed to generate thumbnail path for video: {video_path}")
@@ -204,22 +204,19 @@ class DigestUtils:
         try:
             # Handle different asset types with correct paths
             if asset_path.startswith("blogs/"):
-                # Thumbnail files are stored directly in blogs/ path
-                worker_path = f"/{asset_path}"
-            elif asset_path.startswith("out/videos/"):
-                # Convert out/videos/YYYY-MM-DD/filename to stories/YYYY/MM/DD/filename
-                # e.g., out/videos/2025-08-27/story_123.mp4 -> stories/2025/08/27/story_123.mp4
+                # Convert blogs/YYYY-MM-DD/filename to stories/YYYY/MM/DD/filename for videos
+                # e.g., blogs/2025-08-27/story_123.mp4 -> stories/2025/08/27/story_123.mp4
                 try:
                     path_parts = asset_path.split('/')
                     if len(path_parts) >= 3:
-                        date_part = path_parts[2]  # Get YYYY-MM-DD
-                        filename = path_parts[3]   # Get filename
+                        date_part = path_parts[1]  # Get YYYY-MM-DD from blogs/YYYY-MM-DD/
+                        filename = path_parts[2]   # Get filename
                         year, month, day = date_part.split('-')
                         worker_path = f"/stories/{year}/{month}/{day}/{filename}"
                     else:
                         worker_path = f"/{asset_path}"
                 except Exception as e:
-                    logger.warning(f"Failed to convert out/videos path {asset_path}: {e}")
+                    logger.warning(f"Failed to convert blogs path {asset_path}: {e}")
                     worker_path = f"/{asset_path}"
             elif asset_path.startswith("assets/"):
                 # Other assets in assets/ path
@@ -323,7 +320,7 @@ class DigestUtils:
             
         Note:
             Thumbnail paths are generated for Worker assets served at /assets/blogs/.
-            All thumbnails use .jpg extension for consistency.
+            All thumbnails use .png extension for consistency.
         """
         enhanced_packets = []
         
@@ -341,13 +338,13 @@ class DigestUtils:
                 story_id = enhanced_packet.get("id", "")
                 if story_id:
                     # Use raw story_id as base (do not modify "story_" prefix)
-                    # e.g., story_20250827_pr34 -> /assets/blogs/2025-08-27/story_20250827_pr34_01_intro.jpg
+                    # e.g., story_20250827_pr34 -> /stories/2025/08/27/story_20250827_pr34_01_intro.png
                     
                     thumbnails = {
-                        "intro": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_01_intro.jpg"),
-                        "why": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_02_why.jpg"), 
-                        "outro": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_99_outro.jpg"),
-                        "highlight": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_hl_01.jpg")
+                        "intro": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_01_intro.png"),
+                        "why": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_02_why.png"), 
+                        "outro": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_99_outro.png"),
+                        "highlight": self.get_cloudflare_url(f"blogs/{target_date}/{story_id}_hl_01.png")
                     }
                     
                     enhanced_packet["video"]["thumbnails"] = thumbnails

@@ -1,9 +1,9 @@
 """
-Pydantic models for the activity fetcher.
+Pydantic models for the activity fetcher and digest pipeline.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union, Literal
 from pydantic import BaseModel, Field, SecretStr
 
 
@@ -96,3 +96,65 @@ class SeenIds(BaseModel):
     twitch_clips: List[str] = Field(default_factory=list)
     github_events: List[str] = Field(default_factory=list)
     last_updated: datetime = Field(default_factory=datetime.now)
+
+
+# ============================================================================
+# Digest Pipeline Models - New Clean Architecture
+# ============================================================================
+
+class Meta(BaseModel):
+    """Metadata for digest files with type and version information."""
+    kind: Literal["RawEvents", "NormalizedDigest", "EnrichedDigest", "PublishPackage"]
+    version: int = Field(default=1, ge=1)
+    generated_at: datetime = Field(default_factory=datetime.now)
+
+
+class RawEvents(BaseModel):
+    """Raw Events: snapshot from sources before any transforms."""
+    meta: Meta = Field(default_factory=lambda: Meta(kind="RawEvents"))
+    twitch: Optional[List[Dict[str, Any]]] = None
+    github: Optional[List[Dict[str, Any]]] = None
+
+
+class StoryPacket(BaseModel):
+    """Minimal story packet structure for normalized digest."""
+    id: str
+    title: str
+    story_type: str
+    why: str
+    highlights: List[str] = Field(default_factory=list)
+    video: Optional[Dict[str, Any]] = None
+
+
+class NormalizedDigest(BaseModel):
+    """Normalized Digest: structured, de-duplicated, no AI, no CDN."""
+    meta: Meta = Field(default_factory=lambda: Meta(kind="NormalizedDigest"))
+    frontmatter: Dict[str, Any] = Field(default_factory=dict)
+    story_packets: List[StoryPacket] = Field(default_factory=list)
+
+
+class EnrichedDigest(BaseModel):
+    """Enriched Digest: normalized + AI text + resolved media + SEO fields."""
+    meta: Meta = Field(default_factory=lambda: Meta(kind="EnrichedDigest"))
+    frontmatter: Dict[str, Any] = Field(default_factory=dict)
+    story_packets: List[Dict[str, Any]] = Field(default_factory=list)
+    related_posts: Optional[List[Dict[str, Any]]] = None
+    cdn: Optional[Dict[str, str]] = None
+
+
+class PublishPackage(BaseModel):
+    """Publish Package: Nuxt-ready, public API with canonical URLs."""
+    meta: Meta = Field(default_factory=lambda: Meta(kind="PublishPackage"))
+    context: str = Field(default="https://schema.org", alias="@context")
+    type: str = Field(default="BlogPosting", alias="@type")
+    url: str
+    datePublished: str
+    dateModified: str
+    image: Union[str, List[str]]
+    wordCount: int
+    timeRequired: str  # ISO 8601 duration
+    frontmatter: Dict[str, Any] = Field(default_factory=dict)
+    content: Dict[str, str] = Field(default_factory=dict)
+    story_packets: List[Dict[str, Any]] = Field(default_factory=list)
+    related_posts: Optional[List[Dict[str, Any]]] = None
+    seo_meta: Dict[str, str] = Field(default_factory=dict)

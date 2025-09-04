@@ -228,14 +228,14 @@ class VideoProcessor:
             parsed_url = urlparse(video_path)
             # Remove leading slash and convert to local path
             url_path = parsed_url.path.lstrip('/')
-            # Convert from assets/out/videos/YYYY-MM-DD/filename to out/videos/YYYY-MM-DD/filename
-            if url_path.startswith('assets/out/videos/'):
-                local_path = url_path.replace('assets/out/videos/', 'out/videos/')
+            # Convert from assets/blogs/YYYY-MM-DD/filename to blogs/YYYY-MM-DD/filename
+            if url_path.startswith('assets/blogs/'):
+                local_path = url_path.replace('assets/blogs/', 'blogs/')
                 video_path = Path(local_path)
             else:
-                # Fallback: extract filename and look in out/videos/
+                # Fallback: extract filename and look in blogs/
                 video_filename = Path(video_path).name
-                video_path = Path("out/videos") / video_filename
+                video_path = Path("blogs") / video_filename
         else:
             video_path = Path(video_path)
         

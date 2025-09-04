@@ -177,7 +177,7 @@ class R2Publisher:
             return results
         
         # Find all API-v3 digest files
-        api_v3_files = list(blogs_dir.rglob("API-v3-*_digest.json"))
+        api_v3_files = list(blogs_dir.rglob("*_page.publish.json"))
         
         if not api_v3_files:
             logger.info("No API-v3 digest files found")
@@ -200,7 +200,7 @@ class R2Publisher:
         # Process each blog file
         for file_path in api_v3_files:
             try:
-                # Calculate R2 key: blogs/YYYY-MM-DD/API-v3-YYYY-MM-DD_digest.json
+                # Calculate R2 key: blogs/YYYY-MM-DD/YYYY-MM-DD_page.publish.json
                 relative_path = file_path.relative_to(blogs_dir)
                 # Convert to POSIX style to ensure forward slashes on all platforms
                 relative_path_posix = relative_path.as_posix()
@@ -444,8 +444,8 @@ class R2Publisher:
             # Extract date from blog directory name (YYYY-MM-DD)
             blog_date = blog_dir.name
             
-            # Look for video files in out/videos/YYYY-MM-DD/
-            video_dir = Path("out/videos") / blog_date
+            # Look for video files in blogs/YYYY-MM-DD/ (moved from out/videos/)
+            video_dir = blog_dir
             
             if not video_dir.exists():
                 logger.info(f"No video directory found: {video_dir}")

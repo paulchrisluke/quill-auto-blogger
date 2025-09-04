@@ -82,6 +82,11 @@ async function handleApiDomain(request, env, path) {
   } else if (path.startsWith('/blogs/')) {
     // Serve raw JSON files directly from R2
     return await serveR2Asset(env, path.substring(1), request); // Remove leading slash
+  } else if (path.startsWith('/stories/')) {
+    // Story media serving - serve directly from R2
+    const assetKey = path.substring(1); // Remove leading '/' but keep 'stories/'
+    console.log('Story asset request:', path, '-> R2 key:', assetKey);
+    return await serveR2Asset(env, assetKey, request);
   } else if (path.startsWith('/assets/')) {
     // Asset serving - keep the full path including 'assets/' for R2
     const assetKey = path.substring(1); // Remove leading '/' but keep 'assets/'
@@ -169,32 +174,13 @@ async function serveR2Asset(env, key, request) {
       headers.set('Cache-Tag', 'json,assets');
       
       // Add SEO headers for blog JSON files
-      if (key.includes('API-v3-') && key.includes('_digest.json')) {
-        // Try to get SEO headers from the JSON data
-        try {
-          const jsonData = await object.json();
-          const seoHeaders = jsonData.seo_headers || {};
-          
-          // Set SEO headers from data, with fallbacks
-          headers.set('X-Robots-Tag', seoHeaders['X-Robots-Tag'] || 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
-          headers.set('Cache-Control', seoHeaders['Cache-Control'] || 'public, max-age=300, s-maxage=1800');
-          if (seoHeaders['ETag']) {
-            headers.set('ETag', seoHeaders['ETag']);
-          }
-          
-          // Set security headers
-          headers.set('X-Content-Type-Options', 'nosniff');
-          headers.set('X-Frame-Options', 'SAMEORIGIN');
-          headers.set('X-XSS-Protection', '1; mode=block');
-          headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-        } catch (e) {
-          // Fallback to hardcoded headers if JSON parsing fails
-          headers.set('X-Robots-Tag', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
-          headers.set('X-Content-Type-Options', 'nosniff');
-          headers.set('X-Frame-Options', 'SAMEORIGIN');
-          headers.set('X-XSS-Protection', '1; mode=block');
-          headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-        }
+      if (key.includes('_page.publish.json')) {
+        // Set SEO headers without parsing JSON to avoid consuming the body
+        headers.set('X-Robots-Tag', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        headers.set('X-Frame-Options', 'SAMEORIGIN');
+        headers.set('X-XSS-Protection', '1; mode=block');
+        headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
       }
     } else if (ext === 'xml') {
       headers.set('Content-Type', 'application/xml');
@@ -245,7 +231,10 @@ async function serveR2Asset(env, key, request) {
       }
     }
     
-    return new Response(object.body, {
+    // Get the body stream - this can only be called once
+    const body = await object.body;
+    
+    return new Response(body, {
       headers,
       status: 200
     });

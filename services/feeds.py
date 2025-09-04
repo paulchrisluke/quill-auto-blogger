@@ -310,7 +310,7 @@ class FeedGenerator:
                 "title": frontmatter.get('title', f'PCL Labs Devlog — {date_str}'),
                 "author": frontmatter.get('author', 'Paul Chris Luke'),
                 "canonical_url": canonical_url,
-                "api_url": f"{self.api_domain}/blogs/{date_str}/API-v3-{date_str}_digest.json",
+                "api_url": f"{self.api_domain}/blogs/{date_str}/{date_str}_page.publish.json",
                 "tags": frontmatter.get('tags', []),
                 "description": frontmatter.get('description', ''),
                 "story_count": len(blog.get('story_packets', [])),

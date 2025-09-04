@@ -89,16 +89,16 @@ class BlogDigestBuilder:
         from .digest_io import DigestIO
         self.io = DigestIO(self.data_dir, self.blogs_dir)
     
-    def build_digest(self, target_date: str) -> Dict[str, Any]:
+    def build_normalized_digest(self, target_date: str) -> Dict[str, Any]:
         """
-        Build a digest for a specific date with story packets (v2).
-        First tries to load existing pre-cleaned digest, falls back to building from raw data.
+        Build a normalized digest for a specific date with story packets.
+        First tries to load existing normalized digest, falls back to building from raw data.
         
         Args:
             target_date: Date in YYYY-MM-DD format
             
         Returns:
-            Dictionary containing digest data, metadata, and story packets
+            Dictionary containing normalized digest data, metadata, and story packets
         """
         # Validate date format early
         try:
@@ -182,6 +182,7 @@ class BlogDigestBuilder:
         
         # Build clean digest structure with enhanced schema.org
         digest = {
+            "meta": {"kind": "NormalizedDigest", "version": 1, "generated_at": datetime.now().isoformat()},
             "date": target_date,
             "twitch_clips": clips_data,
             "github_events": events_data,
@@ -191,6 +192,59 @@ class BlogDigestBuilder:
         }
         
         return digest
+
+    def ingest_sources(self, target_date: str) -> Dict[str, Any]:
+        """
+        Ingest raw events from Twitch and GitHub sources.
+        
+        Args:
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Raw events dictionary
+        """
+        # Load raw data from data directory
+        date_path = self.data_dir / target_date
+        if not date_path.exists():
+            raise FileNotFoundError(f"No data found for {target_date}")
+        
+        twitch_clips = self.io.load_twitch_clips(date_path)
+        github_events = self.io.load_github_events(date_path)
+        
+        raw_events = {
+            "meta": {"kind": "RawEvents", "version": 1, "generated_at": datetime.now().isoformat()},
+            "twitch": [clip.model_dump(mode="json") for clip in twitch_clips],
+            "github": [event.model_dump(mode="json") for event in github_events]
+        }
+        
+        # Save raw events
+        self.io.save_raw_events(raw_events, target_date)
+        return raw_events
+
+    def enhance_digest_with_ai(self, normalized_digest: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enhance normalized digest with AI content.
+        
+        Args:
+            normalized_digest: Normalized digest dictionary
+            
+        Returns:
+            Enriched digest dictionary
+        """
+        return self.io.enhance_with_ai(normalized_digest)
+
+    def save_publish_package(self, package: Dict[str, Any], target_date: str) -> Path:
+        """
+        Save publish package to file system.
+        
+        Args:
+            package: Publish package dictionary
+            target_date: Date in YYYY-MM-DD format
+            
+        Returns:
+            Path to saved publish package
+        """
+        return self.io.save_publish_package(package, target_date)
     
     def build_latest_digest(self) -> Dict[str, Any]:
         """
@@ -215,7 +269,7 @@ class BlogDigestBuilder:
             raise FileNotFoundError("No data folders found")
 
         latest_date = max(candidates)[1]
-        return self.build_digest(latest_date)
+        return self.build_normalized_digest(latest_date)
     
     def generate_markdown(
         self, 
@@ -459,7 +513,7 @@ class BlogDigestBuilder:
             from tools.renderer_html import render_for_packet
             
             # Create output directory for videos
-            out_dir = Path("out/videos") / target_date
+            out_dir = Path("blogs") / target_date
             out_dir.mkdir(parents=True, exist_ok=True)
             
             # Convert packet to dict format for renderer
@@ -486,7 +540,7 @@ class BlogDigestBuilder:
     def _find_video_for_story(self, packet: StoryPacket, target_date: str) -> Optional[str]:
         """Find existing video file for a story packet."""
         # Check for video file in the expected location
-        video_dir = Path("out/videos") / target_date
+        video_dir = Path("blogs") / target_date
         if not video_dir.exists():
             return None
         
@@ -506,182 +560,76 @@ class BlogDigestBuilder:
         
         return None
     
-    def get_blog_api_data(self, target_date: str) -> Dict[str, Any]:
-        """Get complete blog data for API consumption following the correct order of operations."""
+    def assemble_publish_package(self, target_date: str) -> Dict[str, Any]:
+        """Assemble publish package from enriched digest using the new API v3 serializer."""
         try:
-            # Step 1: Ensure FINAL digest exists (AI-enhanced)
-            final_path = self.io.get_digest_path(target_date, kind="FINAL")
-            
-            if not final_path.exists():
-                logger.info(f"FINAL digest not found, building it from PRE-CLEANED: {final_path}")
-                
-                # Build raw digest first
-                pre_path = self.io.build_digest(target_date, kind="PRE-CLEANED")
-                data = self.io.load_digest(pre_path)
-                
-                # Enhance with AI (blog + stories)
-                data = self.io.enhance_with_ai(data)
-                
-                # Normalize assets (videos/thumbnails → CDN)
-                content_gen = ContentGenerator(data, self.utils)
-                data = content_gen.normalize_assets(data)
-                
-                # Save FINAL digest
-                self.io.save_digest(data, target_date, kind="FINAL")
-                logger.info(f"Created FINAL digest with AI enhancements: {final_path}")
-            else:
-                logger.info(f"Loading existing FINAL digest: {final_path}")
-                data = self.io.load_digest(final_path)
+            # Step 1: Load enriched digest
+            try:
+                enriched_digest = self.io.load_enriched_digest(target_date)
+                logger.info(f"Loaded existing enriched digest for {target_date}")
+            except FileNotFoundError:
+                logger.info(f"Enriched digest not found, building from normalized digest")
+                # Load normalized digest and enhance it
+                normalized_digest = self.io.load_normalized_digest(target_date)
+                enriched_digest = self.io.enhanceDigestWithAI(normalized_digest)
+                # Save enriched digest
+                self.io.save_enriched_digest(enriched_digest, target_date)
             
             # Step 2: Generate content with AI enhancements
-            content_gen = ContentGenerator(data, self.utils)
+            content_gen = ContentGenerator(enriched_digest, self.utils)
             consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
             
-            # Step 3: Apply final SEO polish (slug + canonical + meta coherence)
-            final_blog_data = self._apply_final_seo_polish(data, target_date, consolidated_content)
+            # Step 3: Normalize assets (convert local paths to Cloudflare URLs)
+            enriched_digest = content_gen.normalize_assets(enriched_digest)
             
-            # Step 4: Build API-v3 payload
-            api_data = self._build_api_v3(final_blog_data, target_date, consolidated_content, content_gen.frontmatter)
+            # Step 3.5: Add the generated content to the digest
+            enriched_digest["content"] = {"body": consolidated_content}
+            
+            # Step 4: Use the new API v3 serializer to build publish package
+            from .serializers.api_v3 import build as build_api_v3
+            publish_package = build_api_v3(
+                enriched_digest, 
+                self.blog_author, 
+                self.blog_base_url, 
+                self.media_domain
+            )
+            
+            # Step 4.5: Validate the final package
+            _validate_api_data(publish_package)
             
             # Step 5: Save and upload
-            self._save_v3_api_response(target_date, api_data)
-            self._upload_to_r2(target_date, api_data)
+            self.io.save_publish_package(publish_package, target_date)
+            self._upload_to_r2(target_date, publish_package)
             
-            return api_data
+            return publish_package
             
         except Exception as e:
-            logger.exception("Failed to get blog API data for %s", target_date)
+            logger.exception("Failed to assemble publish package for %s", target_date)
             raise
 
-    def _apply_final_seo_polish(self, data: Dict[str, Any], target_date: str, content: str) -> Dict[str, Any]:
-        """
-        Apply final SEO polish to blog data after all other processing is complete.
-        This runs LAST and ensures canonical coherence, word count, and metadata consistency.
-        """
-        # Create a copy to avoid modifying the original
-        polished_data = data.copy()
-        frontmatter = polished_data.get("frontmatter", {})
-        
-        # 1. Generate slug from title and build canonical URL
-        title = frontmatter.get("title", "")
-        if title:
-            slug = self._generate_slug(title)
-            canonical = f"https://paulchrisluke.com/blog/{target_date.replace('-', '/')}/{slug}/"
-            
-            # Mirror canonical to all required fields
-            polished_data["url"] = canonical
-            polished_data.setdefault("seo_meta", {})["canonical"] = canonical
-            
-            # Mirror to frontmatter fields
-            if frontmatter.get("og"):
-                frontmatter["og"]["og:url"] = canonical
-            if frontmatter.get("schema"):
-                frontmatter["schema"]["url"] = canonical
-        
-        # 2. Calculate word count and reading time
-        word_count = self._word_count(content)
-        reading_time = self._read_time_minutes(word_count)
-        
-        polished_data["wordCount"] = word_count
-        polished_data["timeRequired"] = f"PT{reading_time}M"
-        
-        # Update schema with word count
-        if frontmatter.get("schema"):
-            frontmatter["schema"]["wordCount"] = word_count
-        
-        # 3. Ensure all images are absolute URLs
-        self._ensure_absolute_images(polished_data)
-        
-        # 4. Clean up any remaining AI placeholders
-        self._clean_ai_placeholders(polished_data, content)
-        
-        return polished_data
 
-    def _build_api_v3(self, data: Dict[str, Any], target_date: str, content: str, content_gen_frontmatter: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Build the final API-v3 payload structure."""
-        # Use ContentGenerator's frontmatter if provided, otherwise fall back to data frontmatter
-        frontmatter = content_gen_frontmatter if content_gen_frontmatter else data.get("frontmatter", {})
-        
-        # Clean frontmatter for API consumption
-        cleaned_frontmatter = self.frontmatter_gen.clean_frontmatter_for_api(frontmatter)
-        
-        # Add thumbnails to story packets
-        story_packets = self.utils.attach_blog_thumbnail_manifest(
-            data.get("story_packets", []), target_date
-        )
-        
-        # Add video objects to schema
-        enhanced_schema = self.frontmatter_gen.add_video_objects_to_schema(
-            cleaned_frontmatter.get("schema", {}), 
-            story_packets
-        )
-        cleaned_frontmatter["schema"] = enhanced_schema
-            
-        # Build the API-v3 structure
-        api_data = {
-                "@context": "https://schema.org",
-                "@type": "BlogPosting",
-                "date": target_date,
-            "frontmatter": cleaned_frontmatter,
-                "content": {
-                "body": content
-            },
-            "story_packets": story_packets,
-            "metadata": data.get("metadata", {}),
-            "related_posts": data.get("related_posts", []),
-            "api_metadata": {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "api_endpoint": f"/api/blog/{target_date}"
-            }
-        }
-            
-        # Copy SEO and timing data from polished data
-        if "seo_meta" in data:
-            api_data["seo_meta"] = data["seo_meta"]
-        if "wordCount" in data:
-            api_data["wordCount"] = data["wordCount"]
-        if "timeRequired" in data:
-            api_data["timeRequired"] = data["timeRequired"]
-        
-        # Merge schema.org data at root level
-        if cleaned_frontmatter.get('schema'):
-            blog_posting_schema = cleaned_frontmatter['schema']
-            api_data.update({
-                "headline": blog_posting_schema.get('headline'),
-                "description": blog_posting_schema.get('description'),
-                "author": blog_posting_schema.get('author'),
-                "datePublished": blog_posting_schema.get('datePublished'),
-                "dateModified": blog_posting_schema.get('dateModified'),
-                "url": blog_posting_schema.get('url'),
-                "mainEntityOfPage": blog_posting_schema.get('mainEntityOfPage'),
-                "publisher": blog_posting_schema.get('publisher'),
-                "image": blog_posting_schema.get('image'),
-                "keywords": blog_posting_schema.get('keywords'),
-                "wordCount": blog_posting_schema.get('wordCount'),
-                "video": blog_posting_schema.get('video')
-            })
-            
-        return api_data
 
-    def _upload_to_r2(self, target_date: str, api_data: Dict[str, Any]) -> None:
-        """Upload API v3 to R2 for Worker consumption."""
+
+
+    def _upload_to_r2(self, target_date: str, publish_package: Dict[str, Any]) -> None:
+        """Upload API v3 publish package to R2 for Worker consumption."""
         try:
             from services.publisher_r2 import R2Publisher
             r2_publisher = R2Publisher()
             
             # Save to temporary file for R2Publisher to process
-            temp_api_file = self.blogs_dir / target_date / f"API-v3-{target_date}_digest.json"
+            temp_api_file = self.blogs_dir / target_date / f"{target_date}_page.publish.json"
             with open(temp_api_file, 'w', encoding='utf-8') as f:
-                json.dump(api_data, f, indent=2, ensure_ascii=False)
+                json.dump(publish_package, f, indent=2, ensure_ascii=False, cls=DateEncoder)
             
             # Use R2Publisher's publish_blogs method for idempotent upload
             results = r2_publisher.publish_blogs(self.blogs_dir)
             if str(temp_api_file.relative_to(self.blogs_dir)) in results and results[str(temp_api_file.relative_to(self.blogs_dir))]:
-                logger.info(f"Successfully uploaded API v3 to R2 for {target_date}")
+                logger.info(f"Successfully uploaded API v3 publish package to R2 for {target_date}")
             else:
-                logger.warning(f"Failed to upload API v3 to R2 for {target_date}")
+                logger.warning(f"Failed to upload API v3 publish package to R2 for {target_date}")
         except Exception as e:
-            logger.warning(f"Failed to upload API v3 to R2 for {target_date}: {e}")
+            logger.warning(f"Failed to upload API v3 publish package to R2 for {target_date}: {e}")
             # Don't fail the main operation for this
             
     def _generate_slug(self, title: str) -> str:
@@ -791,7 +739,7 @@ class BlogDigestBuilder:
             logger.error(f"Error generating related posts for {target_date}: {e}")
             return []
     
-    def _save_v3_api_response(self, target_date: str, api_data: Dict[str, Any]) -> None:
+    def savePublishPackage(self, target_date: str, api_data: Dict[str, Any]) -> None:
         """
         Save v3 API response to JSON file for R2 serving and local development.
         
@@ -805,7 +753,7 @@ class BlogDigestBuilder:
             date_dir.mkdir(parents=True, exist_ok=True)
             
             # Save v3 API response to main blogs directory
-            api_file_path = date_dir / f"API-v3-{target_date}_digest.json"
+            api_file_path = date_dir / f"{target_date}_digest.enriched.json"
             with open(api_file_path, 'w', encoding='utf-8') as f:
                 json.dump(api_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
             
@@ -816,7 +764,7 @@ class BlogDigestBuilder:
                 cloudflare_worker_dir = Path("cloudflare-worker/blogs") / target_date
                 cloudflare_worker_dir.mkdir(parents=True, exist_ok=True)
                 
-                cloudflare_worker_file_path = cloudflare_worker_dir / f"API-v3-{target_date}_digest.json"
+                cloudflare_worker_file_path = cloudflare_worker_dir / f"{target_date}_page.publish.json"
                 with open(cloudflare_worker_file_path, 'w', encoding='utf-8') as f:
                     json.dump(api_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
                 
@@ -914,263 +862,79 @@ class BlogDigestBuilder:
             return StoryAssets(video=None, images=[], highlights=[])
 
 
-def _safe_strip_md(text: str) -> str:
-    """Very light markdown strip for description/lead safety."""
-    if not isinstance(text, str):
-        return ""
-    t = re.sub(r"`{1,3}.*?`{1,3}", "", text, flags=re.S)        # inline/blocks
-    t = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", t)                  # images
-    t = re.sub(r"\[([^\]]*)\]\([^)]+\)", r"\1", t)              # links -> text
-    t = re.sub(r"<[^>]+>", "", t)                               # HTML tags (e.g., <video>)
-    t = re.sub(r"^\s*#{1,6}\s*", "", t, flags=re.M)             # headings
-    t = re.sub(r"\s+", " ", t).strip()
-    return unescape(t)
 
 
-def _word_count(md: str) -> int:
-    """Count words in markdown content."""
-    plain = _safe_strip_md(md)
-    return len(plain.split()) if plain else 0
-
-
-def _read_time_minutes(words: int, wpm: int = 225) -> int:
-    """Calculate reading time in minutes."""
-    return max(1, round(words / wpm))
-
-
-def _iso_minutes(minutes: int) -> str:
-    """Convert minutes to ISO 8601 duration format."""
-    return f"PT{int(minutes)}M"
-
-
-def _hash_for_etag(obj) -> str:
-    """Generate hash for ETag from object."""
-    raw = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
-
-
-def _first_nonempty(*vals):
-    """Return first non-empty string value."""
-    for v in vals:
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return None
-
-
-def _ensure_abs(url: Optional[str]) -> Optional[str]:
-    """Ensure URL is absolute; return None if relative."""
-    if not url or url.startswith("http://") or url.startswith("https://"):
-        return url
-    return None
-
-
-def _trim(s: str, max_len: int) -> str:
-    """Trim string to max length with ellipsis."""
-    if not s:
-        return s
-    s = s.strip()
-    return s if len(s) <= max_len else s[: max_len - 1].rstrip() + "…"
-
-
-def _dedupe_seq(seq):
-    """Deduplicate sequence while preserving order."""
-    seen = set()
-    out = []
-    for x in seq or []:
-        if not isinstance(x, str): 
-            continue
-        k = x.strip().lower()
-        if k and k not in seen:
-            seen.add(k)
-            out.append(x.strip())
-    return out
-
-
-def _ensure_video_objects(final_blog_data: dict) -> None:
-    """Guarantee schema.org VideoObject list with thumbnailUrl for each story video."""
-    videos = []
-    for sp in final_blog_data.get("story_packets", []):
-        v = (sp.get("video") or {})
-        path = v.get("path") or ""
-        if not path or not path.startswith("http"):
-            continue
-        name = sp.get("title_human") or sp.get("title_raw") or "Video"
-        thumb = None
-        thumbs = (v.get("thumbnails") or {})
-        # prefer intro/highlight if present
-        for key in ("intro", "highlight", "why", "outro"):
-            if key in thumbs and thumbs[key]:
-                thumb = thumbs[key]
-                break
-        # normalize thumb to absolute (media domain should already produce absolute if via utils)
-        if thumb and not thumb.startswith("http"):
-            thumb = None
-        videos.append({
-            "@type": "VideoObject",
-            "name": name,
-            "description": _trim(_first_nonempty(sp.get("why"), sp.get("ai_comprehensive_intro"), ""), 300),
-            "contentUrl": path,
-            "thumbnailUrl": thumb,
-            "uploadDate": sp.get("merged_at"),
-            "duration": "PT90S" if (sp.get("explainer") or {}).get("target_seconds") == 90 else None
-        })
-    # attach to both root and (if present) frontmatter.schema
-    if videos:
-        final_blog_data["video"] = videos
-        fm_schema = (((final_blog_data.get("frontmatter") or {}).get("schema")) or {})
-        if fm_schema:
-            fm_schema["video"] = videos
-            final_blog_data["frontmatter"]["schema"] = fm_schema
-
-
-def _apply_final_seo_polish(final_blog_data: dict) -> dict:
-    """Apply final SEO polish to blog data after all other processing is complete."""
-    data = final_blog_data.copy()
-
-    # 1) Content body & placeholder hygiene
-    body = (((data.get("content") or {}).get("body")) or data.get("articleBody") or "")
-    # remove any leaked placeholders or duplicate intros
-    body = body.replace("[AI_GENERATE_LEAD]", "")
-    body = re.sub(r"\n{3,}", "\n\n", body).strip()
-    data.setdefault("content", {})["body"] = body
-    data["articleBody"] = body  # keep parity at root for consumers that expect it
+def _validate_api_data(data: dict) -> None:
+    """Validate API v3 data to ensure all required fields are present and no deprecated fields exist."""
+    # Check for deprecated fields that should not exist
+    deprecated_fields = ["frontmatter", "seo_meta", "articleBody", "headline", "description", "image", "video"]
+    for field in deprecated_fields:
+        if field in data:
+            logger.warning(f"Deprecated field '{field}' found in API v3 data")
     
-    # Clean up AI_GENERATE placeholders in other fields
-    def _clean_placeholders(text):
-        if not isinstance(text, str):
-            return text
-        # Remove common AI generation placeholders
-        text = text.replace("[AI_GENERATE_SEO_DESCRIPTION]", "")
-        text = text.replace("[AI_GENERATE_LEAD]", "")
-        text = text.replace("[AI_GENERATE", "")  # Catch any incomplete placeholders
-        return text.strip()
+    # Validate required fields exist
+    required_fields = ["url", "datePublished", "dateModified", "wordCount", "timeRequired", 
+                      "content", "media", "stories", "related", "schema", "headers"]
+    for field in required_fields:
+        if field not in data:
+            logger.warning(f"Required field '{field}' missing from API v3 data")
     
-    # Clean up description fields and ensure consistency
-    # Get the best description from og:description if available
-    og_description = data.get("frontmatter", {}).get("og", {}).get("og:description", "")
-    
-    # Use og:description if it exists and is not a placeholder
-    if og_description and "[AI_GENERATE" not in og_description:
-        best_description = og_description
+    # Validate content structure
+    content = data.get("content", {})
+    if not isinstance(content, dict):
+        logger.warning("Content field should be a dictionary")
     else:
-        # Clean up existing descriptions
-        best_description = _clean_placeholders(data.get("description", ""))
+        required_content_fields = ["title", "summary", "body", "tags"]
+        for field in required_content_fields:
+            if field not in content:
+                logger.warning(f"Required content field '{field}' missing")
     
-    # Set description consistently across all fields
-    if best_description:
-        data["description"] = best_description
-        data.setdefault("frontmatter", {})["description"] = best_description
-        data.setdefault("frontmatter", {}).setdefault("og", {})["og:description"] = best_description
-        data.setdefault("seo_meta", {})["description"] = best_description
+    # Validate media structure
+    media = data.get("media", {})
+    if not isinstance(media, dict):
+        logger.warning("Media field should be a dictionary")
     else:
-        # Clean up any remaining placeholders
-        if data.get("description"):
-            data["description"] = _clean_placeholders(data["description"])
-        if data.get("frontmatter", {}).get("description"):
-            data["frontmatter"]["description"] = _clean_placeholders(data["frontmatter"]["description"])
-        if data.get("frontmatter", {}).get("og", {}).get("og:description"):
-            data["frontmatter"]["og"]["og:description"] = _clean_placeholders(data["frontmatter"]["og"]["og:description"])
-        if data.get("seo_meta", {}).get("description"):
-            data["seo_meta"]["description"] = _clean_placeholders(data["seo_meta"]["description"])
+        if "hero" not in media or "videos" not in media:
+            logger.warning("Media field missing 'hero' or 'videos'")
+        elif not isinstance(media.get("videos"), list):
+            logger.warning("Media.videos should be a list")
     
-
-    # 2) wordCount + read time
-    wc = _word_count(body)
-    minutes = _read_time_minutes(wc)
-    data["wordCount"] = wc
-    data["timeRequired"] = _iso_minutes(minutes)
-
-    # 3) Canonical/URL sanity - ensure coherence across all fields
-    canonical = _first_nonempty(
-        (data.get("seo_meta") or {}).get("canonical"),
-        (data.get("frontmatter") or {}).get("og", {}).get("og:url"),
-        data.get("url"),
-    )
-    if canonical:
-        # Mirror canonical to all required fields for consistency
-        data["url"] = canonical
-        data.setdefault("seo_meta", {})["canonical"] = canonical
+    # Validate stories structure and video references
+    stories = data.get("stories", [])
+    video_ids = {video.get("id") for video in media.get("videos", [])}
+    for story in stories:
+        if not isinstance(story, dict):
+            logger.warning("Story should be a dictionary")
+            continue
         
-        # Mirror to frontmatter fields
-        if data.get("frontmatter"):
-            # Mirror to og:url
-            if data["frontmatter"].get("og"):
-                data["frontmatter"]["og"]["og:url"] = canonical
-            # Mirror to schema.url
-            if data["frontmatter"].get("schema"):
-                data["frontmatter"]["schema"]["url"] = canonical
-
-    # 4) Title/description consolidation
-    title = _first_nonempty(
-        (data.get("seo_meta") or {}).get("title"),
-        (data.get("frontmatter") or {}).get("title"),
-        data.get("headline"),
-    )
-    desc = _first_nonempty(
-        (data.get("seo_meta") or {}).get("description"),
-        (data.get("frontmatter") or {}).get("description"),
-        data.get("description"),
-    )
-    # trim to sensible lengths for SERP/snippets
-    if title:
-        title = _trim(title, 70)
-        data["headline"] = title
-        data.setdefault("seo_meta", {})["title"] = title
-        if data.get("frontmatter"):
-            data["frontmatter"]["title"] = title
-            if data["frontmatter"].get("og"):
-                data["frontmatter"]["og"]["og:title"] = title
-    if desc:
-        desc = _trim(_safe_strip_md(desc), 160)
-        data["description"] = desc
-        data.setdefault("seo_meta", {})["description"] = desc
-        if data.get("frontmatter"):
-            data["frontmatter"]["description"] = desc
-            if data["frontmatter"].get("og"):
-                data["frontmatter"]["og"]["og:description"] = desc
-
-    # 5) Image normalization (prefer OG image; ensure absolute)
-    og_img = _first_nonempty(
-        (data.get("seo_meta") or {}).get("og:image"),
-        (data.get("frontmatter") or {}).get("og", {}).get("og:image"),
-        (data.get("frontmatter") or {}).get("schema", {}).get("image"),
-        data.get("image"),
-    )
-    if _ensure_abs(og_img):
-        data["image"] = og_img
-        data.setdefault("seo_meta", {})["og:image"] = og_img
-        if data.get("frontmatter"):
-            data["frontmatter"].setdefault("og", {})["og:image"] = og_img
-            if data["frontmatter"].get("schema"):
-                data["frontmatter"]["schema"]["image"] = og_img
-
-    # 6) Keywords/tags dedupe
-    kw = _dedupe_seq(
-        (data.get("keywords") or []) +
-        ((data.get("frontmatter") or {}).get("schema", {}).get("keywords") or []) +
-        ((data.get("frontmatter") or {}).get("tags") or [])
-    )
-    if kw:
-        data["keywords"] = kw[:20]
-        if data.get("frontmatter"):
-            data["frontmatter"]["tags"] = kw[:20]
-            if data["frontmatter"].get("schema"):
-                data["frontmatter"]["schema"]["keywords"] = kw[:20]
-
-    # 7) Language + mainEntityOfPage/publisher/author IDs if easy to infer
-    data.setdefault("seo_schema", {})
-    data["seo_schema"]["inLanguage"] = data.get("seo_schema", {}).get("inLanguage") or "en-US"
-
-    # 8) Video objects from story packets (with thumbnails)
-    _ensure_video_objects(data)
-
-    # 9) Stable ETag & cache hints
-    etag = _hash_for_etag({"url": data.get("url"), "wc": wc, "updated": data.get("dateModified"), "body": body[:2048]})
-    data["seo_headers"] = {
-        "X-Robots-Tag": "index, follow",
-        "Cache-Control": "public, max-age=3600",
-        "ETag": f"\"{data.get('date','')}-{etag[:16]}\""
-    }
-
-    return data
+        video_id = story.get("videoId")
+        if video_id and video_id not in video_ids:
+            logger.warning(f"Story videoId '{video_id}' not found in media.videos")
+    
+    # Validate schema structure
+    schema = data.get("schema", {})
+    if not isinstance(schema, dict):
+        logger.warning("Schema field should be a dictionary")
+    elif schema.get("@type") != "BlogPosting":
+        logger.warning("Schema @type should be 'BlogPosting'")
+    
+    # Validate timeRequired is in ISO8601 format
+    time_required = data.get("timeRequired")
+    if time_required and not time_required.startswith("PT"):
+        logger.warning(f"timeRequired not in ISO8601 format: {time_required}")
+    
+    # Check for AI placeholders
+    body = content.get("body", "")
+    if "[AI_" in str(body):
+        logger.warning("AI placeholders found in body content")
+    
+    # Validate headers structure
+    headers = data.get("headers", {})
+    if not isinstance(headers, dict):
+        logger.warning("Headers field should be a dictionary")
+    else:
+        required_headers = ["X-Robots-Tag", "Cache-Control", "ETag"]
+        for header in required_headers:
+            if header not in headers:
+                logger.warning(f"Required header '{header}' missing")
 

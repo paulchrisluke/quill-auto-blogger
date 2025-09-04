@@ -52,19 +52,26 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
             result["error"] = "No data found"
             return result
         
-        # Check if blog already exists
-        blog_dir = builder.blogs_dir / target_date
-        if blog_dir.exists() and (blog_dir / f'API-v3-{target_date}_digest.json').exists():
-            logger.info(f"Blog already exists for {target_date}, skipping generation")
-            result["error"] = "Blog already exists"
+        # Check if publish package already exists
+        data_dir = builder.data_dir / target_date
+        if data_dir.exists() and (data_dir / 'page.publish.json').exists():
+            logger.info(f"Publish package already exists for {target_date}, skipping generation")
+            result["error"] = "Publish package already exists"
             return result
         
-        # Generate the blog
-        logger.info(f"Building digest for {target_date}...")
-        digest = builder.build_digest(target_date)
+        # Orchestration: Clean stage-based pipeline
+        logger.info(f"Starting clean stage-based pipeline for {target_date}...")
+        
+        # Step 1: Ingest sources → Raw Events
+        logger.info("Step 1: Ingesting sources...")
+        raw_events = builder.ingest_sources(target_date)
+        
+        # Step 2: Build normalized digest
+        logger.info("Step 2: Building normalized digest...")
+        normalized_digest = builder.build_normalized_digest(target_date)
         
         # Check if we have story packets (merged PRs)
-        story_count = len(digest.get('story_packets', []))
+        story_count = len(normalized_digest.get('story_packets', []))
         result["story_count"] = story_count
         
         if story_count == 0:
@@ -72,30 +79,28 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
             result["error"] = "No story packets found"
             return result
         
-        logger.info(f"Found {story_count} story packets, generating blog...")
+        logger.info(f"Found {story_count} story packets, continuing pipeline...")
         
-        # Save PRE-CLEANED digest (videos are already rendered during story packet generation)
-        digest_path = builder.save_digest(digest)
-        logger.info(f"Saved PRE-CLEANED digest: {digest_path}")
+        # Save normalized digest
+        normalized_path = builder.io.save_normalized_digest(normalized_digest, target_date)
+        logger.info(f"Saved normalized digest: {normalized_path}")
+        
+        # Step 3: Enhance with AI → Enriched Digest
+        logger.info("Step 3: Enhancing with AI...")
+        enriched_digest = builder.io.enhanceDigestWithAI(normalized_digest)
+        enriched_path = builder.io.save_enriched_digest(enriched_digest, target_date)
+        logger.info(f"Saved enriched digest: {enriched_path}")
+        
+        # Step 4: Assemble publish package
+        logger.info("Step 4: Assembling publish package...")
+        publish_package = builder.assemble_publish_package(target_date)
+        logger.info(f"Assembled publish package with {len(publish_package.get('story_packets', []))} stories")
         
         # Count rendered videos
-        rendered_count = sum(1 for packet in digest.get('story_packets', []) 
+        rendered_count = sum(1 for packet in normalized_digest.get('story_packets', []) 
                            if packet.get('video', {}).get('status') == 'rendered')
         result["videos_rendered"] = rendered_count
         logger.info(f"Videos rendered during story packet generation: {rendered_count}")
-        
-        # Create FINAL digest with AI enhancements
-        final_digest = builder.create_final_digest(target_date)
-        if not final_digest:
-            logger.error(f"Failed to create FINAL digest for {target_date}")
-            result["error"] = "Failed to create FINAL digest"
-            return result
-        
-        logger.info(f"Created FINAL digest with AI enhancements")
-        
-        # Generate API data for R2 serving
-        api_data = builder.get_blog_api_data(target_date)
-        logger.info(f"Generated API data with {len(api_data.get('story_packets', []))} story packets")
         
         result["blog_generated"] = True
         
@@ -104,15 +109,15 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
             try:
                 publisher = R2Publisher()
                 logger.info(f"Uploading blogs to R2...")
-                upload_results = publisher.publish_blogs(Path('blogs'))
+                upload_results = publisher.publish_blogs(Path('data'))
                 
-                # Check if our blog was uploaded
-                blog_key = f'{target_date}/API-v3-{target_date}_digest.json'
+                # Check if our publish package was uploaded
+                blog_key = f'{target_date}/page.publish.json'
                 if blog_key in upload_results and upload_results[blog_key]:
-                    logger.info(f"Successfully uploaded blog for {target_date} to R2")
+                    logger.info(f"Successfully uploaded publish package for {target_date} to R2")
                     result["r2_uploaded"] = True
                 else:
-                    logger.error(f"Failed to upload blog for {target_date} to R2")
+                    logger.error(f"Failed to upload publish package for {target_date} to R2")
                     result["error"] = "R2 upload failed"
                     
             except Exception as e:

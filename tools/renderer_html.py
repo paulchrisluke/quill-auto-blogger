@@ -605,7 +605,7 @@ def main():
     
     # Setup paths
     digest_path = Path(f"blogs/{date}/PRE-CLEANED-{date}_digest.json")
-    out_dir = Path(f"out/videos/{date}")
+    out_dir = Path(f"blogs/{date}")
     
     if not digest_path.exists():
         print(f"Error: Digest not found: {digest_path}")

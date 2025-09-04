@@ -232,6 +232,9 @@ logs/
 out/
 drafts/
 
+# Prompts directory (contains AI prompts and templates)
+prompts/
+
 # Database files
 *.db
 *.sqlite
