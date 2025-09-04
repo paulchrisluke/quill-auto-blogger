@@ -334,9 +334,9 @@
         <a class="nav-link" href="#ep-stories">/stories/{date}</a>
 
         <div class="nav-title">Assets</div>
-        <a class="nav-link" href="#ep-assets-stories">/assets/stories/{date}</a>
-        <a class="nav-link" href="#ep-assets-story">/assets/stories/{date}/{story_id}</a>
-        <a class="nav-link" href="#ep-assets-blog">/assets/blog/{date}</a>
+        <a class="nav-link" href="#ep-assets-stories">/assets/stories/{year}/{month}/{day}/</a>
+        <a class="nav-link" href="#ep-assets-story">/assets/stories/{year}/{month}/{day}/{filename}/</a>
+        <a class="nav-link" href="#ep-assets-blog">/assets/blog/{date}/</a>
         <a class="nav-link" href="#ep-assets">/assets/*</a>
 
         <div class="nav-title">Control</div>
@@ -427,13 +427,43 @@
         <section id="ep-blog-digest" class="endpoint"
             data-curl='curl "https://api.paulchrisluke.com/blogs/2025-08-27/PRE-CLEANED-2025-08-27_digest.json"'
             data-json='{
-  "version": "3",
+  "version": "2",
   "date": "2025-08-27",
+  "frontmatter": {
+    "title": "Daily Devlog — Aug 27, 2025",
+    "date": "2025-08-27",
+    "author": "Paul Chris Luke",
+    "og": {
+      "og:title": "Daily Devlog — Aug 27, 2025",
+      "og:description": "Daily development log with 1 story from 0 Twitch clips and 1 GitHub event",
+      "og:type": "article",
+      "og:url": "https://quill-auto-blogger.com/blog/2025-08-27",
+      "og:image": "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png",
+      "og:site_name": "Daily Devlog"
+    },
+    "schema": {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "headline": "Daily Devlog — Aug 27, 2025",
+      "datePublished": "2025-08-27",
+      "author": {
+        "@type": "Person",
+        "name": "Paul Chris Luke"
+      }
+    },
+    "tags": ["development", "api"],
+    "lead": "Today we shipped a new API endpoint that enhances the developer experience."
+  },
   "story_packets": [
     {
       "id": "story_20250827_pr34",
       "title_human": "Shipped: New API Endpoint",
-      "raw_data": "Original unprocessed data from GitHub events and Twitch clips"
+      "why": "This change enhances the developer experience by providing a cleaner interface for data retrieval.",
+      "highlights": [
+        "Improved API response times",
+        "Better error handling",
+        "Simplified data structure"
+      ]
     }
   ],
   "github_events": [...],
@@ -528,7 +558,7 @@
             </dl>
         </section>
 
-        <!-- GET /assets/stories/{date} -->
+        <!-- GET /assets/stories/{year}/{month}/{day}/ -->
         <section id="ep-assets-stories" class="endpoint"
             data-curl='curl "https://api.paulchrisluke.com/assets/stories/2025/08/27/"' data-json='{
   "assets": [
@@ -557,12 +587,12 @@
             </dl>
         </section>
 
-        <!-- GET /assets/stories/{year}/{month}/{day}/{story_id} -->
+        <!-- GET /assets/stories/{year}/{month}/{day}/{filename}/ -->
         <section id="ep-assets-story" class="endpoint"
             data-curl='curl "https://api.paulchrisluke.com/assets/stories/2025/08/27/story_20250827_pr34.mp4"'
             data-json='Direct asset serving from R2 bucket'>
             <div class="ep-head"><span class="method GET">GET</span><span
-                    class="path">/assets/stories/{year}/{month}/{day}/{filename}</span></div>
+                    class="path">/assets/stories/{year}/{month}/{day}/{filename}/</span></div>
             <p class="desc">Get specific story assets (videos, images, thumbnails) for a specific story. Served directly
                 from R2 bucket via Cloudflare Worker.</p>
             <div class="subttl">Path Parameters</div>
@@ -578,7 +608,7 @@
             </dl>
         </section>
 
-        <!-- GET /assets/blog/{date} -->
+        <!-- GET /assets/blog/{date}/ -->
         <section id="ep-assets-blog" class="endpoint"
             data-curl='curl "https://api.paulchrisluke.com/assets/blog/2025-08-27/"' data-json='{
   "assets": [
@@ -684,7 +714,7 @@
         <div class="label">200 Example</div>
         <div class="code" id="code-json"><button class="copy">Copy</button>
             {
-            "version": "3",
+            "version": "2",
             "date": "2025-08-27",
             "github_events": [
             {
@@ -694,15 +724,41 @@
             "message": "feat: add new API endpoint"
             }
             ],
+            "frontmatter": {
+            "title": "Daily Devlog — Aug 27, 2025",
+            "date": "2025-08-27",
+            "author": "Paul Chris Luke",
+            "og": {
+            "og:title": "Daily Devlog — Aug 27, 2025",
+            "og:description": "Daily development log with 1 story from 0 Twitch clips and 1 GitHub event",
+            "og:type": "article",
+            "og:url": "https://quill-auto-blogger.com/blog/2025-08-27",
+            "og:image": "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png",
+            "og:site_name": "Daily Devlog"
+            },
+            "schema": {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": "Daily Devlog — Aug 27, 2025",
+            "datePublished": "2025-08-27",
+            "author": {
+            "@type": "Person",
+            "name": "Paul Chris Luke"
+            }
+            },
+            "tags": ["development", "api"],
+            "lead": "Today we shipped a new API endpoint that enhances the developer experience."
+            },
             "story_packets": [
             {
             "id": "story_20250827_pr34",
             "title_human": "Shipped: New API Endpoint",
-            "ai_micro_intro": "This change enhances the developer experience by providing a cleaner interface for data
-            retrieval.",
-            "ai_comprehensive_intro": "In this feature update, we have introduced a new API endpoint that streamlines
-            the process of fetching blog data. This improvement addresses several pain points identified in user
-            feedback and significantly reduces response times."
+            "why": "This change enhances the developer experience by providing a cleaner interface for data retrieval.",
+            "highlights": [
+            "Improved API response times",
+            "Better error handling",
+            "Simplified data structure"
+            ]
             }
             ]
             }
