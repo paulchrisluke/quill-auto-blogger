@@ -652,7 +652,7 @@ def _verify_discord_signature(request: Request, body: bytes) -> bool:
     # Check payload size before doing any expensive operations
     if len(body) > MAX_DISCORD_PAYLOAD_BYTES:
         logger.warning(f"Discord payload too large: {len(body)} bytes (max: {MAX_DISCORD_PAYLOAD_BYTES})")
-        return False
+        raise HTTPException(status_code=413, detail="Payload Too Large")
     
     # Get client IP for rate limiting
     client_ip = request.client.host if request.client else "unknown"
