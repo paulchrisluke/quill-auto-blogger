@@ -207,7 +207,7 @@ class TestAIInsertsService:
         assert result.endswith('.')
     
     def test_make_story_micro_intro_fallback(self, ai_service):
-        """Test story micro-intro generation with fallback."""
+        """Test story micro-intro generation fails properly when AI is disabled."""
         date = "2025-01-15"
         story_inputs = {
             "title": "Fix login bug",
@@ -218,12 +218,9 @@ class TestAIInsertsService:
         # Disable AI
         ai_service.ai_enabled = False
         
-        result = ai_service.make_story_micro_intro(date, story_inputs)
-        
-        # Should return fallback
-        assert "Fix login bug" in result
-        assert "Users couldn't access the system" in result
-        assert result.endswith('.')
+        # Should raise RuntimeError when AI is disabled (no fallbacks)
+        with pytest.raises(RuntimeError, match="AI generation failed for story micro-intro"):
+            ai_service.make_story_micro_intro(date, story_inputs)
     
     def test_sanitize_text_basic(self, ai_service):
         """Test basic text sanitization."""
