@@ -372,9 +372,11 @@ class ContentGenerator:
             if holistic_intro:
                 markdown = self._insert_holistic_intro(markdown, holistic_intro)
             
-            wrap_up = ai_service.make_wrap_up(self.target_date, inputs, force_ai)
-            if wrap_up:
-                markdown = self._insert_wrap_up(markdown, wrap_up)
+            # Only generate wrap-up if one doesn't already exist in frontmatter
+            if not self.frontmatter.get("wrap_up"):
+                wrap_up = ai_service.make_wrap_up(self.target_date, inputs, force_ai)
+                if wrap_up:
+                    markdown = self._insert_wrap_up(markdown, wrap_up)
             
             # 5. Generate AI-suggested tags
             suggested_tags = ai_service.suggest_tags(self.target_date, inputs, force_ai)
