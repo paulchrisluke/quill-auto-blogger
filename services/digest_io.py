@@ -221,12 +221,12 @@ class DigestIO:
                     "why": packet.get("why", ""),
                     "highlights_csv": ",".join(packet.get("highlights", []))
                 }
-                micro_intro = ai_service.make_story_micro_intro(target_date, story_inputs, force_ai=False)
+                micro_intro = ai_service.make_story_micro_intro(target_date, story_inputs, force_ai=True)
                 if micro_intro:
                     enhanced_packet["ai_micro_intro"] = micro_intro
                 
                 # Generate comprehensive story intro
-                comprehensive_intro = ai_service.make_story_comprehensive_intro(target_date, story_inputs, force_ai=False)
+                comprehensive_intro = ai_service.make_story_comprehensive_intro(target_date, story_inputs, force_ai=True)
                 if comprehensive_intro:
                     enhanced_packet["ai_comprehensive_intro"] = comprehensive_intro
                 

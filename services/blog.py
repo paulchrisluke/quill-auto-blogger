@@ -8,13 +8,20 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pathlib import Path
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, TypedDict
 import yaml
 from dotenv import load_dotenv
 
 from models import TwitchClip, GitHubEvent
+
+class DateEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle date and datetime objects."""
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
 from story_schema import (
     StoryPacket, FrontmatterInfo, 
     make_story_packet, pair_with_clip,
@@ -51,16 +58,21 @@ class BlogDigestBuilder:
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://example.com/default.jpg")
-        self.worker_domain = os.getenv("WORKER_DOMAIN", "api.paulchrisluke.com")
+        self.worker_domain = os.getenv("WORKER_DOMAIN", "https://quill-blog-api-prod.paulchrisluke.workers.dev")
+        self.media_domain = os.getenv("MEDIA_DOMAIN", "https://media.paulchrisluke.com")
+        
+        # Blog signature configuration
+        self.signature_enabled = os.getenv("BLOG_SIGNATURE_ENABLED", "false").lower() == "true"
+        self.signature_text = os.getenv("BLOG_SIGNATURE_TEXT", "")
         
         # Initialize extracted services
         from .digest_utils import DigestUtils
         from .digest_io import DigestIO
         from .frontmatter_generator import FrontmatterGenerator
         
-        self.utils = DigestUtils(self.worker_domain, self.blog_default_image)
+        self.utils = DigestUtils(self.media_domain, self.blog_default_image)
         self.io = DigestIO(self.data_dir, self.blogs_dir)
-        self.frontmatter_gen = FrontmatterGenerator(self.blog_author, self.blog_base_url, self.worker_domain)
+        self.frontmatter_gen = FrontmatterGenerator(self.blog_author, self.blog_base_url, self.media_domain)
     
     def update_paths(self, data_dir: Path, blogs_dir: Path):
         """Update data and blogs directories and recreate DigestIO instance."""
@@ -97,9 +109,9 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing FINAL digest for {target_date}")
                 
-                # Check if digest has frontmatter (v2 format)
-                if digest.get("version") == "2" and "frontmatter" in digest:
-                    logger.info(f"Loaded existing v2 FINAL digest for {target_date}")
+                # Check if digest has enhanced schema.org (v3 format)
+                if digest.get("version") == "3" and "frontmatter" in digest and digest.get("frontmatter", {}).get("schema", {}).get("blogPosting"):
+                    logger.info(f"Loaded existing v3 FINAL digest with enhanced schema for {target_date}")
                     
                     # Enhance existing digest with thumbnail URLs
                     if digest.get("story_packets"):
@@ -108,7 +120,7 @@ class BlogDigestBuilder:
                     
                     return digest
                 else:
-                    logger.info(f"Existing FINAL digest for {target_date} missing frontmatter, rebuilding...")
+                    logger.info(f"Existing FINAL digest for {target_date} missing enhanced schema, rebuilding with v3...")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load FINAL digest for {target_date}: {e}")
         
@@ -120,9 +132,9 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing pre-cleaned digest for {target_date}")
                 
-                # Check if digest has frontmatter (v2 format)
-                if digest.get("version") == "2" and "frontmatter" in digest:
-                    logger.info(f"Found existing v2 digest for {target_date}")
+                # Check if digest has enhanced schema.org (v3 format)
+                if digest.get("version") == "3" and "frontmatter" in digest and digest.get("frontmatter", {}).get("schema", {}).get("blogPosting"):
+                    logger.info(f"Found existing v3 digest with enhanced schema for {target_date}")
                     
                     # Enhance existing digest with thumbnail URLs
                     if digest.get("story_packets"):
@@ -131,7 +143,7 @@ class BlogDigestBuilder:
                     
                     return digest
                 else:
-                    logger.info(f"Existing digest for {target_date} missing frontmatter, rebuilding...")
+                    logger.info(f"Existing digest for {target_date} missing enhanced schema, rebuilding with v3...")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load pre-cleaned digest for {target_date}: {e}")
         
@@ -155,17 +167,17 @@ class BlogDigestBuilder:
         # Generate story packets from merged PRs
         story_packets = self._generate_story_packets(events_data, clips_data, target_date)
         
-        # Generate pre-computed frontmatter
+        # Generate pre-computed frontmatter with enhanced schema.org
         frontmatter = self.frontmatter_gen.generate_frontmatter(
-            target_date, clips_data, events_data, story_packets, "v2"
+            target_date, clips_data, events_data, story_packets, "v3"
         )
         
         # Enhance story packets with thumbnail URLs before serialization
         enhanced_story_packets = self.utils.enhance_story_packets_with_thumbnails(story_packets, target_date)
         
-        # Build v2 digest structure
+        # Build v3 digest structure with enhanced schema.org
         digest = {
-            "version": "2",
+            "version": "3",
             "date": target_date,
             "twitch_clips": clips_data,
             "github_events": events_data,
@@ -308,7 +320,7 @@ class BlogDigestBuilder:
             "total_clips": len(clips),
             "total_events": len(events),
             "keywords": sorted(keywords),
-            "date_parsed": datetime.strptime(target_date, "%Y-%m-%d").date()
+            "date_parsed": target_date
         }
     
     def _generate_frontmatter_v1(self, digest: Dict[str, Any]) -> str:
@@ -369,11 +381,22 @@ class BlogDigestBuilder:
                 pairing = pair_with_clip(pr_event, deduplicated_clips)
                 packet = make_story_packet(pr_event, pairing, deduplicated_clips)
                 
-                # Check for existing video file
+                # Check for existing video file or render if needed
                 video_path = self._find_video_for_story(packet, target_date)
                 if video_path:
                     packet.video.path = video_path
                     packet.video.status = VideoStatus.RENDERED
+                else:
+                    # Render video if it doesn't exist
+                    try:
+                        video_path = self._render_video_for_packet(packet, target_date)
+                        if video_path:
+                            packet.video.path = video_path
+                            packet.video.status = VideoStatus.RENDERED
+                    except Exception as e:
+                        logger.exception("Failed to render video for %s", packet.id)
+                        packet.video.status = VideoStatus.FAILED
+                        packet.video.error = str(e)
                 
                 story_packets.append(packet)
             else:
@@ -402,15 +425,56 @@ class BlogDigestBuilder:
                 
                 packet.highlights = unique_highlights[:4]  # Max 4 highlights
                 
-                # Check for existing video file
+                # Check for existing video file or render if needed
                 video_path = self._find_video_for_story(packet, target_date)
                 if video_path:
                     packet.video.path = video_path
                     packet.video.status = VideoStatus.RENDERED
+                else:
+                    # Render video if it doesn't exist
+                    try:
+                        video_path = self._render_video_for_packet(packet, target_date)
+                        if video_path:
+                            packet.video.path = video_path
+                            packet.video.status = VideoStatus.RENDERED
+                    except Exception as e:
+                        logger.exception("Failed to render video for %s", packet.id)
+                        packet.video.status = VideoStatus.FAILED
+                        packet.video.error = str(e)
                 
                 story_packets.append(packet)
         
         return story_packets
+    
+    def _render_video_for_packet(self, packet: StoryPacket, target_date: str) -> Optional[str]:
+        """Render video for a story packet if it doesn't exist."""
+        try:
+            from tools.renderer_html import render_for_packet
+            
+            # Create output directory for videos
+            out_dir = Path("out/videos") / target_date
+            out_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Convert packet to dict format for renderer
+            packet_dict = packet.model_dump(mode="json")
+            
+            # Render the video
+            video_path = render_for_packet(packet_dict, out_dir)
+            
+            # Get video duration
+            from tools.renderer_html import get_video_duration
+            duration = get_video_duration(Path(video_path))
+            
+            # Update packet with video info
+            packet.video.duration_s = duration if duration > 0 else None
+            packet.video.canvas = "1920x1080"  # Default canvas size
+            
+            logger.info(f"Rendered video for {packet.id}: {video_path}")
+            return video_path
+            
+        except Exception as e:
+            logger.error(f"Failed to render video for {packet.id}: {e}")
+            raise
     
     def _find_video_for_story(self, packet: StoryPacket, target_date: str) -> Optional[str]:
         """Find existing video file for a story packet."""
@@ -436,21 +500,19 @@ class BlogDigestBuilder:
         return None
     
     def get_blog_api_data(self, target_date: str) -> Dict[str, Any]:
-        """Get complete blog data for API consumption with Cloudflare URLs."""
+        """Get complete blog data for API consumption with enhanced schema.org and Cloudflare URLs."""
         try:
-            # Load existing FINAL digest instead of rebuilding
+            # Load the FINAL digest with AI enhancements instead of building fresh
+            logger.info(f"Loading FINAL digest with AI enhancements for API v3: {target_date}")
             final_digest_path = self.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
-            if final_digest_path.exists():
-                try:
-                    with open(final_digest_path, 'r', encoding='utf-8') as f:
-                        digest = json.load(f)
-                    logger.info(f"Loaded existing FINAL digest for API v3: {target_date}")
-                except (json.JSONDecodeError, OSError) as e:
-                    logger.warning(f"Failed to load FINAL digest for {target_date}: {e}, falling back to build_digest")
-                    digest = self.build_digest(target_date)
-            else:
-                logger.info(f"No FINAL digest found for {target_date}, building from scratch")
+            
+            if not final_digest_path.exists():
+                logger.warning(f"FINAL digest not found, falling back to building fresh digest: {final_digest_path}")
                 digest = self.build_digest(target_date)
+            else:
+                with open(final_digest_path, 'r') as f:
+                    digest = json.load(f)
+                logger.info(f"Loaded FINAL digest with AI enhancements for {target_date}")
             
             # Update story packets with Cloudflare URLs
             updated_story_packets = []
@@ -472,21 +534,25 @@ class BlogDigestBuilder:
             updated_digest = digest.copy()
             updated_digest["story_packets"] = updated_story_packets
             
-            # Generate consolidated content with AI enhancements and signature
+            # Generate consolidated content with enhanced schema.org and AI enhancements
             content_gen = ContentGenerator(updated_digest, self.utils)
             # Generate full content with story packets and video assets
-            consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=False)
-            # Add the blog signature
-            consolidated_content += "\n\n---\n\n[https://upwork.com/freelancers/paulchrisluke](https://upwork.com/freelancers/paulchrisluke)\n\n_Hi. I'm Chris. I am a morally ambiguous technology marketer. Ridiculously rich people ask me to solve problems they didn't know they have. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _like a high-class hooker or find someone who knows how to get ahold of me._"
+            consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
+            # Add the blog signature if enabled
+            if self.signature_enabled and self.signature_text:
+                consolidated_content += f"\n\n---\n\n{self.signature_text}"
             
-            # Get assets
-            assets = self.get_blog_assets(target_date)
             
-            # Build the restructured final blog data
+            # Build the restructured final blog data with enhanced schema.org JSON-LD
+            # Clean frontmatter for API consumption (remove content fields)
+            cleaned_frontmatter = self.frontmatter_gen.clean_frontmatter_for_api(content_gen.frontmatter)
+            
             final_blog_data = {
+                "@context": "https://schema.org",
+                "@type": "BlogPosting",
                 "date": target_date,
                 "version": "3",  # Increment version for new structure
-                "frontmatter": content_gen.frontmatter,  # Keep full frontmatter with AI content
+                "frontmatter": cleaned_frontmatter,  # Clean frontmatter without content fields
                 "content": {
                     "body": consolidated_content
                 },
@@ -498,6 +564,26 @@ class BlogDigestBuilder:
                     "api_endpoint": f"/api/blog/{target_date}"
                 }
             }
+            
+            # Enhance the schema.org data at root level
+            if content_gen.frontmatter and content_gen.frontmatter.get('schema', {}).get('blogPosting'):
+                blog_posting_schema = content_gen.frontmatter['schema']['blogPosting']
+                # Merge the enhanced schema into the root level
+                final_blog_data.update({
+                    "headline": blog_posting_schema.get('headline'),
+                    "description": blog_posting_schema.get('description'),
+                    "author": blog_posting_schema.get('author'),
+                    "datePublished": blog_posting_schema.get('datePublished'),
+                    "dateModified": blog_posting_schema.get('dateModified'),
+                    "url": blog_posting_schema.get('url'),
+                    "mainEntityOfPage": blog_posting_schema.get('mainEntityOfPage'),
+                    "publisher": blog_posting_schema.get('publisher'),
+                    "image": blog_posting_schema.get('image'),
+                    "keywords": blog_posting_schema.get('keywords'),
+                    "wordCount": blog_posting_schema.get('wordCount'),
+                    "video": blog_posting_schema.get('video'),
+                    "articleBody": consolidated_content
+                })
             
             # Save v3 API response to file for R2 serving
             self._save_v3_api_response(target_date, final_blog_data)
@@ -543,7 +629,7 @@ class BlogDigestBuilder:
             # Save v3 API response to main blogs directory
             api_file_path = date_dir / f"API-v3-{target_date}_digest.json"
             with open(api_file_path, 'w', encoding='utf-8') as f:
-                json.dump(api_data, f, indent=2, ensure_ascii=False)
+                json.dump(api_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
             
             logger.info(f"Saved v3 API response to {api_file_path}")
             
@@ -554,7 +640,7 @@ class BlogDigestBuilder:
                 
                 cloudflare_worker_file_path = cloudflare_worker_dir / f"API-v3-{target_date}_digest.json"
                 with open(cloudflare_worker_file_path, 'w', encoding='utf-8') as f:
-                    json.dump(api_data, f, indent=2, ensure_ascii=False)
+                    json.dump(api_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
                 
                 logger.info(f"Saved v3 API response to cloudflare-worker directory: {cloudflare_worker_file_path}")
                 

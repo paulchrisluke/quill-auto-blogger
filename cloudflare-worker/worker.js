@@ -80,8 +80,9 @@ async function handleApiDomain(request, env, path) {
     // Serve raw JSON files directly from R2
     return await serveR2Asset(env, path.substring(1), request); // Remove leading slash
   } else if (path.startsWith('/assets/')) {
-    // Simple asset serving - just remove /assets/ prefix and serve from R2
-    const assetKey = path.substring(8); // Remove '/assets/' prefix
+    // Asset serving - keep the full path including 'assets/' for R2
+    const assetKey = path.substring(1); // Remove leading '/' but keep 'assets/'
+    console.log('Asset request:', path, '-> R2 key:', assetKey);
     return await serveR2Asset(env, assetKey, request);
   } else if (path === '/health') {
     return new Response('OK', { 
@@ -134,11 +135,15 @@ function createErrorResponse(message, status, cacheTag = null) {
  */
 async function serveR2Asset(env, key, request) {
   try {
+    console.log('serveR2Asset: Looking for key:', key);
     const object = await env.BLOG_BUCKET.get(key);
     
     if (!object) {
+      console.log('serveR2Asset: Object not found for key:', key);
       return createErrorResponse('Asset not found', 404, 'assets');
     }
+    
+    console.log('serveR2Asset: Found object for key:', key);
     
     const headers = new Headers();
     
@@ -170,6 +175,11 @@ async function serveR2Asset(env, key, request) {
       headers.set('CDN-Cache-Control', 'public, max-age=1800'); // 30 min edge
       headers.set('Cache-Tag', 'assets');
     }
+    
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
     
     // Set standard validator headers using R2's metadata
     if (object.httpEtag) {
@@ -203,11 +213,6 @@ async function serveR2Asset(env, key, request) {
       }
     }
     
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
-    
     return new Response(object.body, {
       headers,
       status: 200
@@ -237,6 +242,11 @@ async function handleBlogsIndex(request, env) {
       'CDN-Cache-Control': 'public, max-age=1800', // 30 min edge
       'Cache-Tag': 'blogs-index',
       'Vary': 'Accept-Encoding'
+    });
+    
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
     });
     
     // Set standard validator headers using R2's metadata
@@ -270,11 +280,6 @@ async function handleBlogsIndex(request, env) {
         });
       }
     }
-    
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
     
     const jsonContent = await indexObject.text();
     
@@ -309,6 +314,11 @@ async function handleRSSFeed(request, env) {
       'Vary': 'Accept-Encoding'
     });
     
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     // Set standard validator headers using R2's metadata
     if (rssObject.httpEtag) {
       headers.set('ETag', rssObject.httpEtag);
@@ -340,11 +350,6 @@ async function handleRSSFeed(request, env) {
         });
       }
     }
-    
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
     
     const xmlContent = await rssObject.text();
     
@@ -379,6 +384,11 @@ async function handleSitemap(request, env) {
       'Vary': 'Accept-Encoding'
     });
     
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     // Set standard validator headers using R2's metadata
     if (sitemapObject.httpEtag) {
       headers.set('ETag', sitemapObject.httpEtag);
@@ -410,11 +420,6 @@ async function handleSitemap(request, env) {
         });
       }
     }
-    
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
     
     const xmlContent = await sitemapObject.text();
     
@@ -449,6 +454,11 @@ async function handleIndexPage(request, env) {
       'Vary': 'Accept-Encoding'
     });
     
+    // Add CORS headers early, before any conditional checks
+    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+    
     // Set standard validator headers using R2's metadata
     if (indexObject.httpEtag) {
       headers.set('ETag', indexObject.httpEtag);
@@ -480,11 +490,6 @@ async function handleIndexPage(request, env) {
         });
       }
     }
-    
-    // Add CORS headers
-    Object.entries(getCORSHeaders()).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
     
     const htmlContent = await indexObject.text();
     

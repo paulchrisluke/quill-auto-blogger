@@ -139,26 +139,20 @@ class FeedGenerator:
     
     def generate_blogs_index(self, blogs_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Generate blogs index JSON for API consumption.
+        Generate blogs index JSON with enhanced Blog schema for API consumption.
         
         Args:
             blogs_data: List of blog digest data
             
         Returns:
-            Blogs index dictionary
+            Blogs index dictionary with schema.org Blog structure
         """
         # Sort by date descending (newest first)
         sorted_blogs = sorted(blogs_data, key=lambda x: x.get('date', ''), reverse=True)
         
-        blogs_index = {
-            "meta": {
-                "generated_at": datetime.utcnow().isoformat(),
-                "total_blogs": len(sorted_blogs),
-                "frontend_domain": self.frontend_domain,
-                "api_domain": self.api_domain
-            },
-            "blogs": []
-        }
+        # Generate BlogPosting entries for schema.org
+        blog_posts = []
+        blogs_list = []
         
         for blog in sorted_blogs:
             frontmatter = blog.get('frontmatter', {})
@@ -170,6 +164,36 @@ class FeedGenerator:
             # Get canonical URL
             canonical_url = frontmatter.get('canonical', f"{self.frontend_domain}/blog/{date_str}")
             
+            # Get the best image for this blog post
+            best_image = blog.get('image')  # Use the image field directly from the blog data
+            
+            # Create BlogPosting schema entry
+            blog_posting = {
+                "@type": "BlogPosting",
+                "headline": frontmatter.get('title', f'Daily Devlog — {date_str}'),
+                "description": frontmatter.get('description', frontmatter.get('lead', '')),
+                "url": canonical_url,
+                "datePublished": date_str,
+                "author": {
+                    "@type": "Person",
+                    "name": frontmatter.get('author', 'Paul Chris Luke')
+                },
+                "publisher": {
+                    "@type": "Organization",
+                    "name": "PCL Labs",
+                    "logo": {
+                        "@type": "ImageObject",
+                        "url": f"{self.frontend_domain}/pcl-labs-logo.svg"
+                    }
+                }
+            }
+            
+            # Add image if available
+            if best_image:
+                blog_posting["image"] = best_image
+            blog_posts.append(blog_posting)
+            
+            # Create API-friendly blog entry
             blog_entry = {
                 "date": date_str,
                 "title": frontmatter.get('title', f'Daily Devlog — {date_str}'),
@@ -178,13 +202,43 @@ class FeedGenerator:
                 "api_url": f"{self.api_domain}/blogs/{date_str}/API-v3-{date_str}_digest.json",
                 "tags": frontmatter.get('tags', []),
                 "lead": frontmatter.get('lead', ''),
+                "description": frontmatter.get('description', ''),
                 "story_count": len(blog.get('story_packets', [])),
                 "has_video": any(
                     packet.get('video', {}).get('status') == 'rendered' 
                     for packet in blog.get('story_packets', [])
                 )
             }
-            
-            blogs_index["blogs"].append(blog_entry)
+            blogs_list.append(blog_entry)
+        
+        # Create enhanced blogs index with schema.org Blog structure
+        blogs_index = {
+            "@context": "https://schema.org",
+            "@type": "Blog",
+            "name": "Daily Devlog",
+            "url": f"{self.frontend_domain}/blog",
+            "description": "Daily development log with AI-enhanced content and automation",
+            "author": {
+                "@type": "Person",
+                "name": "Paul Chris Luke",
+                "url": f"{self.frontend_domain}/about"
+            },
+            "publisher": {
+                "@type": "Organization",
+                "name": "PCL Labs",
+                "logo": {
+                    "@type": "ImageObject",
+                    "url": f"{self.frontend_domain}/pcl-labs-logo.svg"
+                }
+            },
+            "blogPost": blog_posts,
+            "meta": {
+                "generated_at": datetime.utcnow().isoformat(),
+                "total_blogs": len(sorted_blogs),
+                "frontend_domain": self.frontend_domain,
+                "api_domain": self.api_domain
+            },
+            "blogs": blogs_list
+        }
         
         return blogs_index

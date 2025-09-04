@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 class DigestUtils:
     """Utility methods for digest building operations."""
     
-    def __init__(self, worker_domain: str, blog_default_image: str):
-        self.worker_domain = worker_domain
+    def __init__(self, media_domain: str, blog_default_image: str):
+        self.media_domain = media_domain
         self.blog_default_image = blog_default_image
     
     def select_best_image(self, story_packets: List[Any]) -> str:
@@ -32,6 +32,7 @@ class DigestUtils:
             URL string for the best image
         """
         if not story_packets:
+            logger.warning("No story packets provided for image selection, using default blog image")
             return self.blog_default_image
         
         # Priority order for story types (lower number = higher priority)
@@ -73,10 +74,15 @@ class DigestUtils:
                 video_path = best_story["video"]["path"]
             
             # Delegate to the existing helper method for consistent thumbnail URL generation
-            thumbnail_url = self.get_video_thumbnail_url(video_path, best_story.id if hasattr(best_story, 'id') else '')
-            return thumbnail_url if thumbnail_url else self.blog_default_image
+            try:
+                thumbnail_url = self.get_video_thumbnail_url(video_path, best_story.id if hasattr(best_story, 'id') else '')
+                return thumbnail_url
+            except ValueError as e:
+                logger.error(f"Failed to generate thumbnail URL for video: {video_path}: {e}")
+                raise
         
-        # Fallback: return default blog image when no suitable video thumbnail is found
+        # No suitable video thumbnail found
+        logger.warning("No suitable video thumbnail found in any story packets, using default blog image")
         return self.blog_default_image
     
     def get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
@@ -116,14 +122,36 @@ class DigestUtils:
                     
                     # Strip file extension before constructing intro PNG filename
                     filename = filename.rsplit('.', 1)[0] if '.' in filename else filename
-                    intro_png = f"{filename}_01_intro.png"
-                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    intro_jpg = f"{filename}_01_intro.png"
+                    return f"{self.media_domain}/stories/{year}/{month}/{day}/{intro_jpg}"
                     
                 except (IndexError, ValueError) as e:
                     logger.warning(f"Failed to parse stories path {video_path}: {e}")
                     return ""
             
-            # Handle out/videos paths: out/videos/YYYY-MM-DD/filename
+            # Handle assets/out/videos paths: assets/out/videos/YYYY-MM-DD/filename
+            elif len(parts) >= 5 and parts[0] == 'assets' and parts[1] == 'out' and parts[2] == 'videos':
+                try:
+                    date_part = parts[3]  # YYYY-MM-DD
+                    filename = parts[4]
+                    
+                    # Parse date and convert to YYYY/MM/DD format
+                    date_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                    year = str(date_obj.year)
+                    month = f"{date_obj.month:02d}"
+                    day = f"{date_obj.day:02d}"
+                    
+                    # Strip file extension before constructing intro JPG filename
+                    filename = filename.rsplit('.', 1)[0] if '.' in filename else filename
+                    # Use filename as-is for media domain (single "story" format)
+                    intro_jpg = f"{filename}_01_intro.png"
+                    return f"{self.media_domain}/stories/{year}/{month}/{day}/{intro_jpg}"
+                    
+                except (IndexError, ValueError) as e:
+                    logger.warning(f"Failed to parse assets/out/videos path {video_path}: {e}")
+                    return ""
+            
+            # Handle out/videos paths: out/videos/YYYY-MM-DD/filename (legacy format)
             elif len(parts) >= 4 and parts[0] == 'out' and parts[1] == 'videos':
                 try:
                     date_part = parts[2]  # YYYY-MM-DD
@@ -135,10 +163,11 @@ class DigestUtils:
                     month = f"{date_obj.month:02d}"
                     day = f"{date_obj.day:02d}"
                     
-                    # Strip file extension before constructing intro PNG filename
+                    # Strip file extension before constructing intro JPG filename
                     filename = filename.rsplit('.', 1)[0] if '.' in filename else filename
-                    intro_png = f"{filename}_01_intro.png"
-                    return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{intro_png}"
+                    # Use filename as-is for media domain (single "story" format)
+                    intro_jpg = f"{filename}_01_intro.png"
+                    return f"{self.media_domain}/stories/{year}/{month}/{day}/{intro_jpg}"
                     
                 except (IndexError, ValueError) as e:
                     logger.warning(f"Failed to parse out/videos path {video_path}: {e}")
@@ -152,14 +181,15 @@ class DigestUtils:
                     date_match = re.search(r'stories/(\d{4})/(\d{2})/(\d{2})/', clean_path)
                     if date_match:
                         year, month, day = date_match.groups()
-                        return f"https://{self.worker_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.png"
+                        # Use the story_id directly as it should match the actual filename
+                        return f"{self.media_domain}/assets/stories/{year}/{month}/{day}/{story_id}_01_intro.jpg"
             
-            logger.warning(f"Could not determine thumbnail path for: {video_path}")
-            return ""
+            logger.error(f"Could not determine thumbnail path for: {video_path}")
+            raise ValueError(f"Failed to generate thumbnail path for video: {video_path}")
             
         except (IndexError, ValueError) as e:
-            logger.warning(f"Failed to generate thumbnail URL for {video_path}: {e}")
-            return ""
+            logger.error(f"Failed to generate thumbnail URL for {video_path}: {e}")
+            raise ValueError(f"Failed to generate thumbnail URL for video {video_path}: {e}")
     
     def get_cloudflare_url(self, asset_path: str) -> str:
         """
@@ -177,7 +207,7 @@ class DigestUtils:
             # Worker path: /assets/stories/2025/08/29/story_123.mp4
             worker_path = f"/assets/{asset_path}"
             
-            return f"https://{self.worker_domain}{worker_path}"
+            return f"{self.media_domain}{worker_path}"
                 
         except Exception as e:
             logger.exception("Failed to generate Worker URL for %s", asset_path)

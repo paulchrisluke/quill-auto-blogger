@@ -94,6 +94,7 @@ class FrontmatterInfo(BaseModel):
     schema_data: Dict[str, Any] = Field(default_factory=dict, alias="schema")
     tags: List[str] = Field(default_factory=list)
     lead: Optional[str] = None
+    description: Optional[str] = None
     
     model_config = {"populate_by_name": True}
 

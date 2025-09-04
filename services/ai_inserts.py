@@ -185,11 +185,12 @@ class AIInsertsService:
                     return sanitized
                     
             except AIClientError as e:
-                logger.warning(f"AI generation failed for story micro-intro: {e}")
+                logger.error(f"AI generation failed for story micro-intro: {e}")
+                raise RuntimeError(f"AI generation failed for story micro-intro: {e}")
         
-        # Fallback
-        fallback = self._fallback_story_micro_intro(story_inputs)
-        return fallback
+        # No fallback - AI must work
+        logger.error(f"AI generation failed for story micro-intro: {story_inputs}")
+        raise RuntimeError(f"AI generation failed for story micro-intro. Inputs: {story_inputs}")
 
     def make_story_comprehensive_intro(
         self, 
@@ -235,11 +236,12 @@ class AIInsertsService:
                     return sanitized
                     
             except AIClientError as e:
-                logger.warning(f"AI generation failed for story comprehensive intro: {e}")
+                logger.error(f"AI generation failed for story comprehensive intro: {e}")
+                raise RuntimeError(f"AI generation failed for story comprehensive intro: {e}")
         
-        # Fallback
-        fallback = self._fallback_story_comprehensive_intro(story_inputs)
-        return fallback
+        # No fallback - AI must work
+        logger.error(f"AI generation failed for story comprehensive intro: {story_inputs}")
+        raise RuntimeError(f"AI generation failed for story comprehensive intro. Inputs: {story_inputs}")
 
     def _fallback_story_comprehensive_intro(self, story_inputs: Dict[str, Any]) -> str:
         """Generate fallback story comprehensive intro."""

@@ -88,17 +88,18 @@ class ContentGenerator:
                         content_parts.append(f"#### {packet.get('title_human', packet.get('title_raw', 'Untitled'))}")
                         content_parts.append("")
                         
-                        # Add AI micro-intro if available
-                        if packet.get('ai_micro_intro'):
+                        # Use AI comprehensive intro for a more fluid, comprehensive blog post
+                        if packet.get('ai_comprehensive_intro'):
+                            content_parts.append(packet['ai_comprehensive_intro'])
+                            content_parts.append("")
+                        elif packet.get('ai_micro_intro'):
+                            # Fallback to micro-intro if comprehensive not available
                             content_parts.append(packet['ai_micro_intro'])
                             content_parts.append("")
                         
-                        if packet.get('why'):
-                            content_parts.append(f"**Why:** {packet['why']}")
-                            content_parts.append("")
-                        
+                        # Add highlights in a more natural way
                         if packet.get('highlights'):
-                            content_parts.append("**Highlights:**")
+                            content_parts.append("**Key improvements:**")
                             for highlight in packet['highlights']:
                                 content_parts.append(f"- {highlight}")
                             content_parts.append("")
@@ -338,8 +339,12 @@ class ContentGenerator:
             best_image = self.utils.select_best_image(self.story_packets)
             if "og" in self.frontmatter:
                 self.frontmatter["og"]["og:image"] = best_image
-            if "schema" in self.frontmatter and "article" in self.frontmatter["schema"]:
-                self.frontmatter["schema"]["article"]["image"] = best_image
+            # Update schema image (support both article and blogPosting schemas)
+            if "schema" in self.frontmatter:
+                if "article" in self.frontmatter["schema"]:
+                    self.frontmatter["schema"]["article"]["image"] = best_image
+                elif "blogPosting" in self.frontmatter["schema"]:
+                    self.frontmatter["schema"]["blogPosting"]["image"] = best_image
             
             # 2. Title punch-up (optional)
             current_title = self.frontmatter.get("title", "")
@@ -351,8 +356,12 @@ class ContentGenerator:
                 # Also update og:title and headline in frontmatter
                 if "og" in self.frontmatter:
                     self.frontmatter["og"]["og:title"] = improved_title
-                if "schema" in self.frontmatter and "article" in self.frontmatter["schema"]:
-                    self.frontmatter["schema"]["article"]["headline"] = improved_title
+                # Update schema headline (support both article and blogPosting schemas)
+                if "schema" in self.frontmatter:
+                    if "article" in self.frontmatter["schema"]:
+                        self.frontmatter["schema"]["article"]["headline"] = improved_title
+                    elif "blogPosting" in self.frontmatter["schema"]:
+                        self.frontmatter["schema"]["blogPosting"]["headline"] = improved_title
                 markdown = self._update_title_in_markdown(markdown, improved_title)
             
             # 3. Story micro-intros
@@ -405,7 +414,7 @@ class ContentGenerator:
         return markdown
     
     def _insert_story_micro_intros(self, markdown: str, ai_service, force_ai: bool = False) -> str:
-        """Insert comprehensive story intros under each story heading."""
+        """Insert story micro-intros under each story heading."""
         for packet in self.story_packets:
             story_title = packet.get("title_human", "")
             if not story_title:
@@ -414,18 +423,26 @@ class ContentGenerator:
             # Find the story heading
             heading_pattern = rf"^(#### {re.escape(story_title)})$"
             
-            # Prepare inputs for AI
-            story_inputs = {
-                "title": story_title,
-                "why": packet.get("why", ""),
-                "highlights_csv": ",".join(packet.get("highlights", []))
-            }
+            # Skip micro-intro insertion if we already have comprehensive intro in content
+            # (comprehensive intro is now added in main content generation)
+            if packet.get("ai_comprehensive_intro"):
+                continue
+                
+            # Use existing micro-intro if available, otherwise generate one
+            micro_intro = packet.get("ai_micro_intro")
+            if not micro_intro:
+                # Prepare inputs for AI
+                story_inputs = {
+                    "title": story_title,
+                    "why": packet.get("why", ""),
+                    "highlights_csv": ",".join(packet.get("highlights", []))
+                }
+                micro_intro = ai_service.make_story_micro_intro(self.target_date, story_inputs, force_ai)
             
-            comprehensive_intro = ai_service.make_story_comprehensive_intro(self.target_date, story_inputs, force_ai)
-            
-            # Insert comprehensive intro after heading
-            replacement = rf"\1\n\n{comprehensive_intro}\n"
-            markdown = re.sub(heading_pattern, replacement, markdown, flags=re.MULTILINE)
+            # Insert micro-intro after heading
+            if micro_intro:
+                replacement = rf"\1\n\n{micro_intro}\n"
+                markdown = re.sub(heading_pattern, replacement, markdown, flags=re.MULTILINE)
         
         return markdown
     

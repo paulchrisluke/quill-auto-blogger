@@ -7,10 +7,18 @@ import hashlib
 import json
 import logging
 import os
+from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, Optional, List, Any
 import boto3
 from botocore.exceptions import ClientError
+
+class DateEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle date and datetime objects."""
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
 
 from services.auth import AuthService
 from services.feeds import FeedGenerator
@@ -205,7 +213,7 @@ class R2Publisher:
                 
                 # Write enhanced data back to file
                 with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(blog_data, f, indent=2, ensure_ascii=False)
+                    json.dump(blog_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
                 
                 local_md5 = self._hash_md5(file_path)
                 
@@ -225,6 +233,9 @@ class R2Publisher:
                 
                 logger.info(f"✓ Uploaded {r2_key}")
                 results[str(relative_path_posix)] = True
+                
+                # Upload assets for this blog (images, videos, etc.)
+                self._upload_blog_assets(file_path.parent)
                 
                 # Purge cache for this blog post
                 blog_date = blog_data.get('date')
@@ -262,7 +273,7 @@ class R2Publisher:
             # Write blogs index
             blogs_index_file = feeds_dir / "blogs-index.json"
             with open(blogs_index_file, 'w', encoding='utf-8') as f:
-                json.dump(blogs_index, f, indent=2, ensure_ascii=False)
+                json.dump(blogs_index, f, indent=2, ensure_ascii=False, cls=DateEncoder)
             
             # Upload feeds to R2
             feed_files = [
@@ -364,3 +375,56 @@ class R2Publisher:
             logger.warning(f"Failed to enhance with thumbnails: {e}")
         
         return blog_data
+    
+    def _upload_blog_assets(self, blog_dir: Path) -> None:
+        """Upload all assets (images, videos) for a blog post to R2."""
+        try:
+            # Find all asset files (images, videos, etc.)
+            asset_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.mp4', '.webm', '.mov']
+            asset_files = []
+            
+            for ext in asset_extensions:
+                asset_files.extend(blog_dir.glob(f"*{ext}"))
+            
+            if not asset_files:
+                logger.info(f"No assets found in {blog_dir}")
+                return
+            
+            logger.info(f"Found {len(asset_files)} assets to upload from {blog_dir}")
+            
+            for asset_file in asset_files:
+                try:
+                    # Calculate R2 key: assets/stories/YYYY/MM/DD/filename
+                    filename = asset_file.name
+                    
+                    # Extract date from blog directory name (YYYY-MM-DD)
+                    blog_date = blog_dir.name
+                    if len(blog_date) == 10 and blog_date[4] == '-' and blog_date[7] == '-':
+                        year, month, day = blog_date.split('-')
+                        r2_key = f"assets/stories/{year}/{month}/{day}/{filename}"
+                    else:
+                        # Fallback: use the blog directory name as-is
+                        r2_key = f"assets/stories/{blog_date}/{filename}"
+                    
+                    # Check if file already exists and is identical
+                    local_md5 = self._hash_md5(asset_file)
+                    if self._should_skip(r2_key, local_md5):
+                        logger.info(f"↻ Skipped {r2_key} (identical content)")
+                        continue
+                    
+                    # Upload to R2
+                    with open(asset_file, 'rb') as f:
+                        self.s3_client.put_object(
+                            Bucket=self.bucket,
+                            Key=r2_key,
+                            Body=f,
+                            **self._headers_for(asset_file)
+                        )
+                    
+                    logger.info(f"✓ Uploaded asset {r2_key}")
+                    
+                except Exception as e:
+                    logger.error(f"✗ Failed to upload asset {asset_file}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to upload blog assets from {blog_dir}: {e}")
