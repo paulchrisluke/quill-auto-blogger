@@ -32,8 +32,8 @@ class DigestUtils:
             URL string for the best image
         """
         if not story_packets:
-            logger.error("No story packets provided for image selection")
-            raise ValueError("No story packets available for image selection")
+            logger.warning("No story packets provided for image selection, using default blog image")
+            return self.blog_default_image
         
         # Priority order for story types (lower number = higher priority)
         type_priority = {

@@ -13,10 +13,10 @@ from story_schema import FrontmatterInfo
 class FrontmatterGenerator:
     """Generate frontmatter for blog posts."""
     
-    def __init__(self, blog_author: str, blog_base_url: str, worker_domain: str, frontend_domain: str = None):
+    def __init__(self, blog_author: str, blog_base_url: str, media_domain: str, frontend_domain: str = None):
         self.blog_author = blog_author
         self.blog_base_url = blog_base_url.rstrip("/")
-        self.worker_domain = worker_domain
+        self.media_domain = media_domain
         # Use frontend_domain if provided, otherwise fall back to blog_base_url
         self.frontend_domain = frontend_domain.rstrip("/") if frontend_domain else self.blog_base_url
     
@@ -454,7 +454,7 @@ class FrontmatterGenerator:
         # Generate VideoObject schemas for Twitch clips
         for clip in clips_data:
             upload_date = clip.get("created_at")
-            if isinstance(upload_date, (datetime, datetime.date)):
+            if isinstance(upload_date, (datetime, date)):
                 upload_date = upload_date.isoformat()
             
             video_schema = {
@@ -493,7 +493,7 @@ class FrontmatterGenerator:
                         image_schema = {
                             "@type": "ImageObject",
                             "name": f"{getattr(packet, 'title_human', 'Story')} - {thumbnail_type.title()}",
-                            "url": f"{self.worker_domain}/assets/{thumbnail_path}",
+                            "url": f"{self.media_domain}/assets/{thumbnail_path}",
                             "description": f"{thumbnail_type.title()} thumbnail for {getattr(packet, 'title_human', 'story')}"
                         }
                         image_objects.append(image_schema)
