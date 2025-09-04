@@ -2,6 +2,15 @@ name = "quill-blog-api"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
+# Custom domains for the worker
+[[routes]]
+pattern = "api.paulchrisluke.com/*"
+zone_name = "paulchrisluke.com"
+
+[[routes]]
+pattern = "media.paulchrisluke.com/*"
+zone_name = "paulchrisluke.com"
+
 # Environment variables
 [vars]
 LOCAL_API_URL = "http://localhost:8000"

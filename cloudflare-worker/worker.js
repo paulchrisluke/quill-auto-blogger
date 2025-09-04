@@ -3,6 +3,7 @@ export default {
     try {
       const url = new URL(request.url);
       const path = url.pathname;
+      const hostname = url.hostname;
 
       // Handle CORS preflight
       if (request.method === 'OPTIONS') {
@@ -15,38 +16,20 @@ export default {
         env,
         path,
         url,
+        hostname,
         waitUntil: ctx.waitUntil
       };
       
-      // Route requests based on path
-      if (path === '/' || path === '') {
-        return await handleIndexPage(request, env);
-      } else if (path === '/blogs') {
-        // Serve blogs index
-        return await handleBlogsIndex(request, env);
-      } else if (path === '/rss.xml') {
-        // Serve RSS feed
-        return await handleRSSFeed(request, env);
-      } else if (path === '/sitemap.xml') {
-        // Serve sitemap
-        return await handleSitemap(request, env);
-      } else if (path === '/blogs/index.json') {
-        // Serve blogs index JSON
-        return await handleBlogsIndex(request, env);
-      } else if (path.startsWith('/blogs/')) {
-        // Serve raw JSON files directly from R2
-        return await serveR2Asset(env, path.substring(1), request); // Remove leading slash
-      } else if (path.startsWith('/assets/')) {
-        // Simple asset serving - just remove /assets/ prefix and serve from R2
-        const assetKey = path.substring(8); // Remove '/assets/' prefix
-        return await serveR2Asset(env, assetKey, request);
-      } else if (path === '/health') {
-        return new Response('OK', { 
-          status: 200,
-          headers: getCORSHeaders()
-        });
+      // Route based on domain
+      if (hostname === 'media.paulchrisluke.com') {
+        // Media domain - serve assets only
+        return await handleMediaDomain(request, env, path);
+      } else if (hostname === 'api.paulchrisluke.com' || hostname === 'quill-blog-api.paulchrisluke.workers.dev') {
+        // API domain - serve all API endpoints
+        return await handleApiDomain(request, env, path);
       } else {
-        return createErrorResponse('Not Found', 404);
+        // Default to API domain behavior
+        return await handleApiDomain(request, env, path);
       }
     } catch (error) {
       console.error('Worker error:', error);
@@ -54,6 +37,61 @@ export default {
     }
   }
 };
+
+/**
+ * Handle media domain requests (media.paulchrisluke.com)
+ */
+async function handleMediaDomain(request, env, path) {
+  // Media domain serves assets only
+  if (path === '/health') {
+    return new Response('OK', { 
+      status: 200,
+      headers: getCORSHeaders()
+    });
+  } else if (path.startsWith('/stories/') || path.startsWith('/assets/')) {
+    // Serve media assets directly from R2
+    const assetKey = path.startsWith('/assets/') ? path.substring(8) : path.substring(1);
+    return await serveR2Asset(env, assetKey, request);
+  } else {
+    return createErrorResponse('Not Found', 404, 'media');
+  }
+}
+
+/**
+ * Handle API domain requests (api.paulchrisluke.com and quill-blog-api.paulchrisluke.workers.dev)
+ */
+async function handleApiDomain(request, env, path) {
+  // Route requests based on path
+  if (path === '/' || path === '') {
+    return await handleIndexPage(request, env);
+  } else if (path === '/blogs') {
+    // Serve blogs index
+    return await handleBlogsIndex(request, env);
+  } else if (path === '/rss.xml') {
+    // Serve RSS feed
+    return await handleRSSFeed(request, env);
+  } else if (path === '/sitemap.xml') {
+    // Serve sitemap
+    return await handleSitemap(request, env);
+  } else if (path === '/blogs/index.json') {
+    // Serve blogs index JSON
+    return await handleBlogsIndex(request, env);
+  } else if (path.startsWith('/blogs/')) {
+    // Serve raw JSON files directly from R2
+    return await serveR2Asset(env, path.substring(1), request); // Remove leading slash
+  } else if (path.startsWith('/assets/')) {
+    // Simple asset serving - just remove /assets/ prefix and serve from R2
+    const assetKey = path.substring(8); // Remove '/assets/' prefix
+    return await serveR2Asset(env, assetKey, request);
+  } else if (path === '/health') {
+    return new Response('OK', { 
+      status: 200,
+      headers: getCORSHeaders()
+    });
+  } else {
+    return createErrorResponse('Not Found', 404);
+  }
+}
 
 /**
  * Handle CORS preflight requests

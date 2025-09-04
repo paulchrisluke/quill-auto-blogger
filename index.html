@@ -330,18 +330,11 @@
         <a class="nav-link" href="#ep-rss-feed">/rss.xml</a>
         <a class="nav-link" href="#ep-sitemap">/sitemap.xml</a>
 
-        <div class="nav-title">Stories</div>
-        <a class="nav-link" href="#ep-stories">/stories/{date}</a>
-
         <div class="nav-title">Assets</div>
         <a class="nav-link" href="#ep-assets-stories">/assets/stories/{year}/{month}/{day}/</a>
         <a class="nav-link" href="#ep-assets-story">/assets/stories/{year}/{month}/{day}/{filename}/</a>
         <a class="nav-link" href="#ep-assets-blog">/assets/blog/{date}/</a>
         <a class="nav-link" href="#ep-assets">/assets/*</a>
-
-        <div class="nav-title">Control</div>
-        <a class="nav-link" href="#ep-start">/control/record/start</a>
-        <a class="nav-link" href="#ep-stop">/control/record/stop</a>
 
         <div class="nav-title">System</div>
         <a class="nav-link" href="#ep-health">/health</a>
@@ -359,11 +352,12 @@
     <!-- MAIN -->
     <main class="main" id="content">
         <h1>API Reference</h1>
-        <p class="lead">Complete API for AI-enhanced blog content, story management, and recording control. Serves
+        <p class="lead">Complete API for AI-enhanced blog content and media asset serving. Serves
             digest data with AI enrichments, structured SEO, and discovery feeds (RSS, sitemap, blogs index).</p>
         <div class="notes"><strong>Pipeline:</strong> PRE-CLEANED (raw) → FINAL (AI-enhanced) → API-v3 (processed). Blog
-            endpoints serve different stages of the pipeline. <strong>Domain:</strong> Production endpoints use
-            api.paulchrisluke.com, development endpoints use localhost:8000.</div>
+            endpoints serve different stages of the pipeline. <strong>Domains:</strong> API endpoints use
+            api.paulchrisluke.com,
+            media assets use media.paulchrisluke.com.</div>
 
         <!-- GET /blogs/{date}/API-v3-{date}_digest.json -->
         <section id="ep-blog" class="endpoint"
@@ -539,24 +533,6 @@
                 caching.</p>
         </section>
 
-        <!-- GET /stories/{date} -->
-        <section id="ep-stories" class="endpoint" data-curl='curl "http://localhost:8000/stories/2025-08-27"' data-json='{
-  "stories": [
-    {
-      "id": "story_20250827_pr34",
-      "title_human": "Shipped: Feature Name"
-    }
-  ]
-}'>
-            <div class="ep-head"><span class="method GET">GET</span><span class="path">/stories/{date}</span></div>
-            <p class="desc">List story packets for a given date. <strong>Note:</strong> This endpoint is served by the
-                local webhook server for development purposes.</p>
-            <div class="subttl">Path Parameters</div>
-            <dl class="kv">
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD)</dd>
-            </dl>
-        </section>
 
         <!-- GET /assets/stories/{year}/{month}/{day}/ -->
         <section id="ep-assets-stories" class="endpoint"
@@ -643,65 +619,11 @@
             </dl>
         </section>
 
-        <!-- POST /control/record/start -->
-        <section id="ep-start" class="endpoint" data-curl='curl -X POST "http://localhost:8000/control/record/start" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d ' \''{"story_id":"test_story","bounded":false}'\'' '
-      data-json=' {"status":"started","mode":"bounded","story_id":"test_story","prep_delay":5,"duration":15}'>
-            <div class="ep-head"><span class="method POST">POST</span><span class="path">/control/record/start</span>
-            </div>
-            <p class="desc">Start recording for a story (requires token). Supports optional <code
-                    style="font-family:var(--mono)">bounded</code> mode. <strong>Note:</strong> This endpoint is served
-                by the local webhook server for development purposes.</p>
-            <div class="subttl">Headers</div>
-            <dl class="kv">
-                <dt>Authorization</dt>
-                <dd>Bearer &lt;CONTROL_API_TOKEN&gt;</dd>
-            </dl>
-            <div class="subttl">Request Body</div>
-            <dl class="kv">
-                <dt>story_id</dt>
-                <dd>string</dd>
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD, optional)</dd>
-                <dt>bounded</dt>
-                <dd>boolean (default: false)</dd>
-            </dl>
-        </section>
-
-        <!-- POST /control/record/stop -->
-        <section id="ep-stop" class="endpoint" data-curl='curl -X POST "http://localhost:8000/control/record/stop" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d ' \''{"story_id":"test_story"}'\'' '
-      data-json=' {"status":"stopped","story_id":"test_story"}'>
-            <div class="ep-head"><span class="method POST">POST</span><span class="path">/control/record/stop</span>
-            </div>
-            <p class="desc">Stop recording for a story (requires token). <strong>Note:</strong> This endpoint is served
-                by the local webhook server for development purposes.</p>
-            <div class="subttl">Headers</div>
-            <dl class="kv">
-                <dt>Authorization</dt>
-                <dd>Bearer &lt;CONTROL_API_TOKEN&gt;</dd>
-            </dl>
-            <div class="subttl">Request Body</div>
-            <dl class="kv">
-                <dt>story_id</dt>
-                <dd>string</dd>
-                <dt>date</dt>
-                <dd>string (YYYY-MM-DD, optional)</dd>
-            </dl>
-        </section>
 
         <!-- GET /health -->
-        <section id="ep-health" class="endpoint" data-curl='curl "http://localhost:8000/health"' data-json='{
-  "status": "healthy",
-  "timestamp": "2025-08-27T12:00:00Z"
-}'>
+        <section id="ep-health" class="endpoint" data-curl='curl "https://api.paulchrisluke.com/health"' data-json='OK'>
             <div class="ep-head"><span class="method GET">GET</span><span class="path">/health</span></div>
-            <p class="desc">Health check endpoint for monitoring system status. <strong>Note:</strong> This endpoint is
-                served by the local webhook server for development purposes.</p>
+            <p class="desc">Health check endpoint for monitoring system status. Served from Cloudflare Worker.</p>
         </section>
     </main>
 
@@ -733,7 +655,8 @@
             "og:description": "Daily development log with 1 story from 0 Twitch clips and 1 GitHub event",
             "og:type": "article",
             "og:url": "https://quill-auto-blogger.com/blog/2025-08-27",
-            "og:image": "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png",
+            "og:image":
+            "https://quill-blog-api.paulchrisluke.workers.dev/assets/stories/2025/08/27/story_20250827_pr34_01_intro.png",
             "og:site_name": "Daily Devlog"
             },
             "schema": {
