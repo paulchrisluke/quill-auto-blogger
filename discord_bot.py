@@ -18,6 +18,27 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def validate_and_canonicalize_date(date_str: str) -> str:
+    """Validate and canonicalize a date string in YYYY-MM-DD format.
+    
+    Args:
+        date_str: Date string to validate
+        
+    Returns:
+        Canonicalized date string in YYYY-MM-DD format
+        
+    Raises:
+        ValueError: If date string is invalid
+    """
+    try:
+        # Parse the date to validate format
+        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
+        # Return canonicalized format
+        return parsed_date.strftime("%Y-%m-%d")
+    except ValueError as e:
+        raise ValueError(f"Invalid date format '{date_str}'. Expected YYYY-MM-DD format.") from e
+
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or "0")
 CONTROL_CHANNEL_ID = int(os.getenv("DISCORD_CONTROL_CHANNEL_ID", "0") or "0")
 ROLE_ID = int(os.getenv("DISCORD_CONTROL_ROLE_ID", "0") or "0")
@@ -339,57 +360,81 @@ async def on_interaction(interaction: discord.Interaction):
         if custom_id.startswith("approve_blog_"):
             # Handle blog approval
             date = custom_id.replace("approve_blog_", "")
-            await _handle_blog_approval(interaction, date)
+            try:
+                canonical_date = validate_and_canonicalize_date(date)
+            except ValueError as e:
+                await interaction.response.send_message(f"❌ Invalid date format: {date}. Please use YYYY-MM-DD format.", ephemeral=True)
+                return
+            await _handle_blog_approval(interaction, canonical_date)
             
         elif custom_id.startswith("edit_blog_"):
             # Handle blog edit request
             date = custom_id.replace("edit_blog_", "")
-            await _handle_blog_edit_request(interaction, date)
+            try:
+                canonical_date = validate_and_canonicalize_date(date)
+            except ValueError as e:
+                await interaction.response.send_message(f"❌ Invalid date format: {date}. Please use YYYY-MM-DD format.", ephemeral=True)
+                return
+            await _handle_blog_edit_request(interaction, canonical_date)
+            
+        else:
+            # Handle unknown custom_id
+            logger.warning(f"Unknown button interaction custom_id: {custom_id}")
+            await interaction.response.send_message("❓ Unknown action", ephemeral=True)
             
     except Exception as e:
-        logger.error(f"Error handling button interaction {custom_id}: {e}")
-        await interaction.response.send_message(f"❌ Error processing request: {str(e)}", ephemeral=True)
+        logger.exception(f"Error handling button interaction {custom_id}")
+        if interaction.response.is_done():
+            await interaction.followup.send("❌ An error occurred while processing your request. Please try again later.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ An error occurred while processing your request. Please try again later.", ephemeral=True)
 
 
-async def _handle_blog_approval(interaction: discord.Interaction, date: str):
+async def _handle_blog_approval(interaction: discord.Interaction, canonical_date: str):
     """Handle blog approval button click."""
     try:
         # Show "processing" message
-        await interaction.response.send_message(f"⏳ Processing blog approval for {date}...", ephemeral=True)
+        await interaction.response.send_message(f"⏳ Processing blog approval for {canonical_date}...", ephemeral=True)
         
-        # Create FINAL digest using BlogDigestBuilder
+        # Create FINAL digest using BlogDigestBuilder (run in thread to avoid blocking)
         builder = BlogDigestBuilder()
-        final_digest = builder.create_final_digest(date)
+        final_digest = await asyncio.to_thread(builder.create_final_digest, canonical_date)
         
         if final_digest:
-            # Send published notification
-            if notify_blog_published(date):
-                await interaction.followup.send(f"✅ **Blog Approved & Published** — {date}\n\nBlog has been approved and published successfully!", ephemeral=False)
-            else:
-                await interaction.followup.send(f"✅ **Blog Approved** — {date}\n\nBlog approved but failed to send published notification.", ephemeral=False)
+            # Send published notification (run in thread to avoid blocking)
+            try:
+                notification_success = await asyncio.to_thread(notify_blog_published, canonical_date)
+                if notification_success:
+                    await interaction.followup.send(f"✅ **Blog Approved & Published** — {canonical_date}\n\nBlog has been approved and published successfully!", ephemeral=False)
+                else:
+                    await interaction.followup.send(f"✅ **Blog Approved** — {canonical_date}\n\nBlog approved but failed to send published notification.", ephemeral=False)
+            except Exception as notify_error:
+                # Treat notification failure as partial success
+                logger.exception(f"Failed to send blog published notification for {canonical_date}")
+                await interaction.followup.send(f"✅ **Blog Approved** — {canonical_date}\n\nBlog approved but failed to send published notification.", ephemeral=False)
         else:
-            await interaction.followup.send(f"❌ **Approval Failed** — {date}\n\nFailed to create FINAL digest. Check logs for details.", ephemeral=False)
+            await interaction.followup.send(f"❌ **Approval Failed** — {canonical_date}\n\nFailed to create FINAL digest. Check logs for details.", ephemeral=False)
             
     except Exception as e:
-        logger.error(f"Error approving blog {date}: {e}")
-        await interaction.followup.send(f"❌ **Approval Error** — {date}\n\nError: {str(e)}", ephemeral=False)
+        logger.exception(f"Error approving blog {canonical_date}")
+        await interaction.followup.send(f"❌ **Approval Error** — {canonical_date}\n\nAn error occurred while processing the blog approval. Please try again later.", ephemeral=False)
 
 
-async def _handle_blog_edit_request(interaction: discord.Interaction, date: str):
+async def _handle_blog_edit_request(interaction: discord.Interaction, canonical_date: str):
     """Handle blog edit request button click."""
     try:
         await interaction.response.send_message(
-            f"📝 **Blog Edit Request** — {date}\n\n"
+            f"📝 **Blog Edit Request** — {canonical_date}\n\n"
             f"Blog marked as needing edits. You can:\n"
             f"• Edit the PRE-CLEANED digest directly\n"
             f"• Regenerate content using the blog CLI\n"
             f"• Request another review when ready\n\n"
-            f"Use: `python tools/blog_cli.py request-approval {date}` when ready for review again.",
+            f"Use: `python tools/blog_cli.py request-approval {canonical_date}` when ready for review again.",
             ephemeral=False
         )
     except Exception as e:
-        logger.error(f"Error handling edit request for {date}: {e}")
-        await interaction.followup.send(f"❌ **Edit Request Error** — {date}\n\nError: {str(e)}", ephemeral=False)
+        logger.exception(f"Error handling edit request for {canonical_date}")
+        await interaction.followup.send(f"❌ **Edit Request Error** — {canonical_date}\n\nAn error occurred while processing the edit request. Please try again later.", ephemeral=False)
 
 
 @client.event

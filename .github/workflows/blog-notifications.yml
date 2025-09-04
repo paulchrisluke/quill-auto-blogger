@@ -4,8 +4,8 @@ on:
   schedule:
     # Daily rollup at 9am UTC
     - cron: '0 9 * * *'
-    # Weekly backlog report on Mondays at 9am UTC  
-    - cron: '0 9 * * 1'
+    # Weekly backlog report on Mondays at 9:05am UTC (offset to avoid collision)
+    - cron: '5 9 * * 1'
     # Missing blog reminder at 10am UTC
     - cron: '0 10 * * *'
   workflow_dispatch: # Allow manual triggering
@@ -40,7 +40,7 @@ jobs:
         "
     
     - name: Send Weekly Backlog Report (Mondays)
-      if: github.event.schedule == '0 9 * * 1'
+      if: github.event.schedule == '5 9 * * 1' || github.event_name == 'workflow_dispatch'
       env:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       run: |

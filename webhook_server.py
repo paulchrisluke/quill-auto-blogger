@@ -3,29 +3,31 @@
 FastAPI webhook server for GitHub PR merge events.
 """
 
-import os
+import asyncio
+import hashlib
+import hmac
 import json
 import logging
+import os
 import re
-import asyncio
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional
-import hmac
-import hashlib
+from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, Request, HTTPException, Query, BackgroundTasks, Depends, Header, status
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator, ConfigDict
-from dotenv import load_dotenv
-import nacl.signing
 import nacl.encoding
-import json
+import nacl.signing
+from dotenv import load_dotenv
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from story_schema import StoryPacket, make_story_packet, pair_with_clip
 from services.utils import validate_story_id
 from services.blog import BlogDigestBuilder
 from services.notify import notify_blog_published
+from discord_bot import validate_and_canonicalize_date
 
 # Load environment variables
 load_dotenv()
@@ -42,6 +44,19 @@ ALLOW_INSECURE_WEBHOOKS = os.getenv("ALLOW_INSECURE_WEBHOOKS") == "1"
 DISCORD_PUBLIC_KEY = os.getenv("DISCORD_PUBLIC_KEY")
 STORY_DIR = Path("./story_packets")
 STORY_DIR.mkdir(parents=True, exist_ok=True)
+
+# Discord security constants
+MAX_DISCORD_PAYLOAD_BYTES = 64 * 1024  # 64KB max payload size
+DISCORD_RATE_LIMIT_COUNT = 5  # Max requests per window
+DISCORD_RATE_LIMIT_WINDOW = 60  # Time window in seconds
+
+# Discord interaction timeout constants
+DISCORD_INTERACTION_TIMEOUT = 2.5  # 2.5 seconds (under Discord's 3s limit)
+DISCORD_DEFERRED_RESPONSE_TIMEOUT = 15  # 15 minutes for deferred responses
+
+# Rate limiting store (IP -> list of timestamps)
+_discord_rate_limit_store = {}
+_discord_rate_limit_lock = threading.Lock()
 
 
 def _validate_story_id(story_id: str) -> bool:
@@ -602,10 +617,39 @@ async def get_blog_assets(date: str):
 
 
 def _verify_discord_signature(request: Request, body: bytes) -> bool:
-    """Verify Discord interaction signature."""
+    """Verify Discord interaction signature with size and rate limiting."""
     if not DISCORD_PUBLIC_KEY:
         logger.warning("No Discord public key configured")
         return False
+    
+    # Check payload size before doing any expensive operations
+    if len(body) > MAX_DISCORD_PAYLOAD_BYTES:
+        logger.warning(f"Discord payload too large: {len(body)} bytes (max: {MAX_DISCORD_PAYLOAD_BYTES})")
+        return False
+    
+    # Get client IP for rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Rate limiting check
+    current_time = time.time()
+    with _discord_rate_limit_lock:
+        # Clean up old entries outside the time window
+        cutoff_time = current_time - DISCORD_RATE_LIMIT_WINDOW
+        if client_ip in _discord_rate_limit_store:
+            _discord_rate_limit_store[client_ip] = [
+                timestamp for timestamp in _discord_rate_limit_store[client_ip]
+                if timestamp > cutoff_time
+            ]
+        else:
+            _discord_rate_limit_store[client_ip] = []
+        
+        # Check if client has exceeded rate limit
+        if len(_discord_rate_limit_store[client_ip]) >= DISCORD_RATE_LIMIT_COUNT:
+            logger.warning(f"Discord rate limit exceeded for IP {client_ip}: {len(_discord_rate_limit_store[client_ip])} requests in {DISCORD_RATE_LIMIT_WINDOW}s")
+            return False
+        
+        # Add current request timestamp
+        _discord_rate_limit_store[client_ip].append(current_time)
     
     signature = request.headers.get("X-Signature-Ed25519")
     timestamp = request.headers.get("X-Signature-Timestamp")
@@ -627,9 +671,73 @@ def _verify_discord_signature(request: Request, body: bytes) -> bool:
         return False
 
 
+async def _handle_discord_interaction_with_timeout(interaction_data: dict, interaction_type: int) -> dict:
+    """Handle Discord interaction with timeout protection."""
+    try:
+        # Use asyncio.wait_for to enforce timeout
+        result = await asyncio.wait_for(
+            _process_discord_interaction(interaction_data, interaction_type),
+            timeout=DISCORD_INTERACTION_TIMEOUT
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.warning(f"Discord interaction timed out after {DISCORD_INTERACTION_TIMEOUT}s")
+        # Return deferred response for long operations
+        return {
+            "type": 5,  # DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+            "data": {"flags": 64}  # EPHEMERAL flag
+        }
+    except Exception as e:
+        logger.error(f"Error in Discord interaction handler: {e}")
+        return {
+            "type": 4,  # CHANNEL_MESSAGE_WITH_SOURCE
+            "data": {"content": f"❌ **Error**\n\nAn error occurred while processing your request: {str(e)}"}
+        }
+
+
+async def _process_discord_interaction(interaction_data: dict, interaction_type: int) -> dict:
+    """Process Discord interaction without timeout (called by timeout wrapper)."""
+    # Handle PING (Discord verification)
+    if interaction_type == 1:
+        return {"type": 1}
+    
+    # Handle button interactions
+    if interaction_type == 3:  # APPLICATION_COMMAND_INTERACTION
+        custom_id = interaction_data.get("data", {}).get("custom_id", "")
+        
+        if custom_id.startswith("approve_blog_"):
+            date_str = custom_id.replace("approve_blog_", "")
+            try:
+                # Validate and canonicalize the date
+                date = validate_and_canonicalize_date(date_str)
+                return await _handle_blog_approval(interaction_data, date)
+            except ValueError as e:
+                logger.warning(f"Invalid date format in approve_blog custom_id: {date_str} - {e}")
+                return {
+                    "type": 4,
+                    "data": {"content": f"❌ **Invalid Date Format**\n\nDate '{date_str}' is not valid. Expected format: YYYY-MM-DD"}
+                }
+            
+        elif custom_id.startswith("edit_blog_"):
+            date_str = custom_id.replace("edit_blog_", "")
+            try:
+                # Validate and canonicalize the date
+                date = validate_and_canonicalize_date(date_str)
+                return await _handle_blog_edit_request(interaction_data, date)
+            except ValueError as e:
+                logger.warning(f"Invalid date format in edit_blog custom_id: {date_str} - {e}")
+                return {
+                    "type": 4,
+                    "data": {"content": f"❌ **Invalid Date Format**\n\nDate '{date_str}' is not valid. Expected format: YYYY-MM-DD"}
+                }
+    
+    # Unknown interaction type
+    return {"type": 4, "data": {"content": "Unknown interaction type"}}
+
+
 @app.post("/discord/interactions")
 async def handle_discord_interaction(request: Request):
-    """Handle Discord button interactions for blog approval workflow."""
+    """Handle Discord button interactions for blog approval workflow with timeout protection."""
     try:
         # Get request body
         body = await request.body()
@@ -642,28 +750,103 @@ async def handle_discord_interaction(request: Request):
         interaction_data = json.loads(body)
         interaction_type = interaction_data.get("type")
         
-        # Handle PING (Discord verification)
-        if interaction_type == 1:
-            return {"type": 1}
+        # Use timeout wrapper for all interactions
+        return await _handle_discord_interaction_with_timeout(interaction_data, interaction_type)
         
-        # Handle button interactions
-        if interaction_type == 3:  # APPLICATION_COMMAND_INTERACTION
-            custom_id = interaction_data.get("data", {}).get("custom_id", "")
-            
-            if custom_id.startswith("approve_blog_"):
-                date = custom_id.replace("approve_blog_", "")
-                return await _handle_blog_approval(interaction_data, date)
-                
-            elif custom_id.startswith("edit_blog_"):
-                date = custom_id.replace("edit_blog_", "")
-                return await _handle_blog_edit_request(interaction_data, date)
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 401 for invalid signature)
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in Discord interaction: {e}")
+        return {"type": 4, "data": {"content": "❌ **Invalid Request**\n\nInvalid JSON payload received."}}
+    except Exception as e:
+        logger.error(f"Unexpected error handling Discord interaction: {e}")
+        return {"type": 4, "data": {"content": "❌ **Server Error**\n\nAn unexpected error occurred. Please try again later."}}
+
+
+@app.post("/discord/deferred")
+async def handle_deferred_discord_response(request: Request):
+    """Handle deferred Discord responses for long-running operations."""
+    try:
+        # Get request body
+        body = await request.body()
         
-        # Unknown interaction type
-        return {"type": 4, "data": {"content": "Unknown interaction type"}}
+        # Verify Discord signature
+        if not _verify_discord_signature(request, body):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        # Parse deferred response data
+        response_data = json.loads(body)
+        interaction_token = response_data.get("token")
+        interaction_id = response_data.get("id")
+        operation_type = response_data.get("operation")
+        date = response_data.get("date")
+        
+        if not all([interaction_token, interaction_id, operation_type, date]):
+            return {"error": "Missing required fields"}
+        
+        # Validate and canonicalize the date
+        try:
+            validated_date = validate_and_canonicalize_date(date)
+        except ValueError as e:
+            logger.warning(f"Invalid date format in deferred response: {date} - {e}")
+            return {"error": f"Invalid date format '{date}'. Expected YYYY-MM-DD format."}
+        
+        # Process the deferred operation
+        if operation_type == "blog_approval":
+            result = await _process_deferred_blog_approval(validated_date)
+        elif operation_type == "blog_edit":
+            result = await _process_deferred_blog_edit(validated_date)
+        else:
+            return {"error": "Unknown operation type"}
+        
+        # Send follow-up message to Discord
+        # Note: This would require Discord API client implementation
+        # For now, we'll just log the result
+        logger.info(f"Deferred operation completed: {operation_type} for {date} - {result}")
+        
+        return {"status": "completed", "result": result}
         
     except Exception as e:
-        logger.error(f"Error handling Discord interaction: {e}")
-        return {"type": 4, "data": {"content": f"Error: {str(e)}"}}
+        logger.error(f"Error handling deferred Discord response: {e}")
+        return {"error": str(e)}
+
+
+async def _process_deferred_blog_approval(date: str) -> str:
+    """Process blog approval as a deferred operation."""
+    try:
+        # Create FINAL digest using BlogDigestBuilder
+        builder = BlogDigestBuilder()
+        final_digest = builder.create_final_digest(date)
+        
+        if final_digest:
+            # Send published notification
+            if notify_blog_published(date):
+                return f"✅ **Blog Approved & Published** — {date}\n\nBlog has been approved and published successfully!"
+            else:
+                return f"✅ **Blog Approved** — {date}\n\nBlog approved but failed to send published notification."
+        else:
+            return f"❌ **Approval Failed** — {date}\n\nFailed to create FINAL digest. Check logs for details."
+            
+    except Exception as e:
+        logger.error(f"Error in deferred blog approval for {date}: {e}")
+        return f"❌ **Approval Error** — {date}\n\nError: {str(e)}"
+
+
+async def _process_deferred_blog_edit(date: str) -> str:
+    """Process blog edit request as a deferred operation."""
+    try:
+        return (
+            f"📝 **Blog Edit Request** — {date}\n\n"
+            f"Blog marked as needing edits. You can:\n"
+            f"• Edit the PRE-CLEANED digest directly\n"
+            f"• Regenerate content using the blog CLI\n"
+            f"• Request another review when ready\n\n"
+            f"Use: `python tools/blog_cli.py request-approval {date}` when ready for review again."
+        )
+    except Exception as e:
+        logger.error(f"Error in deferred blog edit for {date}: {e}")
+        return f"❌ **Edit Request Error** — {date}\n\nError: {str(e)}"
 
 
 async def _handle_blog_approval(interaction_data: dict, date: str) -> dict:

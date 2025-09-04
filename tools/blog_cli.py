@@ -129,42 +129,64 @@ def main():
                 print("Error: status command requires a date")
                 sys.exit(1)
             date = sys.argv[2]
-            datetime.strptime(date, "%Y-%m-%d")
+            try:
+                datetime.strptime(date, "%Y-%m-%d")
+            except ValueError:
+                print("Error: Date must be in YYYY-MM-DD format")
+                sys.exit(1)
             check_status(date)
+            sys.exit(0)
             
         elif command == "approve":
             if len(sys.argv) < 3:
                 print("Error: approve command requires a date")
                 sys.exit(1)
             date = sys.argv[2]
-            datetime.strptime(date, "%Y-%m-%d")
-            approve_draft(date)
+            try:
+                datetime.strptime(date, "%Y-%m-%d")
+            except ValueError:
+                print("Error: Date must be in YYYY-MM-DD format")
+                sys.exit(1)
+            success = approve_draft(date)
+            if success:
+                sys.exit(0)
+            else:
+                print("Error: Failed to approve draft")
+                sys.exit(1)
             
         elif command == "request-approval":
             if len(sys.argv) < 3:
                 print("Error: request-approval command requires a date")
                 sys.exit(1)
             date = sys.argv[2]
-            datetime.strptime(date, "%Y-%m-%d")
-            request_approval(date)
+            try:
+                datetime.strptime(date, "%Y-%m-%d")
+            except ValueError:
+                print("Error: Date must be in YYYY-MM-DD format")
+                sys.exit(1)
+            success = request_approval(date)
+            if success:
+                sys.exit(0)
+            else:
+                print("Error: Failed to send approval request")
+                sys.exit(1)
             
         elif command == "weekly-report":
             end_date = sys.argv[2] if len(sys.argv) > 2 else None
             if end_date:
-                datetime.strptime(end_date, "%Y-%m-%d")
+                try:
+                    datetime.strptime(end_date, "%Y-%m-%d")
+                except ValueError:
+                    print("Error: Date must be in YYYY-MM-DD format")
+                    sys.exit(1)
             weekly_report(end_date)
+            sys.exit(0)
             
         else:
             print(f"Error: Unknown command '{command}'")
             print("Available commands: status, approve, request-approval, weekly-report")
             sys.exit(1)
             
-    except ValueError as e:
-        if "time data" in str(e):
-            print("Error: Date must be in YYYY-MM-DD format")
-        else:
-            print(f"Error: {e}")
-        sys.exit(1)
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
