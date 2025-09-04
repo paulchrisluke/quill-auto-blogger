@@ -643,8 +643,11 @@ async def get_blog_assets(date: str):
 def _verify_discord_signature(request: Request, body: bytes) -> bool:
     """Verify Discord interaction signature with size and rate limiting."""
     if not DISCORD_PUBLIC_KEY:
-        logger.warning("No Discord public key configured")
-        return False
+        logger.error("No Discord public key configured - server misconfiguration")
+        raise HTTPException(
+            status_code=500,
+            detail="Discord integration not properly configured"
+        )
     
     # Check payload size before doing any expensive operations
     if len(body) > MAX_DISCORD_PAYLOAD_BYTES:
@@ -684,7 +687,11 @@ def _verify_discord_signature(request: Request, body: bytes) -> bool:
     timestamp = request.headers.get("X-Signature-Timestamp")
     
     if not signature or not timestamp:
-        return False
+        logger.warning("Missing Discord signature headers")
+        raise HTTPException(
+            status_code=401,
+            detail="Missing required Discord signature headers"
+        )
     
     try:
         # Create the message to verify
@@ -696,8 +703,11 @@ def _verify_discord_signature(request: Request, body: bytes) -> bool:
         verify_key.verify(message, bytes.fromhex(signature))
         return True
     except Exception as e:
-        logger.error(f"Discord signature verification failed: {e}")
-        return False
+        logger.exception("Discord signature verification failed", exc_info=True)
+        raise HTTPException(
+            status_code=401,
+            detail="Discord signature verification failed"
+        )
 
 
 async def _handle_discord_interaction_with_timeout(interaction_data: dict, interaction_type: int) -> dict:

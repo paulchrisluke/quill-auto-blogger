@@ -5,11 +5,53 @@ Provides utilities to check blog publication states and generate status reports.
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_date_path(date: str, blogs_dir: Path, filename: str) -> Path:
+    """
+    Validate date string and build safe path to prevent path traversal.
+    
+    Args:
+        date: Date string in YYYY-MM-DD format
+        blogs_dir: Base blogs directory path
+        filename: Target filename
+        
+    Returns:
+        Validated and resolved path
+        
+    Raises:
+        ValueError: If date format is invalid or path traversal detected
+    """
+    # Validate date format with strict regex
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date):
+        raise ValueError(f"Invalid date format: {date}. Expected YYYY-MM-DD format.")
+    
+    # Parse date to ensure it's a real date
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError as e:
+        raise ValueError(f"Invalid date: {date}. {str(e)}")
+    
+    # Build path using pathlib
+    target_path = blogs_dir / date / filename
+    
+    # Resolve path and check it's within blogs_dir
+    resolved_path = target_path.resolve()
+    blogs_dir_resolved = blogs_dir.resolve()
+    
+    # Ensure the resolved path is a subpath of blogs_dir
+    try:
+        resolved_path.relative_to(blogs_dir_resolved)
+    except ValueError:
+        raise ValueError(f"Path traversal detected: {date} -> {resolved_path}")
+    
+    return resolved_path
 
 
 class BlogStatusChecker:
@@ -28,8 +70,12 @@ class BlogStatusChecker:
         Returns:
             True if FINAL digest exists, False otherwise
         """
-        final_path = self.blogs_dir / date / f"FINAL-{date}_digest.json"
-        return final_path.exists()
+        try:
+            final_path = _validate_date_path(date, self.blogs_dir, f"FINAL-{date}_digest.json")
+            return final_path.exists()
+        except ValueError:
+            logger.warning(f"Invalid date format in is_published: {date}")
+            return False
     
     def is_draft_only(self, date: str) -> bool:
         """
@@ -41,10 +87,14 @@ class BlogStatusChecker:
         Returns:
             True if PRE-CLEANED exists but no FINAL, False otherwise
         """
-        pre_cleaned_path = self.blogs_dir / date / f"PRE-CLEANED-{date}_digest.json"
-        final_path = self.blogs_dir / date / f"FINAL-{date}_digest.json"
-        
-        return pre_cleaned_path.exists() and not final_path.exists()
+        try:
+            pre_cleaned_path = _validate_date_path(date, self.blogs_dir, f"PRE-CLEANED-{date}_digest.json")
+            final_path = _validate_date_path(date, self.blogs_dir, f"FINAL-{date}_digest.json")
+            
+            return pre_cleaned_path.exists() and not final_path.exists()
+        except ValueError:
+            logger.warning(f"Invalid date format in is_draft_only: {date}")
+            return False
     
     def is_missing(self, date: str) -> bool:
         """
@@ -56,13 +106,29 @@ class BlogStatusChecker:
         Returns:
             True if no digest files exist, False otherwise
         """
-        date_dir = self.blogs_dir / date
-        if not date_dir.exists():
+        try:
+            # Validate date and get safe date directory path
+            _validate_date_path(date, self.blogs_dir, "dummy")  # Just validate date format
+            date_dir = self.blogs_dir / date
+            resolved_date_dir = date_dir.resolve()
+            blogs_dir_resolved = self.blogs_dir.resolve()
+            
+            # Ensure the date directory is within blogs_dir
+            try:
+                resolved_date_dir.relative_to(blogs_dir_resolved)
+            except ValueError:
+                logger.warning(f"Path traversal detected in is_missing: {date}")
+                return True
+            
+            if not date_dir.exists():
+                return True
+            
+            # Check for any digest files
+            digest_files = list(date_dir.glob("*_digest.json"))
+            return len(digest_files) == 0
+        except ValueError:
+            logger.warning(f"Invalid date format in is_missing: {date}")
             return True
-        
-        # Check for any digest files
-        digest_files = list(date_dir.glob("*_digest.json"))
-        return len(digest_files) == 0
     
     def get_blog_status(self, date: str) -> str:
         """
@@ -94,9 +160,9 @@ class BlogStatusChecker:
         if not self.is_draft_only(date):
             return None
         
-        pre_cleaned_path = self.blogs_dir / date / f"PRE-CLEANED-{date}_digest.json"
-        
         try:
+            pre_cleaned_path = _validate_date_path(date, self.blogs_dir, f"PRE-CLEANED-{date}_digest.json")
+            
             with open(pre_cleaned_path, 'r', encoding='utf-8') as f:
                 digest = json.load(f)
             
@@ -128,6 +194,10 @@ class BlogStatusChecker:
         """
         start = datetime.strptime(start_date, "%Y-%m-%d").date()
         end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        
+        # Validate date range - end must be on or after start
+        if end < start:
+            raise ValueError(f"end_date must be on or after start_date: {end_date} < {start_date}")
         
         result = {
             "published": [],

@@ -17,48 +17,48 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    
-    - name: Test webhook server
-      env:
-        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
-      run: |
-        # Test that the server can start
-        python -c "
-        import sys
-        sys.path.append('.')
-        from webhook_server import app
-        print('Webhook server imports successfully')
-        "
-    
-    - name: Deploy to Cloudflare Workers (if configured)
-      if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
-      run: |
-        echo "Deploying webhook server to Cloudflare Workers..."
-        # Add deployment logic here if using Cloudflare Workers
-        echo "Deployment completed"
-    
-    - name: Notify deployment success
-      env:
-        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-      run: |
-        if [ -n "$DISCORD_WEBHOOK_URL" ]; then
-          echo "Sending deployment notification to Discord..."
-          curl -X POST "$DISCORD_WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d '{"content": "🚀 **Webhook Server Deployed**\n\nBlog-centric notifications and Discord button interactions are now live!"}' \
-            || echo "Failed to send Discord notification, but deployment succeeded"
-        else
-          echo "DISCORD_WEBHOOK_URL not set, skipping notification"
-        fi
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Test webhook server
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
+        run: |
+          # Test that the server can start
+          python -c "
+          import sys
+          sys.path.append('.')
+          from webhook_server import app
+          print('Webhook server imports successfully')
+          "
+      
+      - name: Deploy to Cloudflare Workers (if configured)
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: |
+          echo "Deploying webhook server to Cloudflare Workers..."
+          # Add deployment logic here if using Cloudflare Workers
+          echo "Deployment completed"
+      
+      - name: Notify deployment success
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+            echo "Sending deployment notification to Discord..."
+            curl -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{"content": "🚀 **Webhook Server Deployed**\n\nBlog-centric notifications and Discord button interactions are now live!"}' \
+              || echo "Failed to send Discord notification, but deployment succeeded"
+          else
+            echo "DISCORD_WEBHOOK_URL not set, skipping notification"
+          fi
