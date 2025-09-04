@@ -235,7 +235,7 @@ class FrontmatterGenerator:
         )
     
     def _generate_frontmatter_v3(self, target_date: str, clips_data: List[Dict[str, Any]], events_data: List[Dict[str, Any]], story_packets: List[Any]) -> FrontmatterInfo:
-        """Generate v3 frontmatter that matches the exact requirements specification."""
+        """Generate v3 frontmatter with enhanced BlogPosting schema and rich content."""
         # Parse date
         date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
         
@@ -254,36 +254,55 @@ class FrontmatterGenerator:
         utils = DigestUtils(self.worker_domain, "https://example.com/default.jpg")
         best_image = utils.select_best_image(story_packets)
         
+        # Generate description from lead and content summary
+        description = self._generate_description(lead, story_packets, clips_data, events_data)
+        
         # Build Open Graph metadata with canonical URL
         og_metadata = {
             "og:title": title,
-            "og:description": (
-                f"Daily development log with {len(story_packets)} "
-                f"{'story' if len(story_packets)==1 else 'stories'} from "
-                f"{len(clips_data)} Twitch {'clip' if len(clips_data)==1 else 'clips'} and "
-                f"{len(events_data)} GitHub {'event' if len(events_data)==1 else 'events'}"
-            ),
+            "og:description": description,
             "og:type": "article",
             "og:url": f"{self.frontend_domain}/blog/{target_date}",
             "og:image": best_image,
             "og:site_name": "Daily Devlog"
         }
         
-        # Build schema.org metadata with canonical URL
+        # Build enhanced BlogPosting schema with rich content
+        blog_posting_schema = {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": title,
+            "description": description,
+            "author": {
+                "@type": "Person",
+                "name": self.blog_author,
+                "url": f"{self.frontend_domain}/about"
+            },
+            "datePublished": target_date,
+            "dateModified": target_date,  # Same as published for now
+            "url": f"{self.frontend_domain}/blog/{target_date}",
+            "mainEntityOfPage": f"{self.frontend_domain}/blog/{target_date}",
+            "publisher": {
+                "@type": "Organization",
+                "name": "PCL Labs",
+                "logo": {
+                    "@type": "ImageObject",
+                    "url": f"{self.frontend_domain}/pcl-labs-logo.svg"
+                }
+            },
+            "image": best_image,
+            "keywords": unique_types,
+            "wordCount": self._estimate_word_count(story_packets, clips_data, events_data)
+        }
+        
+        # Add rich content schemas
+        rich_content = self._generate_rich_content_schemas(story_packets, clips_data)
+        if rich_content:
+            blog_posting_schema.update(rich_content)
+        
+        # Build schema.org metadata
         schema_metadata = {
-            "article": {
-                "@context": "https://schema.org",
-                "@type": "Article",
-                "headline": title,
-                "datePublished": target_date,
-                "author": {
-                    "@type": "Person",
-                    "name": self.blog_author
-                },
-                "keywords": unique_types,
-                "url": f"{self.frontend_domain}/blog/{target_date}",
-                "image": best_image
-            }
+            "blogPosting": blog_posting_schema
         }
         
         return FrontmatterInfo(
@@ -294,7 +313,8 @@ class FrontmatterGenerator:
             og=og_metadata,
             schema=schema_metadata,
             tags=unique_types,
-            lead=lead
+            lead=lead,
+            description=description
         )
     
     def _generate_lead(self, story_packets: List[Any]) -> str:
@@ -362,3 +382,123 @@ class FrontmatterGenerator:
                 cleaned[key] = value
         
         return cleaned
+    
+    def _generate_description(self, lead: str, story_packets: List[Any], clips_data: List[Dict[str, Any]], events_data: List[Dict[str, Any]]) -> str:
+        """Generate a comprehensive description for the blog post."""
+        if lead:
+            return lead
+        
+        # Fallback description based on content
+        story_count = len(story_packets)
+        clip_count = len(clips_data)
+        event_count = len(events_data)
+        
+        if story_count > 0:
+            return f"Daily development log with {story_count} {'story' if story_count == 1 else 'stories'} from {clip_count} Twitch {'clip' if clip_count == 1 else 'clips'} and {event_count} GitHub {'event' if event_count == 1 else 'events'}."
+        else:
+            return f"Daily development log with {clip_count} Twitch {'clip' if clip_count == 1 else 'clips'} and {event_count} GitHub {'event' if event_count == 1 else 'events'}."
+    
+    def _estimate_word_count(self, story_packets: List[Any], clips_data: List[Dict[str, Any]], events_data: List[Dict[str, Any]]) -> int:
+        """Estimate word count for the blog post."""
+        word_count = 0
+        
+        # Base content (intro, wrap-up, etc.)
+        word_count += 200
+        
+        # Story packets
+        for packet in story_packets:
+            if hasattr(packet, 'ai_comprehensive_intro') and packet.ai_comprehensive_intro:
+                word_count += len(packet.ai_comprehensive_intro.split())
+            if hasattr(packet, 'why') and packet.why:
+                word_count += len(packet.why.split())
+            if hasattr(packet, 'highlights') and packet.highlights:
+                for highlight in packet.highlights:
+                    word_count += len(highlight.split())
+        
+        # Twitch clips
+        for clip in clips_data:
+            if clip.get('transcript'):
+                word_count += len(clip['transcript'].split())
+        
+        # GitHub events
+        for event in events_data:
+            if event.get('body'):
+                word_count += len(event['body'].split())
+            if event.get('details', {}).get('commit_messages'):
+                for message in event['details']['commit_messages']:
+                    word_count += len(message.split())
+        
+        return max(word_count, 100)  # Minimum 100 words
+    
+    def _generate_rich_content_schemas(self, story_packets: List[Any], clips_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate rich content schemas for videos and images."""
+        rich_content = {}
+        
+        # Generate VideoObject schemas for story packets with videos
+        video_objects = []
+        for packet in story_packets:
+            if hasattr(packet, 'video') and packet.video and hasattr(packet.video, 'status') and packet.video.status == 'rendered':
+                video_schema = {
+                    "@type": "VideoObject",
+                    "name": getattr(packet, 'title_human', 'Story Video'),
+                    "description": getattr(packet, 'why', '')[:200] + "..." if getattr(packet, 'why', '') else "",
+                    "url": getattr(packet.video, 'path', None),
+                    "uploadDate": getattr(packet, 'merged_at', ''),
+                    "thumbnailUrl": getattr(packet.video.thumbnails, 'intro', None) if hasattr(packet.video, 'thumbnails') else None
+                }
+                # Remove None values
+                video_schema = {k: v for k, v in video_schema.items() if v is not None}
+                if video_schema:
+                    video_objects.append(video_schema)
+        
+        # Generate VideoObject schemas for Twitch clips
+        for clip in clips_data:
+            upload_date = clip.get("created_at")
+            if isinstance(upload_date, (datetime, datetime.date)):
+                upload_date = upload_date.isoformat()
+            
+            video_schema = {
+                "@type": "VideoObject",
+                "name": clip.get("title", "Twitch Clip"),
+                "description": clip.get("transcript", "")[:200] + "..." if clip.get("transcript") else "",
+                "url": clip.get("url"),
+                "uploadDate": upload_date,
+                "duration": (
+                    f"PT{int(round(float(clip.get('duration', 0.0))))}S"
+                    if clip.get('duration') is not None else None
+                ),
+                "thumbnailUrl": f"https://clips-media-assets2.twitch.tv/{clip['id']}/preview-480x272.jpg" if clip.get('id') else None
+            }
+            # Remove None values
+            video_schema = {k: v for k, v in video_schema.items() if v is not None}
+            if video_schema:
+                video_objects.append(video_schema)
+        
+        if video_objects:
+            rich_content["video"] = video_objects
+        
+        # Generate ImageObject schemas for story thumbnails
+        image_objects = []
+        for packet in story_packets:
+            if hasattr(packet, 'video') and packet.video and hasattr(packet.video, 'thumbnails'):
+                thumbnails = packet.video.thumbnails
+                # Convert Pydantic model to dict for iteration
+                if hasattr(thumbnails, 'model_dump'):
+                    thumbnails_dict = thumbnails.model_dump()
+                else:
+                    thumbnails_dict = thumbnails.__dict__
+                
+                for thumbnail_type, thumbnail_path in thumbnails_dict.items():
+                    if thumbnail_path:
+                        image_schema = {
+                            "@type": "ImageObject",
+                            "name": f"{getattr(packet, 'title_human', 'Story')} - {thumbnail_type.title()}",
+                            "url": f"{self.worker_domain}/assets/{thumbnail_path}",
+                            "description": f"{thumbnail_type.title()} thumbnail for {getattr(packet, 'title_human', 'story')}"
+                        }
+                        image_objects.append(image_schema)
+        
+        if image_objects:
+            rich_content["image"] = image_objects
+        
+        return rich_content

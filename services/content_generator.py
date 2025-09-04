@@ -338,8 +338,12 @@ class ContentGenerator:
             best_image = self.utils.select_best_image(self.story_packets)
             if "og" in self.frontmatter:
                 self.frontmatter["og"]["og:image"] = best_image
-            if "schema" in self.frontmatter and "article" in self.frontmatter["schema"]:
-                self.frontmatter["schema"]["article"]["image"] = best_image
+            # Update schema image (support both article and blogPosting schemas)
+            if "schema" in self.frontmatter:
+                if "article" in self.frontmatter["schema"]:
+                    self.frontmatter["schema"]["article"]["image"] = best_image
+                elif "blogPosting" in self.frontmatter["schema"]:
+                    self.frontmatter["schema"]["blogPosting"]["image"] = best_image
             
             # 2. Title punch-up (optional)
             current_title = self.frontmatter.get("title", "")
@@ -351,8 +355,12 @@ class ContentGenerator:
                 # Also update og:title and headline in frontmatter
                 if "og" in self.frontmatter:
                     self.frontmatter["og"]["og:title"] = improved_title
-                if "schema" in self.frontmatter and "article" in self.frontmatter["schema"]:
-                    self.frontmatter["schema"]["article"]["headline"] = improved_title
+                # Update schema headline (support both article and blogPosting schemas)
+                if "schema" in self.frontmatter:
+                    if "article" in self.frontmatter["schema"]:
+                        self.frontmatter["schema"]["article"]["headline"] = improved_title
+                    elif "blogPosting" in self.frontmatter["schema"]:
+                        self.frontmatter["schema"]["blogPosting"]["headline"] = improved_title
                 markdown = self._update_title_in_markdown(markdown, improved_title)
             
             # 3. Story micro-intros
