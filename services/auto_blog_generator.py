@@ -74,9 +74,15 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
         
         logger.info(f"Found {story_count} story packets, generating blog...")
         
-        # Save PRE-CLEANED digest
+        # Save PRE-CLEANED digest (videos are already rendered during story packet generation)
         digest_path = builder.save_digest(digest)
         logger.info(f"Saved PRE-CLEANED digest: {digest_path}")
+        
+        # Count rendered videos
+        rendered_count = sum(1 for packet in digest.get('story_packets', []) 
+                           if packet.get('video', {}).get('status') == 'rendered')
+        result["videos_rendered"] = rendered_count
+        logger.info(f"Videos rendered during story packet generation: {rendered_count}")
         
         # Create FINAL digest with AI enhancements
         final_digest = builder.create_final_digest(target_date)
@@ -86,19 +92,6 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
             return result
         
         logger.info(f"Created FINAL digest with AI enhancements")
-        
-        # Render videos for story packets
-        logger.info(f"Rendering videos for {story_count} story packets...")
-        videos_rendered = _render_videos_for_digest(final_digest, target_date)
-        result["videos_rendered"] = videos_rendered
-        logger.info(f"Rendered {videos_rendered} videos")
-        
-        # Save the updated digest with rendered videos
-        if videos_rendered > 0:
-            final_digest_path = builder.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
-            with open(final_digest_path, 'w') as f:
-                json.dump(final_digest, f, indent=2, default=str)
-            logger.info(f"Saved updated FINAL digest with rendered videos: {final_digest_path}")
         
         # Generate API data for R2 serving
         api_data = builder.get_blog_api_data(target_date)
@@ -163,68 +156,6 @@ def generate_missing_blogs(days_back: int = 7) -> Dict[str, Any]:
             logger.warning(f"⚠️ Failed to generate blog for {target_date}: {result['error']}")
     
     return results
-
-
-def _render_videos_for_digest(digest: Dict[str, Any], target_date: str) -> int:
-    """
-    Render videos for all story packets in a digest that need rendering.
-    
-    Args:
-        digest: The digest containing story packets
-        target_date: The date for the blog post
-        
-    Returns:
-        Number of videos successfully rendered
-    """
-    story_packets = digest.get("story_packets", [])
-    rendered_count = 0
-    
-    # Create output directory for videos
-    out_dir = Path("out/videos") / target_date
-    out_dir.mkdir(parents=True, exist_ok=True)
-    
-    for packet in story_packets:
-        story_id = packet.get("id")
-        video_info = packet.get("video", {})
-        
-        # Check if packet needs rendering
-        video_status = video_info.get("status")
-        needs_rendering = video_status != "rendered"
-        
-        if not needs_rendering:
-            logger.info(f"Skipping {story_id} - video already rendered")
-            continue
-        
-        try:
-            logger.info(f"Rendering video for {story_id}...")
-            
-            # Import renderer
-            from tools.renderer_html import render_for_packet
-            
-            # Render the video
-            video_path = render_for_packet(packet, out_dir)
-            
-            # Update packet with video info
-            packet["video"]["status"] = "rendered"
-            packet["video"]["path"] = video_path
-            packet["video"]["canvas"] = "1920x1080"  # Default canvas size
-            
-            # Get video duration
-            from tools.renderer_html import get_video_duration
-            duration = get_video_duration(Path(video_path))
-            if duration > 0:
-                packet["video"]["duration_s"] = duration
-            
-            rendered_count += 1
-            logger.info(f"✅ Rendered video for {story_id}: {video_path}")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to render video for {story_id}: {e}")
-            # Mark as failed
-            packet["video"]["status"] = "failed"
-            packet["video"]["error"] = str(e)
-    
-    return rendered_count
 
 
 if __name__ == "__main__":

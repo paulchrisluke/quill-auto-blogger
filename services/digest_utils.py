@@ -80,9 +80,9 @@ class DigestUtils:
                 raise ValueError(f"Failed to generate thumbnail URL for video: {video_path}")
             return thumbnail_url
         
-        # No suitable video thumbnail found - use default blog image
-        logger.warning("No suitable video thumbnail found in any story packets, using default blog image")
-        return self.blog_default_image
+        # No suitable video thumbnail found
+        logger.error("No suitable video thumbnail found in any story packets")
+        raise ValueError("No suitable video thumbnail found in story packets")
     
     def get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
         """

@@ -377,11 +377,22 @@ class BlogDigestBuilder:
                 pairing = pair_with_clip(pr_event, deduplicated_clips)
                 packet = make_story_packet(pr_event, pairing, deduplicated_clips)
                 
-                # Check for existing video file
+                # Check for existing video file or render if needed
                 video_path = self._find_video_for_story(packet, target_date)
                 if video_path:
                     packet.video.path = video_path
                     packet.video.status = VideoStatus.RENDERED
+                else:
+                    # Render video if it doesn't exist
+                    try:
+                        video_path = self._render_video_for_packet(packet, target_date)
+                        if video_path:
+                            packet.video.path = video_path
+                            packet.video.status = VideoStatus.RENDERED
+                    except Exception as e:
+                        logger.error(f"Failed to render video for {packet.id}: {e}")
+                        packet.video.status = VideoStatus.FAILED
+                        packet.video.error = str(e)
                 
                 story_packets.append(packet)
             else:
@@ -410,15 +421,56 @@ class BlogDigestBuilder:
                 
                 packet.highlights = unique_highlights[:4]  # Max 4 highlights
                 
-                # Check for existing video file
+                # Check for existing video file or render if needed
                 video_path = self._find_video_for_story(packet, target_date)
                 if video_path:
                     packet.video.path = video_path
                     packet.video.status = VideoStatus.RENDERED
+                else:
+                    # Render video if it doesn't exist
+                    try:
+                        video_path = self._render_video_for_packet(packet, target_date)
+                        if video_path:
+                            packet.video.path = video_path
+                            packet.video.status = VideoStatus.RENDERED
+                    except Exception as e:
+                        logger.error(f"Failed to render video for {packet.id}: {e}")
+                        packet.video.status = VideoStatus.FAILED
+                        packet.video.error = str(e)
                 
                 story_packets.append(packet)
         
         return story_packets
+    
+    def _render_video_for_packet(self, packet: StoryPacket, target_date: str) -> Optional[str]:
+        """Render video for a story packet if it doesn't exist."""
+        try:
+            from tools.renderer_html import render_for_packet
+            
+            # Create output directory for videos
+            out_dir = Path("out/videos") / target_date
+            out_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Convert packet to dict format for renderer
+            packet_dict = packet.model_dump(mode="json")
+            
+            # Render the video
+            video_path = render_for_packet(packet_dict, out_dir)
+            
+            # Get video duration
+            from tools.renderer_html import get_video_duration
+            duration = get_video_duration(Path(video_path))
+            
+            # Update packet with video info
+            packet.video.duration_s = duration if duration > 0 else None
+            packet.video.canvas = "1920x1080"  # Default canvas size
+            
+            logger.info(f"Rendered video for {packet.id}: {video_path}")
+            return video_path
+            
+        except Exception as e:
+            logger.error(f"Failed to render video for {packet.id}: {e}")
+            raise
     
     def _find_video_for_story(self, packet: StoryPacket, target_date: str) -> Optional[str]:
         """Find existing video file for a story packet."""
