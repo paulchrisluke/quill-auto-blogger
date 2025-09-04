@@ -129,12 +129,13 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
     return result
 
 
-def generate_missing_blogs(days_back: int = 7) -> Dict[str, Any]:
+def generate_missing_blogs(days_back: int = 7, upload_to_r2: bool = True) -> Dict[str, Any]:
     """
     Generate blogs for missing dates going back a specified number of days.
     
     Args:
         days_back: Number of days to check backwards for missing blogs.
+        upload_to_r2: Whether to upload the generated blogs to R2.
         
     Returns:
         Dictionary with generation results for each date.
@@ -145,7 +146,7 @@ def generate_missing_blogs(days_back: int = 7) -> Dict[str, Any]:
         target_date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
         logger.info(f"Checking for missing blog on {target_date}")
         
-        result = generate_daily_blog(target_date, upload_to_r2=True)
+        result = generate_daily_blog(target_date, upload_to_r2=upload_to_r2)
         results[target_date] = result
         
         if result["success"]:

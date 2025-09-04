@@ -465,7 +465,7 @@ def blog_auto_generate(target_date: str, no_upload: bool, days_back: int):
         else:
             # Generate for missing dates
             click.echo(f"[INFO] Auto-generating blogs for missing dates (last {days_back} days)")
-            results = generate_missing_blogs(days_back)
+            results = generate_missing_blogs(days_back, upload_to_r2=not no_upload)
             
             success_count = sum(1 for r in results.values() if r["success"])
             total_count = len(results)

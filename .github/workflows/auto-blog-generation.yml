@@ -112,6 +112,12 @@ jobs:
           # Get yesterday's date
           yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
           
+          # Check if blog file exists before attempting upload
+          blog_path = Path('blogs') / f'{yesterday}/API-v3-{yesterday}_digest.json'
+          if not blog_path.exists():
+              print(f'No blog for {yesterday}, skipping upload')
+              exit(0)
+          
           try:
               publisher = R2Publisher()
               print(f'Uploading blogs to R2...')
