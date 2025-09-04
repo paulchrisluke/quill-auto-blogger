@@ -74,15 +74,16 @@ class DigestUtils:
                 video_path = best_story["video"]["path"]
             
             # Delegate to the existing helper method for consistent thumbnail URL generation
-            thumbnail_url = self.get_video_thumbnail_url(video_path, best_story.id if hasattr(best_story, 'id') else '')
-            if not thumbnail_url:
-                logger.error(f"Failed to generate thumbnail URL for video: {video_path}")
-                raise ValueError(f"Failed to generate thumbnail URL for video: {video_path}")
-            return thumbnail_url
+            try:
+                thumbnail_url = self.get_video_thumbnail_url(video_path, best_story.id if hasattr(best_story, 'id') else '')
+                return thumbnail_url
+            except ValueError as e:
+                logger.error(f"Failed to generate thumbnail URL for video: {video_path}: {e}")
+                raise
         
         # No suitable video thumbnail found
-        logger.error("No suitable video thumbnail found in any story packets")
-        raise ValueError("No suitable video thumbnail found in story packets")
+        logger.warning("No suitable video thumbnail found in any story packets, using default blog image")
+        return self.blog_default_image
     
     def get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
         """

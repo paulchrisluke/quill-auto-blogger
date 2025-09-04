@@ -61,6 +61,10 @@ class BlogDigestBuilder:
         self.worker_domain = os.getenv("WORKER_DOMAIN", "https://quill-blog-api-prod.paulchrisluke.workers.dev")
         self.media_domain = os.getenv("MEDIA_DOMAIN", "https://media.paulchrisluke.com")
         
+        # Blog signature configuration
+        self.signature_enabled = os.getenv("BLOG_SIGNATURE_ENABLED", "false").lower() == "true"
+        self.signature_text = os.getenv("BLOG_SIGNATURE_TEXT", "")
+        
         # Initialize extracted services
         from .digest_utils import DigestUtils
         from .digest_io import DigestIO
@@ -390,7 +394,7 @@ class BlogDigestBuilder:
                             packet.video.path = video_path
                             packet.video.status = VideoStatus.RENDERED
                     except Exception as e:
-                        logger.error(f"Failed to render video for {packet.id}: {e}")
+                        logger.exception("Failed to render video for %s", packet.id)
                         packet.video.status = VideoStatus.FAILED
                         packet.video.error = str(e)
                 
@@ -434,7 +438,7 @@ class BlogDigestBuilder:
                             packet.video.path = video_path
                             packet.video.status = VideoStatus.RENDERED
                     except Exception as e:
-                        logger.error(f"Failed to render video for {packet.id}: {e}")
+                        logger.exception("Failed to render video for %s", packet.id)
                         packet.video.status = VideoStatus.FAILED
                         packet.video.error = str(e)
                 
@@ -498,9 +502,17 @@ class BlogDigestBuilder:
     def get_blog_api_data(self, target_date: str) -> Dict[str, Any]:
         """Get complete blog data for API consumption with enhanced schema.org and Cloudflare URLs."""
         try:
-            # Always build fresh digest with enhanced schema.org for API consumption
-            logger.info(f"Building enhanced digest for API v3: {target_date}")
-            digest = self.build_digest(target_date)
+            # Load the FINAL digest with AI enhancements instead of building fresh
+            logger.info(f"Loading FINAL digest with AI enhancements for API v3: {target_date}")
+            final_digest_path = self.blogs_dir / target_date / f"FINAL-{target_date}_digest.json"
+            
+            if not final_digest_path.exists():
+                logger.warning(f"FINAL digest not found, falling back to building fresh digest: {final_digest_path}")
+                digest = self.build_digest(target_date)
+            else:
+                with open(final_digest_path, 'r') as f:
+                    digest = json.load(f)
+                logger.info(f"Loaded FINAL digest with AI enhancements for {target_date}")
             
             # Update story packets with Cloudflare URLs
             updated_story_packets = []
@@ -526,11 +538,10 @@ class BlogDigestBuilder:
             content_gen = ContentGenerator(updated_digest, self.utils)
             # Generate full content with story packets and video assets
             consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
-            # Add the blog signature
-            consolidated_content += "\n\n---\n\n[https://upwork.com/freelancers/paulchrisluke](https://upwork.com/freelancers/paulchrisluke)\n\n_Hi. I'm Chris. I am a morally ambiguous technology marketer. Ridiculously rich people ask me to solve problems they didn't know they have. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _like a high-class hooker or find someone who knows how to get ahold of me._"
+            # Add the blog signature if enabled
+            if self.signature_enabled and self.signature_text:
+                consolidated_content += f"\n\n---\n\n{self.signature_text}"
             
-            # Get assets
-            assets = self.get_blog_assets(target_date)
             
             # Build the restructured final blog data with enhanced schema.org JSON-LD
             # Clean frontmatter for API consumption (remove content fields)
