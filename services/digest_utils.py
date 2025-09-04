@@ -213,7 +213,7 @@ class DigestUtils:
             logger.exception("Failed to generate Worker URL for %s", asset_path)
             return f"/{asset_path}"
     
-    def enhance_story_packets_with_thumbnails(self, story_packets: List[Any], _target_date: str) -> List[Any]:
+    def enhance_story_packets_with_thumbnail_urls(self, story_packets: List[Any], _target_date: str) -> List[Any]:
         """
         Enhance story packets with thumbnail URLs for API responses.
         
@@ -285,16 +285,16 @@ class DigestUtils:
         
         return enhanced_packets
 
-    def enhance_story_packets_with_thumbnails(self, story_packets: List[Any], target_date: str) -> List[Any]:
+    def attach_blog_thumbnail_manifest(self, story_packets: List[Any], target_date: str) -> List[Any]:
         """
-        Enhance story packets with thumbnail URLs for video objects.
+        Attach blog thumbnail manifest to story packets for video objects.
         
         Args:
             story_packets: List of story packet objects
             target_date: Date string in YYYY-MM-DD format
             
         Returns:
-            List of enhanced story packets with thumbnail URLs
+            List of enhanced story packets with thumbnail manifest
         """
         enhanced_packets = []
         

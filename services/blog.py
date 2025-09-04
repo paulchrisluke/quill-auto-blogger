@@ -175,7 +175,7 @@ class BlogDigestBuilder:
         )
         
         # Enhance story packets with thumbnail URLs before serialization
-        enhanced_story_packets = self.utils.enhance_story_packets_with_thumbnails(story_packets, target_date)
+        enhanced_story_packets = self.utils.enhance_story_packets_with_thumbnail_urls(story_packets, target_date)
         
         # Build clean digest structure with enhanced schema.org
         digest = {
@@ -546,7 +546,8 @@ class BlogDigestBuilder:
             # Generate consolidated content with enhanced schema.org and AI enhancements
             content_gen = ContentGenerator(updated_digest, self.utils)
             # Generate full content with story packets and video assets
-            consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
+            # Use ai_enabled=False since AI content is already in the FINAL digest
+            consolidated_content = content_gen.generate(ai_enabled=False, related_enabled=True)
             
             # Fix: Replace [AI_GENERATE_LEAD] placeholder with actual lead content
             if "[AI_GENERATE_LEAD]" in consolidated_content:
@@ -579,7 +580,7 @@ class BlogDigestBuilder:
             cleaned_frontmatter = self.frontmatter_gen.clean_frontmatter_for_api(content_gen.frontmatter)
             
             # Add thumbnails to story packets BEFORE adding video objects to schema
-            updated_story_packets = self.utils.enhance_story_packets_with_thumbnails(updated_story_packets, target_date)
+            updated_story_packets = self.utils.attach_blog_thumbnail_manifest(updated_story_packets, target_date)
             
             # Add video objects to the frontmatter schema
             enhanced_schema = self.frontmatter_gen.add_video_objects_to_schema(
@@ -622,8 +623,7 @@ class BlogDigestBuilder:
                     "image": blog_posting_schema.get('image'),
                     "keywords": blog_posting_schema.get('keywords'),
                     "wordCount": blog_posting_schema.get('wordCount'),
-                    "video": blog_posting_schema.get('video'),
-                    "articleBody": consolidated_content
+                    "video": blog_posting_schema.get('video')
                 })
             
             

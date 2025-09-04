@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import re
 import httpx
 from datetime import datetime, date
 from pathlib import Path
@@ -118,10 +119,10 @@ class RelatedPostsService:
             
             # Only include posts with a meaningful score
             if score > 0.0:
-                # Format date to ISO format with timezone
+                # Format date to ISO format with timezone - only convert plain YYYY-MM-DD strings
                 date_str = post["date"]
-                if date_str and not date_str.endswith("Z"):
-                    # Convert YYYY-MM-DD to YYYY-MM-DDTHH:MM:SSZ
+                if date_str and re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+                    # Convert plain YYYY-MM-DD to YYYY-MM-DDTHH:MM:SSZ
                     date_str = f"{date_str}T00:00:00Z"
                 
                 related_post = {
@@ -131,7 +132,8 @@ class RelatedPostsService:
                     "date": date_str,
                     "image": self._get_featured_image(post),
                     "description": post.get("description", ""),
-                    "tags": post.get("tags", [])
+                    "tags": post.get("tags", []),
+                    "path": post.get('path', post.get('url', f"https://paulchrisluke.com/blog/{post.get('date', '')}"))
                 }
                 scored_posts.append(related_post)
             else:
@@ -420,16 +422,17 @@ class RelatedPostsService:
             return None
     
     def _load_local_final_digests(self) -> List[Dict[str, Any]]:
-        """Load all FINAL and PRE-CLEANED digests from the local blogs directory."""
+        """Load all FINAL and PRE-CLEANED digests from the local blogs directory, preferring FINAL and deduping by date."""
         posts = []
+        seen_dates = set()
         
         try:
             # Find all FINAL and PRE-CLEANED digest files
             final_files = list(self.blogs_dir.rglob("FINAL-*_digest.json"))
             pre_cleaned_files = list(self.blogs_dir.rglob("PRE-CLEANED-*_digest.json"))
-            all_files = final_files + pre_cleaned_files
             
-            for file_path in all_files:
+            # Process FINAL files first (preferred)
+            for file_path in final_files:
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         digest = json.load(f)
@@ -441,6 +444,10 @@ class RelatedPostsService:
                     if not post_date or not frontmatter:
                         continue
                     
+                    # Skip if we've already seen this date (from a FINAL file)
+                    if post_date in seen_dates:
+                        continue
+                    
                     # Create post data structure
                     post_data = {
                         "title": frontmatter.get("title", ""),
@@ -448,18 +455,61 @@ class RelatedPostsService:
                         "tags": frontmatter.get("tags", []),
                         "description": frontmatter.get("description", ""),
                         "url": f"https://paulchrisluke.com/blog/{post_date}",
+                        "path": f"/blog/{post_date}",
                         "digest": digest
                     }
                     
                     posts.append(post_data)
+                    seen_dates.add(post_date)
                     
-                except Exception as e:
-                    logger.warning(f"Failed to load FINAL digest {file_path}: {e}")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON in FINAL digest {file_path}: {e}")
+                    continue
+                except OSError as e:
+                    logger.warning(f"Failed to read FINAL digest {file_path}: {e}")
                     continue
             
-            logger.info(f"Loaded {len(posts)} posts from local FINAL digests")
+            # Process PRE-CLEANED files (fallback for dates not found in FINAL)
+            for file_path in pre_cleaned_files:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        digest = json.load(f)
+                    
+                    # Extract post information
+                    frontmatter = digest.get("frontmatter", {})
+                    post_date = digest.get("date", "")
+                    
+                    if not post_date or not frontmatter:
+                        continue
+                    
+                    # Skip if we've already seen this date (from a FINAL file)
+                    if post_date in seen_dates:
+                        continue
+                    
+                    # Create post data structure
+                    post_data = {
+                        "title": frontmatter.get("title", ""),
+                        "date": post_date,
+                        "tags": frontmatter.get("tags", []),
+                        "description": frontmatter.get("description", ""),
+                        "url": f"https://paulchrisluke.com/blog/{post_date}",
+                        "path": f"/blog/{post_date}",
+                        "digest": digest
+                    }
+                    
+                    posts.append(post_data)
+                    seen_dates.add(post_date)
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON in PRE-CLEANED digest {file_path}: {e}")
+                    continue
+                except OSError as e:
+                    logger.warning(f"Failed to read PRE-CLEANED digest {file_path}: {e}")
+                    continue
+            
+            logger.info(f"Loaded {len(posts)} posts from local digests (FINAL and PRE-CLEANED)")
             return posts
             
         except Exception as e:
-            logger.error(f"Failed to load local FINAL digests: {e}")
+            logger.exception(f"Failed to load local digests: {e}")
             return []

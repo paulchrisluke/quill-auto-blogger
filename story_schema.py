@@ -90,6 +90,8 @@ class FrontmatterInfo(BaseModel):
     title: str
     date: str
     author: Optional[str] = None
+    canonical: Optional[str] = None
+    image: Optional[str] = None
     og: Dict[str, Any] = Field(default_factory=dict)
     schema_data: Dict[str, Any] = Field(default_factory=dict, alias="schema")
     tags: List[str] = Field(default_factory=list)

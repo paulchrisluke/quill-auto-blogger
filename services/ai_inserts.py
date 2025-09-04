@@ -479,21 +479,6 @@ class AIInsertsService:
         
         return fallback
     
-    def _fallback_story_micro_intro(self, story_inputs: Dict[str, Any]) -> str:
-        """Generate fallback story micro-intro."""
-        title = story_inputs.get('title', '')
-        why = story_inputs.get('why', '')
-        
-        fallback = f"{title}: {why}".strip()
-        
-        # Clamp to 160 chars and ensure period
-        if len(fallback) > 160:
-            fallback = fallback[:157] + "..."
-        
-        if not fallback.endswith('.'):
-            fallback += '.'
-        
-        return fallback
 
     def make_holistic_intro(self, date: str, inputs: Dict[str, Any], force_ai: bool = False) -> str:
         """Generate holistic intro paragraph in Paul Chris Luke's voice."""

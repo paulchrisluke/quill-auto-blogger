@@ -3,6 +3,7 @@ Feed generation service for RSS and sitemap.
 Generates feeds that link to canonical Nuxt frontend URLs.
 """
 
+import html
 import json
 import logging
 from datetime import datetime
@@ -11,6 +12,14 @@ from typing import List, Dict, Any, Optional
 from urllib.parse import urljoin
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_cdata(content: str) -> str:
+    """Make content safe for CDATA by splitting ]] sequences."""
+    if not content:
+        return content
+    # Replace ]] with ]]]]><![CDATA[> to prevent CDATA termination
+    return content.replace("]]>", "]]]]><![CDATA[>")
 
 
 class FeedGenerator:
@@ -86,21 +95,31 @@ class FeedGenerator:
                 # Get full content for content:encoded
                 full_content = blog.get('content', {}).get('body', description)
                 
+                # Escape values for XML
+                title = html.escape(frontmatter.get('title', f'PCL Labs Devlog — {date_str}'))
+                link = html.escape(canonical_url)
+                creator = html.escape(frontmatter.get('author', 'Paul Chris Luke'))
+                
+                # Make content safe for CDATA
+                safe_description = _safe_cdata(description)
+                safe_full_content = _safe_cdata(full_content)
+                
                 rss_content += f"""    <item>
-      <title>{frontmatter.get('title', f'PCL Labs Devlog — {date_str}')}</title>
-      <link>{canonical_url}</link>
-      <guid isPermaLink="true">{canonical_url}</guid>
+      <title>{title}</title>
+      <link>{link}</link>
+      <guid isPermaLink="true">{link}</guid>
       <pubDate>{rss_date}</pubDate>
-      <description><![CDATA[{description}]]></description>
-      <content:encoded><![CDATA[{full_content}]]></content:encoded>
-      <dc:creator>{frontmatter.get('author', 'Paul Chris Luke')}</dc:creator>
+      <description><![CDATA[{safe_description}]]></description>
+      <content:encoded><![CDATA[{safe_full_content}]]></content:encoded>
+      <dc:creator>{creator}</dc:creator>
       <dc:date>{date_str}T00:00:00Z</dc:date>"""
                 
                 # Add categories from tags
                 tags = frontmatter.get('tags', [])
                 for tag in tags[:5]:  # Limit to 5 categories
+                    escaped_tag = html.escape(tag)
                     rss_content += f"""
-      <category>{tag}</category>"""
+      <category>{escaped_tag}</category>"""
                 
                 if image_url:
                     rss_content += f"""
@@ -172,16 +191,32 @@ class FeedGenerator:
         Get the last modified date for a blog post.
         
         Priority:
-        1. dateModified from schema
-        2. datePublished from schema  
-        3. Frontmatter date
-        4. Blog date
-        5. Current date as fallback
+        1. dateModified from top-level schema (new format)
+        2. dateModified from legacy schema.blogPosting
+        3. datePublished from top-level schema (new format)
+        4. datePublished from legacy schema.blogPosting
+        5. Frontmatter date
+        6. Blog date
+        7. Current date as fallback
         """
         try:
-            # Try to get from schema dateModified
             frontmatter = blog.get('frontmatter', {})
             schema = frontmatter.get('schema', {})
+            
+            # Try new top-level schema format first
+            if schema.get('dateModified'):
+                date_modified = schema['dateModified']
+                if 'T' in date_modified:
+                    return date_modified.split('T')[0]
+                return date_modified
+            
+            if schema.get('datePublished'):
+                date_published = schema['datePublished']
+                if 'T' in date_published:
+                    return date_published.split('T')[0]
+                return date_published
+            
+            # Try legacy schema.blogPosting format
             blog_posting = schema.get('blogPosting', {})
             
             if blog_posting.get('dateModified'):

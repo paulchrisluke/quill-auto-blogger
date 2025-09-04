@@ -79,6 +79,11 @@ class ContentGenerator:
                         content_parts.append(f"#### {packet.get('title_human', packet.get('title_raw', 'Untitled'))}")
                         content_parts.append("")
                         
+                        # Add AI comprehensive intro if available
+                        if packet.get('ai_comprehensive_intro'):
+                            content_parts.append(packet['ai_comprehensive_intro'])
+                            content_parts.append("")
+                        
                         # Add highlights as simple list
                         if packet.get('highlights'):
                             for highlight in packet['highlights']:
@@ -282,16 +287,40 @@ class ContentGenerator:
     def _replace_placeholders(self, markdown: str) -> str:
         """Replace placeholders with basic content when AI is disabled."""
         # Replace video placeholders with simple links
-        markdown = re.sub(r'\[video: ([^\]]+)\]', r'**Video:** [Watch Story](\1)', markdown)
+        def replace_video_safe(match):
+            video_path = match.group(1)
+            if self._is_safe_url(video_path):
+                return f'**Video:** [Watch Story]({video_path})'
+            else:
+                return f'**Video:** Watch Story'
+        markdown = re.sub(r'\[video: ([^\]]+)\]', replace_video_safe, markdown)
         
         # Replace PR placeholders with simple links
-        markdown = re.sub(r'\[pr: ([^\]]+)\]', r'**PR:** [\1](\1)', markdown)
+        def replace_pr_safe(match):
+            pr_url = match.group(1)
+            if self._is_safe_url(pr_url):
+                return f'**PR:** [{pr_url}]({pr_url})'
+            else:
+                return f'**PR:** {pr_url}'
+        markdown = re.sub(r'\[pr: ([^\]]+)\]', replace_pr_safe, markdown)
         
         # Replace clip placeholders with simple links
-        markdown = re.sub(r'\[clip: ([^\]]+)\]', r'**Clip:** [Watch](\1)', markdown)
+        def replace_clip_safe(match):
+            clip_url = match.group(1)
+            if self._is_safe_url(clip_url):
+                return f'**Clip:** [Watch]({clip_url})'
+            else:
+                return f'**Clip:** Watch'
+        markdown = re.sub(r'\[clip: ([^\]]+)\]', replace_clip_safe, markdown)
         
         # Replace event placeholders with simple links
-        markdown = re.sub(r'\[event: ([^\]]+)\]', r'**Event:** [View](\1)', markdown)
+        def replace_event_safe(match):
+            event_url = match.group(1)
+            if self._is_safe_url(event_url):
+                return f'**Event:** [View]({event_url})'
+            else:
+                return f'**Event:** View'
+        markdown = re.sub(r'\[event: ([^\]]+)\]', replace_event_safe, markdown)
         
         # Remove AI placeholders
         markdown = markdown.replace("[AI_HOLISTIC_INTRO]", "")
@@ -394,10 +423,10 @@ class ContentGenerator:
                 return f"**PR:** [{pr_url}]({pr_url})"
             else:
                 logger.warning(f"Skipping unsafe PR URL: {pr_url}")
-                return ""
+                return f"**PR:** {pr_url}"
         except Exception as e:
             logger.warning(f"Failed to generate PR description: {e}")
-            return f"**PR:** [{pr_url}]({pr_url})"
+            return f"**PR:** {pr_url}"
     
     def _generate_clip_description(self, clip_url: str, ai_service, force_ai: bool = False) -> str:
         """Generate AI description for a Twitch clip."""
@@ -410,17 +439,26 @@ class ContentGenerator:
                     break
             
             if clip_data:
-                description = f"**Clip:** [Watch]({clip_url})"
+                if self._is_safe_url(clip_url):
+                    description = f"**Clip:** [Watch]({clip_url})"
+                else:
+                    description = f"**Clip:** Watch"
                 if clip_data.get('duration') is not None:
                     description += f" ({clip_data['duration']}s)"
                 if clip_data.get('view_count'):
                     description += f" - {clip_data['view_count']} views"
                 return description
             else:
-                return f"**Clip:** [Watch]({clip_url})"
+                if self._is_safe_url(clip_url):
+                    return f"**Clip:** [Watch]({clip_url})"
+                else:
+                    return f"**Clip:** Watch"
         except Exception as e:
             logger.warning(f"Failed to generate clip description: {e}")
-            return f"**Clip:** [Watch]({clip_url})"
+            if self._is_safe_url(clip_url):
+                return f"**Clip:** [Watch]({clip_url})"
+            else:
+                return f"**Clip:** Watch"
     
     def _generate_event_description(self, event_url: str, ai_service, force_ai: bool = False) -> str:
         """Generate AI description for a GitHub event."""
@@ -433,15 +471,24 @@ class ContentGenerator:
                     break
             
             if event_data:
-                description = f"**Event:** [View]({event_url})"
+                if self._is_safe_url(event_url):
+                    description = f"**Event:** [View]({event_url})"
+                else:
+                    description = f"**Event:** View"
                 if event_data.get('actor'):
                     description += f" by {event_data['actor']}"
                 return description
             else:
-                return f"**Event:** [View]({event_url})"
+                if self._is_safe_url(event_url):
+                    return f"**Event:** [View]({event_url})"
+                else:
+                    return f"**Event:** View"
         except Exception as e:
             logger.warning(f"Failed to generate event description: {e}")
-            return f"**Event:** [View]({event_url})"
+            if self._is_safe_url(event_url):
+                return f"**Event:** [View]({event_url})"
+            else:
+                return f"**Event:** View"
     
     def _is_safe_url(self, url: str) -> bool:
         """

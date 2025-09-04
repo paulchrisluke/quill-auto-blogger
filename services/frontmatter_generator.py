@@ -3,7 +3,7 @@ Frontmatter generation for blog posts.
 """
 
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from story_schema import FrontmatterInfo
 from .digest_utils import DigestUtils
 
@@ -11,7 +11,7 @@ from .digest_utils import DigestUtils
 class FrontmatterGenerator:
     """Generate clean frontmatter for blog posts."""
 
-    def __init__(self, author: str, base_url: str, media_domain: str, frontend_domain: str = None):
+    def __init__(self, author: str, base_url: str, media_domain: str, frontend_domain: Optional[str] = None):
         self.author = author
         self.base_url = base_url.rstrip("/")
         self.media = media_domain

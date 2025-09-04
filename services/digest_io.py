@@ -4,12 +4,14 @@ File I/O operations for digest building.
 
 import json
 import logging
+import requests
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from pydantic import ValidationError
 from models import TwitchClip, GitHubEvent
 from .ai_inserts import AIInsertsService
+from .ai_client import AIClientError
 from services.utils import CacheManager
 
 logger = logging.getLogger(__name__)
@@ -82,8 +84,8 @@ class DigestIO:
             self.cache.atomic_write_json(final_path, digest, overwrite=True)
             logger.info(f"Created FINAL digest: {final_path}")
             return digest
-        except Exception as e:
-            logger.error(f"AI enhancement failed: {e}")
+        except (AIClientError, requests.exceptions.RequestException, ValueError, RuntimeError) as e:
+            logger.exception(f"AI enhancement failed: {e}")
             return None
 
     def _enhance_with_ai(self, date: str, digest: Dict[str, Any], ai: AIInsertsService) -> Dict[str, Any]:
@@ -126,8 +128,13 @@ class DigestIO:
         digest["story_packets"] = enhanced_packets
 
         # Update schema description if present
-        if "schema" in front and "blogPosting" in front["schema"]:
-            front["schema"]["blogPosting"]["description"] = front["description"]
+        if "schema" in front:
+            if "blogPosting" in front["schema"]:
+                # Old format: schema contains blogPosting dict
+                front["schema"]["blogPosting"]["description"] = front["description"]
+            else:
+                # New format: schema is the BlogPosting object directly
+                front["schema"]["description"] = front["description"]
 
         # Add related posts (Python processing, no AI needed)
         from .related import RelatedPostsService
