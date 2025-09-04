@@ -442,5 +442,48 @@ def site_publish(dry_run):
         raise SystemExit(1)
 
 
+@blog.command("auto-generate")
+@click.option("--date", "target_date", help="Date in YYYY-MM-DD format (defaults to yesterday)")
+@click.option("--no-upload", is_flag=True, help="Skip R2 upload")
+@click.option("--days-back", default=1, help="Number of days back to check for missing blogs")
+def blog_auto_generate(target_date: str, no_upload: bool, days_back: int):
+    """Automatically generate blog posts for missing dates."""
+    try:
+        from services.auto_blog_generator import generate_daily_blog, generate_missing_blogs
+        
+        if target_date:
+            # Generate for specific date
+            click.echo(f"[INFO] Auto-generating blog for {target_date}")
+            result = generate_daily_blog(target_date, upload_to_r2=not no_upload)
+            
+            if result["success"]:
+                click.echo(f"[OK] ✅ Successfully generated blog for {result['date']}")
+                click.echo(f"[INFO] Story packets: {result['story_count']}")
+                click.echo(f"[INFO] R2 uploaded: {result['r2_uploaded']}")
+            else:
+                click.echo(f"[WARN] ⚠️ Blog generation skipped for {result['date']}: {result['error']}")
+        else:
+            # Generate for missing dates
+            click.echo(f"[INFO] Auto-generating blogs for missing dates (last {days_back} days)")
+            results = generate_missing_blogs(days_back)
+            
+            success_count = sum(1 for r in results.values() if r["success"])
+            total_count = len(results)
+            
+            click.echo(f"[OK] Generated {success_count}/{total_count} missing blogs")
+            
+            for date, result in results.items():
+                if result["success"]:
+                    click.echo(f"[OK] ✅ {date}: {result['story_count']} story packets")
+                elif result["error"] == "Blog already exists":
+                    click.echo(f"[INFO] ⏭️ {date}: Already exists")
+                else:
+                    click.echo(f"[WARN] ⚠️ {date}: {result['error']}")
+        
+    except Exception as e:
+        click.echo(f"[ERR] Failed to auto-generate blogs: {e}")
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
     devlog()

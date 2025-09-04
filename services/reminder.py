@@ -170,6 +170,28 @@ def scan_and_notify() -> None:
                 if merged_dt < cutoff:
                     _post_discord(f"⏰ Reminder: `{p.get('id')}` **{p.get('title_human','Story')}** still needs an explainer. Try `/record_start {p.get('id')}`.")
                     
+def auto_generate_daily_blog():
+    """Automatically generate daily blog post."""
+    try:
+        from .auto_blog_generator import generate_daily_blog
+        
+        result = generate_daily_blog()
+        
+        if result["success"]:
+            message = f"✅ **Auto Blog Generated** — {result['date']}\n\nDaily blog post automatically generated with {result['story_count']} story packets!"
+            if result["r2_uploaded"]:
+                message += "\n📤 Uploaded to production successfully!"
+            else:
+                message += f"\n⚠️ R2 upload failed: {result['error']}"
+        else:
+            message = f"⚠️ **Auto Blog Generation Skipped** — {result['date']}\n\nReason: {result['error']}"
+        
+        _post_discord(message)
+        
+    except Exception as e:
+        error_msg = f"❌ **Auto Blog Generation Error**\n\nError: {str(e)}"
+        _post_discord(error_msg)
+
 def run_forever():
     # Check timezone before scheduling
     if not _check_timezone_is_utc():
@@ -179,6 +201,7 @@ def run_forever():
     schedule.every().day.at("09:00").do(daily_rollup_report)  # 9am UTC daily
     schedule.every().monday.at("09:00").do(weekly_backlog_report)  # Monday 9am UTC
     schedule.every().day.at("10:00").do(missing_blog_reminder)  # 10am UTC daily
+    schedule.every().day.at("11:00").do(auto_generate_daily_blog)  # 11am UTC daily - auto blog generation
     
     # Legacy story-level scanning (can be removed later)
     schedule.every(30).minutes.do(scan_and_notify)

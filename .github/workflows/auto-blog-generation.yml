@@ -1,0 +1,165 @@
+name: Auto Blog Generation
+
+on:
+  schedule:
+    # Daily blog generation at 11am UTC (after data collection)
+    - cron: '0 11 * * *'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  generate-blog:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Generate Daily Blog
+        env:
+          BLOG_AUTHOR: "Paul Chris Luke"
+          BLOG_BASE_URL: "https://paulchrisluke.com"
+          BLOG_DEFAULT_IMAGE: "https://paulchrisluke.com/pcl-labs-logo.svg"
+          WORKER_DOMAIN: "https://quill-blog-api-prod.paulchrisluke.workers.dev"
+          MEDIA_DOMAIN: "https://media.paulchrisluke.com"
+        run: |
+          python -c "
+          import sys
+          sys.path.append('.')
+          from services.blog import BlogDigestBuilder
+          from datetime import datetime, timedelta
+          import os
+          
+          # Get yesterday's date (since we run at 11am UTC, we want the previous day's blog)
+          yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+          print(f'Generating blog for date: {yesterday}')
+          
+          try:
+              # Initialize blog builder
+              builder = BlogDigestBuilder()
+              
+              # Check if data exists for this date
+              data_dir = builder.data_dir / yesterday
+              if not data_dir.exists():
+                  print(f'No data found for {yesterday}, skipping blog generation')
+                  exit(0)
+              
+              # Check if blog already exists
+              blog_dir = builder.blogs_dir / yesterday
+              if blog_dir.exists() and (blog_dir / f'API-v3-{yesterday}_digest.json').exists():
+                  print(f'Blog already exists for {yesterday}, skipping generation')
+                  exit(0)
+              
+              # Generate the blog
+              print(f'Building digest for {yesterday}...')
+              digest = builder.build_digest(yesterday)
+              
+              # Check if we have story packets (merged PRs)
+              story_count = len(digest.get('story_packets', []))
+              if story_count == 0:
+                  print(f'No story packets found for {yesterday}, skipping blog generation')
+                  exit(0)
+              
+              print(f'Found {story_count} story packets, generating blog...')
+              
+              # Save PRE-CLEANED digest
+              digest_path = builder.save_digest(digest)
+              print(f'Saved PRE-CLEANED digest: {digest_path}')
+              
+              # Create FINAL digest with AI enhancements
+              final_digest = builder.create_final_digest(yesterday)
+              if final_digest:
+                  print(f'Created FINAL digest with AI enhancements')
+              else:
+                  print(f'ERROR: Failed to create FINAL digest')
+                  exit(1)
+              
+              # Generate API data for R2 serving
+              api_data = builder.get_blog_api_data(yesterday)
+              print(f'Generated API data with {len(api_data.get(\"story_packets\", []))} story packets')
+              
+              print(f'✅ Successfully generated blog for {yesterday}')
+              
+          except Exception as e:
+              print(f'❌ Error generating blog for {yesterday}: {e}')
+              import traceback
+              traceback.print_exc()
+              exit(1)
+          "
+      
+      - name: Upload to R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+        run: |
+          python -c "
+          import sys
+          sys.path.append('.')
+          from services.publisher_r2 import R2Publisher
+          from pathlib import Path
+          from datetime import datetime, timedelta
+          
+          # Get yesterday's date
+          yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+          
+          try:
+              publisher = R2Publisher()
+              print(f'Uploading blogs to R2...')
+              results = publisher.publish_blogs(Path('blogs'))
+              
+              # Check if our blog was uploaded
+              blog_key = f'{yesterday}/API-v3-{yesterday}_digest.json'
+              if blog_key in results and results[blog_key]:
+                  print(f'✅ Successfully uploaded blog for {yesterday} to R2')
+              else:
+                  print(f'❌ Failed to upload blog for {yesterday} to R2')
+                  print(f'Upload results: {results}')
+                  exit(1)
+                  
+          except Exception as e:
+              print(f'❌ Error uploading to R2: {e}')
+              import traceback
+              traceback.print_exc()
+              exit(1)
+          "
+      
+      - name: Notify Success
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import sys
+          sys.path.append('.')
+          from datetime import datetime, timedelta
+          import requests
+          import json
+          import os
+          
+          yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+          
+          webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
+          if not webhook_url:
+              print('No Discord webhook URL configured, skipping notification')
+              exit(0)
+          
+          message = {
+              'content': f'✅ **Auto Blog Generated** — {yesterday}\n\nDaily blog post has been automatically generated and uploaded to production!'
+          }
+          
+          try:
+              response = requests.post(webhook_url, json=message)
+              response.raise_for_status()
+              print('✅ Success notification sent to Discord')
+          except Exception as e:
+              print(f'❌ Failed to send Discord notification: {e}')
+          "
