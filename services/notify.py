@@ -89,7 +89,7 @@ def notify_digest_summary(date: str, count: int, url: str, webhook_url: str) -> 
     """
     try:
         message = (
-            f"📊 **Daily Devlog Summary — {date}**\n\n"
+            f"📊 **PCL-Labs Summary — {date}**\n\n"
             f"Shipped {count} {'story' if count == 1 else 'stories'} today!\n\n"
             f"📖 **Read the full devlog:** {url}"
         )

@@ -164,6 +164,15 @@ async function serveR2Asset(env, key, request) {
       headers.set('Cache-Control', 'public, max-age=300, s-maxage=1800'); // 5 min browser, 30 min edge
       headers.set('CDN-Cache-Control', 'public, max-age=1800'); // 30 min edge
       headers.set('Cache-Tag', 'json,assets');
+      
+      // Add SEO headers for blog JSON files
+      if (key.includes('API-v3-') && key.includes('_digest.json')) {
+        headers.set('X-Robots-Tag', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        headers.set('X-Frame-Options', 'SAMEORIGIN');
+        headers.set('X-XSS-Protection', '1; mode=block');
+        headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+      }
     } else if (ext === 'xml') {
       headers.set('Content-Type', 'application/xml');
       headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400'); // 1 hour browser, 24 hours edge

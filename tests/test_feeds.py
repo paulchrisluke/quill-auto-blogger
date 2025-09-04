@@ -60,9 +60,9 @@ class TestFeedGenerator:
         assert '</channel>' in rss_content
         
         # Check channel metadata
-        assert '<title>Daily Devlog</title>' in rss_content
+        assert '<title>Paul Chris Luke - PCL Labs</title>' in rss_content
         assert '<link>https://testblog.com</link>' in rss_content
-        assert '<description>Daily development log with Twitch clips and GitHub events</description>' in rss_content
+        assert '<description>Daily development log with AI-enhanced content, Twitch clips, and GitHub events. Featuring automation, programming insights, and technical tutorials from PCL Labs.</description>' in rss_content
         
         # Check items
         assert '<item>' in rss_content

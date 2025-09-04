@@ -27,6 +27,7 @@ class AIInsertsService:
         self.ai_enabled = os.getenv("AI_POLISH_ENABLED", "false").lower() == "true"
         self.cache_dir = Path("blogs/.cache/m5")
         self.ai_client = None
+        self.voice_prompt = self._load_voice_prompt()
         
         if self.ai_enabled:
             try:
@@ -38,6 +39,23 @@ class AIInsertsService:
         
         # Ensure cache directory exists
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _load_voice_prompt(self) -> str:
+        """Load the voice prompt from the configured path."""
+        voice_prompt_path = os.getenv("BLOG_VOICE_PROMPT_PATH", "prompts/paul_chris_luke.md")
+        
+        try:
+            if os.path.exists(voice_prompt_path):
+                with open(voice_prompt_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    logger.info(f"Loaded voice prompt from {voice_prompt_path}")
+                    return content
+            else:
+                logger.warning(f"Voice prompt file not found: {voice_prompt_path}")
+                return ""
+        except Exception as e:
+            logger.error(f"Failed to load voice prompt: {e}")
+            return ""
     
     def make_seo_description(
         self, 
@@ -64,10 +82,11 @@ class AIInsertsService:
         if self.ai_enabled and self.ai_client:
             try:
                 system_prompt = (
-                    "You are editing a published devlog. Write a keyword-rich SEO description (1–2 sentences). "
-                    "Include technical terms like 'APIs', 'background jobs', 'drafting', 'enriching', 'publishing', 'automation'. "
-                    "No marketing fluff. No emojis. Keep it factual and helpful. "
-                    "Return plain text only. <= 220 characters."
+                    f"{self.voice_prompt}\n\n"
+                    "Write a keyword-rich SEO description (1–3 sentences) in Paul Chris Luke's voice. "
+                    "Include technical keywords like 'AI blog automation', 'schema-driven SEO', 'Twitch transcription', 'content deduplication', 'developer devlog'. "
+                    "Aim for 120-180 characters."
+                    "Return plain text only."
                 )
                 
                 user_prompt = (
@@ -75,11 +94,17 @@ class AIInsertsService:
                     f"Tags: {inputs.get('tags_csv', '')}\n"
                     f"Lead: {inputs.get('lead', '')}\n"
                     f"Stories: {inputs.get('story_titles_csv', '')}\n"
-                    f"Goal: 1–2 sentence description with technical keywords, <= 220 chars. Plain text only."
+                    f"Goal: 1–3 sentences with technical keywords, 120-180 chars. Plain text only."
                 )
                 
                 result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=100)
-                sanitized = self._sanitize_text(result, max_length=220, ensure_period=True)
+                sanitized = self._sanitize_text(result, max_length=160, ensure_period=True)
+                
+                # Fix incomplete sentences that end with dangling words
+                sanitized = self._fix_incomplete_sentences(sanitized)
+                
+                # Ensure proper length for SEO (150-160 chars) without ellipses
+                sanitized = self._clamp_seo_description(sanitized)
                 
                 if sanitized:
                     self._cache_result(date, cache_key, sanitized)
@@ -87,6 +112,8 @@ class AIInsertsService:
                     
             except AIClientError as e:
                 logger.warning(f"AI generation failed for SEO description: {e}")
+            except Exception as e:
+                logger.warning(f"Unexpected error in SEO description generation: {e}")
         
         # Fallback
         fallback = self._fallback_seo_description(inputs)
@@ -99,7 +126,7 @@ class AIInsertsService:
         force_ai: bool = False
     ) -> Optional[str]:
         """
-        Generate improved title (≤80 chars, must include "Daily Devlog").
+        Generate improved title (25-70 chars).
         
         Args:
             date: Date in YYYY-MM-DD format
@@ -117,15 +144,24 @@ class AIInsertsService:
         if self.ai_enabled and self.ai_client:
             try:
                 system_prompt = (
-                    "Create an SEO-optimized title that describes the main features shipped today. "
+                    f"{self.voice_prompt}\n\n"
+                    "Create an SEO-optimized title that describes the main features shipped today in Paul Chris Luke's voice. "
                     "Focus on technical keywords like 'AI', 'Content Generation', 'Schema', 'Automation', 'Blog Generation'. "
-                    "Make it descriptive and engaging for developers. Keep under 80 chars. Return only the title."
+                    "Aim for 25-70 characters. "
+                    "Return only the title."
                 )
                 
-                user_prompt = f"Current title: {title}\n\nCreate a descriptive title that highlights the main features shipped today. Include technical keywords for better SEO."
+                user_prompt = f"Current title: {title}\n\nCreate a descriptive title that highlights the main features shipped today. Include technical keywords for better SEO. Aim for 25-70 characters."
                 
                 result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=60)
-                sanitized = self._sanitize_text(result, max_length=80, ensure_period=False)
+                sanitized = self._sanitize_text(result, max_length=70, ensure_period=False, strip_period=True)
+                
+                # Ensure minimum length for SEO
+                if sanitized and len(sanitized) < 25:
+                    # Pad with additional context if too short
+                    sanitized = f"PCL Labs: {sanitized}"
+                    if len(sanitized) > 70:
+                        sanitized = sanitized[:67] + "..."
                 
                 if sanitized:
                     if self._validate_title_guardrails(sanitized, title):
@@ -148,7 +184,7 @@ class AIInsertsService:
         force_ai: bool = False
     ) -> str:
         """
-        Generate micro-intro for a story (15-28 words).
+        Generate micro-intro for a story (10-35 words).
         
         Args:
             date: Date in YYYY-MM-DD format
@@ -166,7 +202,7 @@ class AIInsertsService:
         if self.ai_enabled and self.ai_client:
             try:
                 system_prompt = (
-                    "Write one sentence explaining why this change matters. 15–28 words. "
+                    "Write two sentences explaining why this change matters. "
                     "No emojis. No marketing speak. Plain text only."
                 )
                 
@@ -174,23 +210,24 @@ class AIInsertsService:
                     f"Title: {story_inputs.get('title', '')}\n"
                     f"Why: {story_inputs.get('why', '')}\n"
                     f"Highlights: {story_inputs.get('highlights_csv', '')}\n"
-                    f"Goal: One sentence, 15–28 words. Plain text only."
+                    f"Goal: Two sentences, Plain text only."
                 )
                 
                 result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=80)
                 sanitized = self._sanitize_text(result, max_length=160, ensure_period=True)
                 
                 if sanitized:
-                    self._cache_result(date, cache_key, sanitized)
-                    return sanitized
+                        self._cache_result(date, cache_key, sanitized)
+                        return sanitized
                     
             except AIClientError as e:
                 logger.error(f"AI generation failed for story micro-intro: {e}")
-                raise RuntimeError(f"AI generation failed for story micro-intro: {e}")
+                # Fall back to simple description
+                return self._fallback_story_micro_intro(story_inputs)
         
-        # No fallback - AI must work
-        logger.error(f"AI generation failed for story micro-intro: {story_inputs}")
-        raise RuntimeError(f"AI generation failed for story micro-intro. Inputs: {story_inputs}")
+        # No AI available - use fallback
+        logger.warning(f"AI not available for story micro-intro, using fallback: {story_inputs}")
+        return self._fallback_story_micro_intro(story_inputs)
 
     def make_story_comprehensive_intro(
         self, 
@@ -199,7 +236,7 @@ class AIInsertsService:
         force_ai: bool = False
     ) -> str:
         """
-        Generate comprehensive intro for a story (3 sentences explaining what, why, and benefits).
+        Generate comprehensive intro for a story (3-5 sentences explaining what, why, and benefits).
         
         Args:
             date: Date in YYYY-MM-DD format
@@ -217,7 +254,7 @@ class AIInsertsService:
         if self.ai_enabled and self.ai_client:
             try:
                 system_prompt = (
-                    "You are Paul Chris Luke. Write a 3-sentence story intro explaining: 1) What this feature does, "
+                    "You are Paul Chris Luke. Write a 3-5 sentence story intro explaining: 1) What this feature does, "
                     "2) Why it matters, and 3) How it helps. Use your voice: thoughtful, technical but accessible. Return plain text only."
                 )
                 
@@ -225,23 +262,50 @@ class AIInsertsService:
                     f"Title: {story_inputs.get('title', '')}\n"
                     f"Why: {story_inputs.get('why', '')}\n"
                     f"Highlights: {story_inputs.get('highlights_csv', '')}\n"
-                    f"Write a 3-sentence intro explaining what, why, and benefits."
+                    f"Write a 3-5 sentence intro explaining what, why, and benefits."
                 )
                 
                 result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=600)
                 sanitized = self._sanitize_text(result, max_length=None, ensure_period=True)
                 
+                # Enforce 2-4 sentence constraint
                 if sanitized:
-                    self._cache_result(date, cache_key, sanitized)
-                    return sanitized
+                    sentence_count = len([s for s in sanitized.split('.') if s.strip()])
+                    if 2 <= sentence_count <= 4:
+                        self._cache_result(date, cache_key, sanitized)
+                        return sanitized
+                    else:
+                        logger.warning(f"Comprehensive intro sentence count {sentence_count} not in range 2-4, using fallback")
+                        return self._fallback_story_comprehensive_intro(story_inputs)
                     
             except AIClientError as e:
                 logger.error(f"AI generation failed for story comprehensive intro: {e}")
-                raise RuntimeError(f"AI generation failed for story comprehensive intro: {e}")
+                # Fall back to simple description
+                return self._fallback_story_comprehensive_intro(story_inputs)
         
-        # No fallback - AI must work
-        logger.error(f"AI generation failed for story comprehensive intro: {story_inputs}")
-        raise RuntimeError(f"AI generation failed for story comprehensive intro. Inputs: {story_inputs}")
+        # No AI available - use fallback
+        logger.warning(f"AI not available for story comprehensive intro, using fallback: {story_inputs}")
+        return self._fallback_story_comprehensive_intro(story_inputs)
+
+    def _fallback_story_micro_intro(self, story_inputs: Dict[str, Any]) -> str:
+        """Generate fallback story micro intro."""
+        title = story_inputs.get('title', '')
+        why = story_inputs.get('why', '')
+        
+        if why:
+            intro = f"{title}: {why}".strip()
+        else:
+            intro = title
+        
+        # Ensure it ends with period and fits length
+        if not intro.endswith('.'):
+            intro += '.'
+        
+        # Clamp to 160 chars
+        if len(intro) > 160:
+            intro = intro[:157] + '...'
+        
+        return intro
 
     def _fallback_story_comprehensive_intro(self, story_inputs: Dict[str, Any]) -> str:
         """Generate fallback story comprehensive intro."""
@@ -266,10 +330,10 @@ class AIInsertsService:
     
     def _compute_cache_key(self, operation: str, inputs: Dict[str, Any]) -> str:
         """Compute stable cache key from operation and inputs."""
-        # Create compact JSON representation
-        compact_json = json.dumps(inputs, separators=(',', ':'), sort_keys=True)
+        # Create compact JSON representation with fallback for non-serializable values
+        compact_json = json.dumps(inputs, separators=(',', ':'), sort_keys=True, default=str)
         # Include operation and model for cache separation
-        model = self.ai_client.model if self.ai_client else "fallback"
+        model = getattr(self.ai_client, "model", "unknown") if self.ai_client else "fallback"
         key_data = f"{operation}:{model}:{compact_json}"
         return hashlib.sha256(key_data.encode()).hexdigest()[:16]
     
@@ -314,15 +378,14 @@ class AIInsertsService:
         self, 
         text: str, 
         max_length: Optional[int] = None, 
-        ensure_period: bool = True
+        ensure_period: bool = True,
+        strip_period: bool = False
     ) -> str:
         """
         Sanitize AI-generated text.
         
         Args:
             text: Raw AI output
-            max_length: Maximum allowed length (None for no limit)
-            ensure_period: Whether to ensure text ends with a period
             
         Returns:
             Sanitized text or empty string if invalid
@@ -333,43 +396,64 @@ class AIInsertsService:
         # Strip whitespace and quotes
         cleaned = text.strip().strip('"\'`')
         
+        # Strip HTML tags and unescape entities
+        import html
+        import re
+        cleaned = re.sub(r'<[^>]+>', '', cleaned)  # Remove HTML tags
+        cleaned = html.unescape(cleaned)  # Unescape HTML entities
+        
         # Remove markdown formatting
         cleaned = cleaned.replace('*', '').replace('_', '').replace('`', '')
+        
+        # Remove trailing commas and other punctuation (but preserve periods)
+        cleaned = cleaned.rstrip(',;: ')
         
         # Collapse multiple whitespace
         import re
         cleaned = re.sub(r'\s+', ' ', cleaned)
         
-        # Ensure period if required
-        if ensure_period and not cleaned.endswith('.'):
-            cleaned += '.'
+        # Remove trailing comma if it exists (before adding period)
+        if cleaned.endswith(','):
+            cleaned = cleaned[:-1]
         
-        # Check length
-        if max_length is not None and len(cleaned) > max_length:
-            # Truncate at word boundary
-            words = cleaned.split()
-            truncated = ""
-            for word in words:
-                # Calculate length with space, but avoid leading space
-                test_length = len(truncated + (" " if truncated else "") + word)
-                if test_length <= max_length:
-                    truncated += (" " if truncated else "") + word
-                else:
-                    break
+        # Remove comma-period combination
+        if cleaned.endswith(',.'):
+            cleaned = cleaned[:-2]
+        
+        # Check length BEFORE adding period to avoid overflow
+        if max_length is not None:
+            # Reserve space for period if needed
+            budget = max_length - (1 if ensure_period and not cleaned.endswith('.') else 0)
             
-            if truncated:
-                if ensure_period and not truncated.endswith('.'):
-                    truncated += '.'
-                cleaned = truncated
-            else:
-                return ""  # Can't fit even one word
+            if len(cleaned) > budget:
+                # Truncate at word boundary within budget
+                words = cleaned.split()
+                truncated = ""
+                for word in words:
+                    # Calculate length with space, but avoid leading space
+                    test_length = len(truncated + (" " if truncated else "") + word)
+                    if test_length <= budget:
+                        truncated += (" " if truncated else "") + word
+                    else:
+                        break
+                
+                if truncated:
+                    cleaned = truncated
+                else:
+                    return ""  # Can't fit even one word
+        
+        # Handle period based on requirements
+        if strip_period and cleaned.endswith('.'):
+            cleaned = cleaned[:-1]
+        elif ensure_period and not cleaned.endswith('.'):
+            cleaned += '.'
         
         return cleaned
     
     def _validate_title_guardrails(self, new_title: str, original_title: str) -> bool:
         """Validate that new title meets guardrail requirements."""
-        # Only check length - allow AI to be creative with titles
-        if len(new_title) > 80:
+        # Check length constraints (25-70 chars for SEO)
+        if len(new_title) < 25 or len(new_title) > 70:
             return False
         
         return True
@@ -419,7 +503,7 @@ class AIInsertsService:
             return cached_result
         if self.ai_enabled and self.ai_client:
             try:
-                system_prompt = "You are Paul Chris Luke. Write a 3-4 sentence intro explaining today's work theme and how features connect. Use your voice: thoughtful, technical but accessible. Return plain text only."
+                system_prompt = f"{self.voice_prompt}\n\nWrite a 3-4 sentence intro explaining today's work theme and how features connect. Naturally weave in technical keywords like 'AI blog automation', 'schema-driven SEO', 'Twitch transcription', 'content pipeline', 'developer workflow' when relevant. Follow the voice style above: poetic but grounded, with edgy humor and philosophical reflection. Return plain text only."
                 user_prompt = f"Title: {inputs.get('title', '')} Stories: {inputs.get('story_titles_csv', '')} Write a holistic intro explaining today's theme and how features connect."
                 result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=800)
                 sanitized = self._sanitize_text(result, max_length=None, ensure_period=True)
@@ -446,8 +530,8 @@ class AIInsertsService:
                     pass
         if self.ai_enabled and self.ai_client:
             try:
-                system_prompt = "You are a content analyst. Extract 3-5 relevant keywords from the content. Focus on technical terms like 'ai', 'content generation', 'blog automation', 'scalability', 'automation'. Return only a comma-separated list, no explanations or formatting."
-                user_prompt = f"Title: {inputs.get('title', '')} Tags: {inputs.get('tags_csv', '')} Lead: {inputs.get('lead', '')} Stories: {inputs.get('story_titles_csv', '')} Goal: Extract 3-5 relevant keywords as comma-separated values, prioritizing technical terms."
+                system_prompt = "You are a content analyst. Extract 3-5 relevant long-tail keywords from the content. Focus on intent-driven phrases like 'AI blog automation', 'schema-driven SEO', 'Twitch transcription', 'content deduplication', 'developer devlog', 'automated content generation'. Return only a comma-separated list, no explanations or formatting."
+                user_prompt = f"Title: {inputs.get('title', '')} Tags: {inputs.get('tags_csv', '')} Lead: {inputs.get('lead', '')} Stories: {inputs.get('story_titles_csv', '')} Goal: Extract 3-5 relevant long-tail keywords as comma-separated values, prioritizing intent-driven phrases and technical terms."
                 result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=100)
                 sanitized = self._sanitize_text(result, max_length=100, ensure_period=False)
                 if sanitized:
@@ -455,8 +539,10 @@ class AIInsertsService:
                     existing_tags = set([t for t in (s.strip().lower() for s in inputs.get('tags_csv', '').split(',')) if t])
                     filtered_tags = [tag for tag in tags if tag not in existing_tags and len(tag) > 2]
                     if filtered_tags:
-                        self._cache_result(date, cache_key, str(filtered_tags))
-                        return filtered_tags[:5]
+                        # Cache the sliced list (≤5) with ensure_ascii=False for Unicode
+                        tags_to_cache = filtered_tags[:5]
+                        self._cache_result(date, cache_key, json.dumps(tags_to_cache, ensure_ascii=False))
+                        return tags_to_cache
             except AIClientError as e:
                 logger.warning(f"AI generation failed for tag suggestions: {e}")
         return self._fallback_tag_suggestions(inputs)
@@ -520,3 +606,68 @@ class AIInsertsService:
         else:
             fallback = "Today's development work adds new capabilities to the platform."
         return fallback
+    
+    def _fix_incomplete_sentences(self, text: str) -> str:
+        """Fix incomplete sentences that end with dangling words."""
+        if not text:
+            return text
+        
+        # Common dangling words that indicate incomplete sentences (longer patterns first)
+        dangling_words = ['for for.', 'with with.', 'to to.', 'with.', 'to.', 'while.', 'for.', 'and.', 'or.', 'but.', 'so.', 'yet.', 'enhanced.', 'improved.', 'optimized.']
+        
+        # First check for repeated words at the end (like "for for")
+        words = text.split()
+        fixed_repeated = False
+        if len(words) >= 2:
+            # Remove periods for comparison
+            last_word = words[-1].rstrip('.')
+            second_last_word = words[-2].rstrip('.')
+            if last_word == second_last_word:
+                # Remove the last repeated word and add period
+                text = ' '.join(words[:-1]) + '.'
+                fixed_repeated = True
+        
+        # Then check if text ends with any dangling word (but don't add text if we just fixed repeated words)
+        for dangling in dangling_words:
+            if text.endswith(dangling):
+                # Remove the dangling word and period
+                text = text[:-len(dangling)]
+                # Clean up any trailing punctuation
+                text = text.rstrip(',;: ')
+                # Add a proper ending only if it's a single dangling word and we didn't just fix repeated words
+                if len(dangling.split()) == 1 and not fixed_repeated:  # Single word like "for." not "for for."
+                    text += ' for better performance.'
+                break
+        
+        return text
+    
+    def _clamp_seo_description(self, text: str) -> str:
+        """Clamp SEO description to 150-160 chars without ellipses."""
+        if not text:
+            return text
+        
+        # If we just fixed an incomplete sentence, don't truncate further
+        if text.endswith('for better performance.'):
+            return text
+        
+        # Target 150 chars for optimal SEO (broader range 120-180)
+        target_length = 150
+        
+        if len(text) <= target_length:
+            return text
+        
+        # Truncate at word boundary within target length
+        words = text.split()
+        truncated = ""
+        for word in words:
+            test_length = len(truncated + (" " if truncated else "") + word)
+            if test_length <= target_length:
+                truncated += (" " if truncated else "") + word
+            else:
+                break
+        
+        # Ensure it ends with a period
+        if truncated and not truncated.endswith('.'):
+            truncated += '.'
+        
+        return truncated

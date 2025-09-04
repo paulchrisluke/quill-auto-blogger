@@ -34,14 +34,29 @@ class FeedGenerator:
         sorted_blogs = sorted(blogs_data, key=lambda x: x.get('date', ''), reverse=True)
         
         rss_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/">
   <channel>
-    <title>Daily Devlog</title>
+    <title>Paul Chris Luke - PCL Labs</title>
     <link>{self.frontend_domain}</link>
-    <description>Daily development log with Twitch clips and GitHub events</description>
+    <description>Daily development log with AI-enhanced content, Twitch clips, and GitHub events. Featuring automation, programming insights, and technical tutorials from PCL Labs.</description>
     <language>en-us</language>
     <lastBuildDate>{datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')}</lastBuildDate>
     <atom:link href="{self.api_domain}/rss.xml" rel="self" type="application/rss+xml" />
+    <sy:updatePeriod>daily</sy:updatePeriod>
+    <sy:updateFrequency>1</sy:updateFrequency>
+    <generator>Quill Auto Blogger v3.0</generator>
+    <managingEditor>paulchrisluke@example.com (Paul Chris Luke)</managingEditor>
+    <webMaster>paulchrisluke@example.com (Paul Chris Luke)</webMaster>
+    <category>Technology</category>
+    <category>Programming</category>
+    <category>Development</category>
+    <image>
+      <url>{self.frontend_domain}/pcl-labs-logo.svg</url>
+      <title>Paul Chris Luke - PCL Labs</title>
+      <link>{self.frontend_domain}</link>
+      <width>144</width>
+      <height>144</height>
+    </image>
 """
         
         for blog in sorted_blogs:
@@ -68,12 +83,24 @@ class FeedGenerator:
                 # Get image
                 image_url = frontmatter.get('og', {}).get('og:image', '')
                 
+                # Get full content for content:encoded
+                full_content = blog.get('content', {}).get('body', description)
+                
                 rss_content += f"""    <item>
-      <title>{frontmatter.get('title', f'Daily Devlog — {date_str}')}</title>
+      <title>{frontmatter.get('title', f'PCL Labs Devlog — {date_str}')}</title>
       <link>{canonical_url}</link>
-      <guid>{canonical_url}</guid>
+      <guid isPermaLink="true">{canonical_url}</guid>
       <pubDate>{rss_date}</pubDate>
-      <description><![CDATA[{description}]]></description>"""
+      <description><![CDATA[{description}]]></description>
+      <content:encoded><![CDATA[{full_content}]]></content:encoded>
+      <dc:creator>{frontmatter.get('author', 'Paul Chris Luke')}</dc:creator>
+      <dc:date>{date_str}T00:00:00Z</dc:date>"""
+                
+                # Add categories from tags
+                tags = frontmatter.get('tags', [])
+                for tag in tags[:5]:  # Limit to 5 categories
+                    rss_content += f"""
+      <category>{tag}</category>"""
                 
                 if image_url:
                     rss_content += f"""
@@ -124,10 +151,13 @@ class FeedGenerator:
             # Get canonical URL
             canonical_url = frontmatter.get('canonical', f"{self.frontend_domain}/blog/{date_str}")
             
+            # Get last modified date from blog data
+            lastmod_date = self._get_lastmod_date(blog, date_str)
+            
             sitemap_content += f"""
   <url>
     <loc>{canonical_url}</loc>
-    <lastmod>{date_str}</lastmod>
+    <lastmod>{lastmod_date}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>"""
@@ -136,6 +166,52 @@ class FeedGenerator:
 </urlset>"""
         
         return sitemap_content
+    
+    def _get_lastmod_date(self, blog: Dict[str, Any], date_str: str) -> str:
+        """
+        Get the last modified date for a blog post.
+        
+        Priority:
+        1. dateModified from schema
+        2. datePublished from schema  
+        3. Frontmatter date
+        4. Blog date
+        5. Current date as fallback
+        """
+        try:
+            # Try to get from schema dateModified
+            frontmatter = blog.get('frontmatter', {})
+            schema = frontmatter.get('schema', {})
+            blog_posting = schema.get('blogPosting', {})
+            
+            if blog_posting.get('dateModified'):
+                # Convert to YYYY-MM-DD format
+                date_modified = blog_posting['dateModified']
+                if 'T' in date_modified:
+                    return date_modified.split('T')[0]
+                return date_modified
+            
+            # Try datePublished
+            if blog_posting.get('datePublished'):
+                date_published = blog_posting['datePublished']
+                if 'T' in date_published:
+                    return date_published.split('T')[0]
+                return date_published
+            
+            # Try frontmatter date
+            if frontmatter.get('date'):
+                return frontmatter['date']
+            
+            # Use blog date
+            if date_str:
+                return date_str
+            
+            # Fallback to current date
+            return datetime.utcnow().strftime('%Y-%m-%d')
+            
+        except Exception as e:
+            logger.error(f"Error getting lastmod date for blog {date_str}: {e}")
+            return date_str or datetime.utcnow().strftime('%Y-%m-%d')
     
     def generate_blogs_index(self, blogs_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -170,7 +246,7 @@ class FeedGenerator:
             # Create BlogPosting schema entry
             blog_posting = {
                 "@type": "BlogPosting",
-                "headline": frontmatter.get('title', f'Daily Devlog — {date_str}'),
+                "headline": frontmatter.get('title', f'PCL Labs Devlog — {date_str}'),
                 "description": frontmatter.get('description', frontmatter.get('lead', '')),
                 "url": canonical_url,
                 "datePublished": date_str,
@@ -196,7 +272,7 @@ class FeedGenerator:
             # Create API-friendly blog entry
             blog_entry = {
                 "date": date_str,
-                "title": frontmatter.get('title', f'Daily Devlog — {date_str}'),
+                "title": frontmatter.get('title', f'PCL Labs Devlog — {date_str}'),
                 "author": frontmatter.get('author', 'Paul Chris Luke'),
                 "canonical_url": canonical_url,
                 "api_url": f"{self.api_domain}/blogs/{date_str}/API-v3-{date_str}_digest.json",
@@ -215,7 +291,7 @@ class FeedGenerator:
         blogs_index = {
             "@context": "https://schema.org",
             "@type": "Blog",
-            "name": "Daily Devlog",
+            "name": "Paul Chris Luke - PCL Labs",
             "url": f"{self.frontend_domain}/blog",
             "description": "Daily development log with AI-enhanced content and automation",
             "author": {

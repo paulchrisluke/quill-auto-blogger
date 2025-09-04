@@ -165,6 +165,11 @@ def blog():
     """Blog generation commands."""
     pass
 
+@devlog.group()
+def seo():
+    """SEO analysis commands."""
+    pass
+
 
 @blog.command("generate")
 @click.option("--date", "target_date", help="Date in YYYY-MM-DD format (defaults to latest)")
@@ -483,6 +488,76 @@ def blog_auto_generate(target_date: str, no_upload: bool, days_back: int):
     except Exception as e:
         click.echo(f"[ERR] Failed to auto-generate blogs: {e}")
         raise SystemExit(1)
+
+
+@seo.command("analyze")
+@click.option("--date", "target_date", help="Date in YYYY-MM-DD format (defaults to latest)")
+@click.option("--all-blogs", is_flag=True, help="Analyze all available blogs")
+@click.option("--days", type=int, default=30, help="Days to analyze backwards (default: 30)")
+@click.option("--json-output", is_flag=True, help="Output as JSON")
+def seo_analyze(target_date: str | None, all_blogs: bool, days: int, json_output: bool):
+    """Analyze SEO for blog posts."""
+    try:
+        from cli.seo_analyzer import SEOAnalyzer
+        
+        analyzer = SEOAnalyzer()
+        
+        if target_date:
+            # Analyze specific date
+            result = analyzer.analyze_blog_seo(target_date)
+            if json_output:
+                import json
+                click.echo(json.dumps(result, indent=2))
+            else:
+                click.echo(f"SEO Analysis for {target_date}:")
+                click.echo(f"Score: {result.get('seo_score', 0)}/100 ({result.get('seo_grade', 'F')})")
+                click.echo(f"Word Count: {result.get('word_count', 0)}")
+                click.echo(f"Featured Image: {'Yes' if result.get('has_featured_image') else 'No'}")
+                click.echo(f"Structured Data: {'Yes' if result.get('has_structured_data') else 'No'}")
+                if result.get('recommendations'):
+                    click.echo("Recommendations:")
+                    for rec in result['recommendations']:
+                        click.echo(f"  - {rec}")
+        
+        elif all_blogs:
+            # Analyze all blogs
+            results = analyzer.analyze_all_blogs(days)
+            
+            if json_output:
+                import json
+                click.echo(json.dumps(results, indent=2))
+            else:
+                # Summary output
+                total = len(results)
+                avg_score = sum(r.get("seo_score", 0) for r in results) / total if total > 0 else 0
+                click.echo(f"Analyzed {total} blog posts")
+                click.echo(f"Average SEO Score: {avg_score:.1f}/100")
+        
+        else:
+            click.echo("Please specify --date or --all")
+            raise SystemExit(1)
+        
+    except Exception as e:
+        click.echo(f"[ERR] Failed to analyze SEO: {e}")
+        raise SystemExit(1) from e
+
+
+@seo.command("report")
+@click.option("--days", type=int, default=30, help="Days to analyze backwards (default: 30)")
+def seo_report(days: int):
+    """Generate comprehensive SEO report."""
+    try:
+        from cli.seo_analyzer import SEOAnalyzer
+        
+        analyzer = SEOAnalyzer()
+        results = analyzer.analyze_all_blogs(days)
+        report = analyzer.generate_seo_report(results)
+        
+        click.echo(report)
+        
+    except Exception as e:
+        click.echo(f"[ERR] Failed to generate SEO report: {e}")
+        raise SystemExit(1) from e
 
 
 if __name__ == "__main__":

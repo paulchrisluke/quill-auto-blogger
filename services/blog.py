@@ -69,10 +69,12 @@ class BlogDigestBuilder:
         from .digest_utils import DigestUtils
         from .digest_io import DigestIO
         from .frontmatter_generator import FrontmatterGenerator
+        from .related import RelatedPostsService
         
         self.utils = DigestUtils(self.media_domain, self.blog_default_image)
         self.io = DigestIO(self.data_dir, self.blogs_dir)
         self.frontmatter_gen = FrontmatterGenerator(self.blog_author, self.blog_base_url, self.media_domain)
+        self.related_service = RelatedPostsService()
     
     def update_paths(self, data_dir: Path, blogs_dir: Path):
         """Update data and blogs directories and recreate DigestIO instance."""
@@ -109,9 +111,9 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing FINAL digest for {target_date}")
                 
-                # Check if digest has enhanced schema.org (v3 format)
-                if digest.get("version") == "3" and "frontmatter" in digest and digest.get("frontmatter", {}).get("schema", {}).get("blogPosting"):
-                    logger.info(f"Loaded existing v3 FINAL digest with enhanced schema for {target_date}")
+                # Check if digest has enhanced schema.org
+                if "frontmatter" in digest and digest.get("frontmatter", {}).get("schema", {}).get("blogPosting"):
+                    logger.info(f"Loaded existing FINAL digest with enhanced schema for {target_date}")
                     
                     # Enhance existing digest with thumbnail URLs
                     if digest.get("story_packets"):
@@ -120,7 +122,7 @@ class BlogDigestBuilder:
                     
                     return digest
                 else:
-                    logger.info(f"Existing FINAL digest for {target_date} missing enhanced schema, rebuilding with v3...")
+                    logger.info(f"Existing FINAL digest for {target_date} missing enhanced schema, rebuilding...")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load FINAL digest for {target_date}: {e}")
         
@@ -132,9 +134,9 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing pre-cleaned digest for {target_date}")
                 
-                # Check if digest has enhanced schema.org (v3 format)
-                if digest.get("version") == "3" and "frontmatter" in digest and digest.get("frontmatter", {}).get("schema", {}).get("blogPosting"):
-                    logger.info(f"Found existing v3 digest with enhanced schema for {target_date}")
+                # Check if digest has enhanced schema.org
+                if "frontmatter" in digest and digest.get("frontmatter", {}).get("schema", {}).get("blogPosting"):
+                    logger.info(f"Found existing digest with enhanced schema for {target_date}")
                     
                     # Enhance existing digest with thumbnail URLs
                     if digest.get("story_packets"):
@@ -143,7 +145,7 @@ class BlogDigestBuilder:
                     
                     return digest
                 else:
-                    logger.info(f"Existing digest for {target_date} missing enhanced schema, rebuilding with v3...")
+                    logger.info(f"Existing digest for {target_date} missing enhanced schema, rebuilding...")
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load pre-cleaned digest for {target_date}: {e}")
         
@@ -167,17 +169,16 @@ class BlogDigestBuilder:
         # Generate story packets from merged PRs
         story_packets = self._generate_story_packets(events_data, clips_data, target_date)
         
-        # Generate pre-computed frontmatter with enhanced schema.org
-        frontmatter = self.frontmatter_gen.generate_frontmatter(
-            target_date, clips_data, events_data, story_packets, "v3"
+        # Generate clean frontmatter with enhanced schema.org
+        frontmatter = self.frontmatter_gen.generate(
+            target_date, clips_data, events_data, story_packets
         )
         
         # Enhance story packets with thumbnail URLs before serialization
         enhanced_story_packets = self.utils.enhance_story_packets_with_thumbnails(story_packets, target_date)
         
-        # Build v3 digest structure with enhanced schema.org
+        # Build clean digest structure with enhanced schema.org
         digest = {
-            "version": "3",
             "date": target_date,
             "twitch_clips": clips_data,
             "github_events": events_data,
@@ -251,8 +252,8 @@ class BlogDigestBuilder:
             yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=sys.maxsize)
             frontmatter = f"---\n{yaml_content}---\n"
         else:
-            # Fall back to v1 frontmatter generation
-            frontmatter = self._generate_frontmatter_v1(digest)
+            # Fall back to clean frontmatter generation
+            frontmatter = self._generate_clean_frontmatter(digest)
         
         # Generate content using ContentGenerator
         content_gen = ContentGenerator(digest, self.utils)
@@ -278,7 +279,7 @@ class BlogDigestBuilder:
     
     def save_digest(self, digest: Dict[str, Any], *, cache_manager: Optional[CacheManager] = None) -> Path:
         """Save digest as JSON file for AI ingestion."""
-        return self.io.save_digest(digest, digest["date"], cache_manager=cache_manager)
+        return self.io.save_digest(digest, digest["date"])
     
     def save_markdown(self, date: str, markdown: str) -> Path:
         """Save markdown content to drafts directory."""
@@ -323,15 +324,18 @@ class BlogDigestBuilder:
             "date_parsed": target_date
         }
     
-    def _generate_frontmatter_v1(self, digest: Dict[str, Any]) -> str:
-        """Generate v1 frontmatter with schema.org metadata."""
-        return self.frontmatter_gen.generate_frontmatter(
+    def _generate_clean_frontmatter(self, digest: Dict[str, Any]) -> str:
+        """Generate clean frontmatter with schema.org metadata."""
+        frontmatter_info = self.frontmatter_gen.generate(
             digest["date"], 
             digest["twitch_clips"], 
-            digest["github_events"], 
-            digest.get("story_packets", []), 
-            "v1"
+            digest["github_events"],
+            digest.get("story_packets", [])
         )
+        # Convert FrontmatterInfo to YAML string
+        frontmatter_data = frontmatter_info.model_dump(mode="json", by_alias=True)
+        yaml_content = yaml.safe_dump(frontmatter_data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=sys.maxsize)
+        return f"---\n{yaml_content}---\n"
     
     def _generate_story_packets(
         self, 
@@ -513,8 +517,9 @@ class BlogDigestBuilder:
                 with open(final_digest_path, 'r') as f:
                     digest = json.load(f)
                 logger.info(f"Loaded FINAL digest with AI enhancements for {target_date}")
+                
             
-            # Update story packets with Cloudflare URLs
+            # Update story packets with Cloudflare URLs and preserve thumbnails
             updated_story_packets = []
             for story in digest.get("story_packets", []):
                 updated_story = story.copy()
@@ -528,6 +533,10 @@ class BlogDigestBuilder:
                         cloudflare_url = self.utils.get_cloudflare_url(clean_path)
                         updated_story["video"]["path"] = cloudflare_url
                 
+                # Preserve thumbnails if they exist
+                if story.get("video", {}).get("thumbnails"):
+                    updated_story["video"]["thumbnails"] = story["video"]["thumbnails"]
+                
                 updated_story_packets.append(updated_story)
             
             # Create updated digest with Cloudflare URLs for markdown generation
@@ -538,6 +547,28 @@ class BlogDigestBuilder:
             content_gen = ContentGenerator(updated_digest, self.utils)
             # Generate full content with story packets and video assets
             consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
+            
+            # Fix: Replace [AI_GENERATE_LEAD] placeholder with actual lead content
+            if "[AI_GENERATE_LEAD]" in consolidated_content:
+                lead_content = updated_digest.get("frontmatter", {}).get("holistic_intro", "")
+                if lead_content:
+                    consolidated_content = consolidated_content.replace("[AI_GENERATE_LEAD]", lead_content)
+                else:
+                    # Fallback: remove the placeholder if no lead content available
+                    consolidated_content = consolidated_content.replace("[AI_GENERATE_LEAD]", "")
+            
+            # Fix: Remove duplicate intro paragraph
+            holistic_intro = updated_digest.get("frontmatter", {}).get("holistic_intro", "")
+            if holistic_intro and holistic_intro in consolidated_content:
+                # Count occurrences of the intro paragraph
+                intro_count = consolidated_content.count(holistic_intro)
+                if intro_count > 1:
+                    # Replace all but the first occurrence with empty string
+                    parts = consolidated_content.split(holistic_intro)
+                    if len(parts) > 1:
+                        # Keep first occurrence, remove duplicates
+                        consolidated_content = parts[0] + holistic_intro + "".join(parts[1:])
+            
             # Add the blog signature if enabled
             if self.signature_enabled and self.signature_text:
                 consolidated_content += f"\n\n---\n\n{self.signature_text}"
@@ -547,27 +578,37 @@ class BlogDigestBuilder:
             # Clean frontmatter for API consumption (remove content fields)
             cleaned_frontmatter = self.frontmatter_gen.clean_frontmatter_for_api(content_gen.frontmatter)
             
+            # Add thumbnails to story packets BEFORE adding video objects to schema
+            updated_story_packets = self.utils.enhance_story_packets_with_thumbnails(updated_story_packets, target_date)
+            
+            # Add video objects to the frontmatter schema
+            enhanced_schema = self.frontmatter_gen.add_video_objects_to_schema(
+                cleaned_frontmatter.get("schema", {}), 
+                updated_story_packets
+            )
+            cleaned_frontmatter["schema"] = enhanced_schema
+            
             final_blog_data = {
                 "@context": "https://schema.org",
                 "@type": "BlogPosting",
                 "date": target_date,
-                "version": "3",  # Increment version for new structure
-                "frontmatter": cleaned_frontmatter,  # Clean frontmatter without content fields
+                "frontmatter": cleaned_frontmatter,  # Clean frontmatter with video objects
                 "content": {
                     "body": consolidated_content
                 },
                 "story_packets": updated_story_packets,  # Use updated story packets with Cloudflare URLs
                 "metadata": digest.get("metadata", {}),
+                "related_posts": digest.get("related_posts", []),  # Related posts from FINAL digest
                 "api_metadata": {
                     "generated_at": datetime.now(timezone.utc).isoformat(),  # UTC timestamp
-                    "version": "3.0",
                     "api_endpoint": f"/api/blog/{target_date}"
                 }
             }
             
+            
             # Enhance the schema.org data at root level
-            if content_gen.frontmatter and content_gen.frontmatter.get('schema', {}).get('blogPosting'):
-                blog_posting_schema = content_gen.frontmatter['schema']['blogPosting']
+            if cleaned_frontmatter and cleaned_frontmatter.get('schema'):
+                blog_posting_schema = cleaned_frontmatter['schema']
                 # Merge the enhanced schema into the root level
                 final_blog_data.update({
                     "headline": blog_posting_schema.get('headline'),
@@ -584,6 +625,9 @@ class BlogDigestBuilder:
                     "video": blog_posting_schema.get('video'),
                     "articleBody": consolidated_content
                 })
+            
+            
+            # Related posts are already added in the FINAL digest
             
             # Save v3 API response to file for R2 serving
             self._save_v3_api_response(target_date, final_blog_data)
@@ -612,6 +656,28 @@ class BlogDigestBuilder:
         except Exception as e:
             logger.exception("Failed to get blog API data for %s", target_date)
             raise
+    
+    def _generate_related_posts(self, target_date: str, blog_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate related posts for the current blog."""
+        try:
+            # Extract current post data
+            frontmatter = blog_data.get("frontmatter", {})
+            current_tags = frontmatter.get("tags", [])
+            current_title = frontmatter.get("title", "")
+            
+            # Find related posts
+            related_posts = self.related_service.find_related_posts(
+                current_date=target_date,
+                current_tags=current_tags,
+                current_title=current_title,
+                max_posts=3
+            )
+            
+            return related_posts
+            
+        except Exception as e:
+            logger.error(f"Error generating related posts for {target_date}: {e}")
+            return []
     
     def _save_v3_api_response(self, target_date: str, api_data: Dict[str, Any]) -> None:
         """
@@ -734,3 +800,4 @@ class BlogDigestBuilder:
         except Exception as e:
             logger.exception("Failed to get story assets for %s", story_id)
             return StoryAssets(video=None, images=[], highlights=[])
+

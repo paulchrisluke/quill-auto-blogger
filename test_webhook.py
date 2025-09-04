@@ -111,14 +111,14 @@ class TestControlEndpointSecurity:
         payload = {"story_id": "test_story", "date": "2025-01-01"}
         response = client.post("/control/record/start", json=payload)
         assert response.status_code == 401
-        assert "Unauthorized" in response.json()["detail"]
+        assert "Missing authorization header" in response.json()["detail"]
     
     def test_control_stop_no_auth(self):
         """Test that control stop endpoint requires authentication."""
         payload = {"story_id": "test_story", "date": "2025-01-01"}
         response = client.post("/control/record/stop", json=payload)
         assert response.status_code == 401
-        assert "Unauthorized" in response.json()["detail"]
+        assert "Missing authorization header" in response.json()["detail"]
     
     def test_control_start_invalid_auth_format(self):
         """Test that invalid auth format is rejected."""
@@ -126,15 +126,15 @@ class TestControlEndpointSecurity:
         headers = {"Authorization": "InvalidFormat token123"}
         response = client.post("/control/record/start", json=payload, headers=headers)
         assert response.status_code == 401
-        assert "Unauthorized" in response.json()["detail"]
+        assert "Invalid authorization header format" in response.json()["detail"]
     
     def test_control_start_no_token_configured(self):
         """Test that missing token configuration is handled."""
         payload = {"story_id": "test_story", "date": "2025-01-01"}
         headers = {"Authorization": "Bearer token123"}
         response = client.post("/control/record/start", json=payload, headers=headers)
-        assert response.status_code == 401
-        assert "Unauthorized" in response.json()["detail"]
+        assert response.status_code == 500
+        assert "Server authentication not properly configured" in response.json()["detail"]
     
     def test_control_start_invalid_token(self):
         """Test that invalid token is rejected."""
@@ -145,7 +145,7 @@ class TestControlEndpointSecurity:
         wrong_headers = {"Authorization": "Bearer wrong_token"}
         response = client.post("/control/record/start", json=payload, headers=wrong_headers)
         assert response.status_code == 401
-        assert "Unauthorized" in response.json()["detail"]
+        assert "Invalid authorization token" in response.json()["detail"]
     
     def test_control_start_valid_auth(self):
         """Test that valid authentication works."""

@@ -284,3 +284,46 @@ class DigestUtils:
             enhanced_packets.append(enhanced_packet)
         
         return enhanced_packets
+
+    def enhance_story_packets_with_thumbnails(self, story_packets: List[Any], target_date: str) -> List[Any]:
+        """
+        Enhance story packets with thumbnail URLs for video objects.
+        
+        Args:
+            story_packets: List of story packet objects
+            target_date: Date string in YYYY-MM-DD format
+            
+        Returns:
+            List of enhanced story packets with thumbnail URLs
+        """
+        enhanced_packets = []
+        
+        for packet in story_packets:
+            # Convert to dict if it's a Pydantic model
+            if hasattr(packet, 'model_dump'):
+                enhanced_packet = packet.model_dump(mode="json")
+            else:
+                enhanced_packet = packet.copy()
+            
+            # Add thumbnails to video object if it exists and is rendered
+            video_data = enhanced_packet.get("video", {})
+            if video_data.get("status") == "rendered":
+                # Generate thumbnail paths based on story ID
+                story_id = enhanced_packet.get("id", "")
+                if story_id:
+                    # Convert story ID to thumbnail paths
+                    # e.g., story_20250827_pr34 -> story_story_20250827_pr34_01_intro.jpg
+                    base_name = story_id.replace("story_", "story_story_")
+                    
+                    thumbnails = {
+                        "intro": f"blogs/{target_date}/{base_name}_01_intro.jpg",
+                        "why": f"blogs/{target_date}/{base_name}_02_why.jpg", 
+                        "outro": f"blogs/{target_date}/{base_name}_99_outro.jpg",
+                        "highlight": f"blogs/{target_date}/{base_name}_hl_01.jpg"
+                    }
+                    
+                    enhanced_packet["video"]["thumbnails"] = thumbnails
+            
+            enhanced_packets.append(enhanced_packet)
+        
+        return enhanced_packets

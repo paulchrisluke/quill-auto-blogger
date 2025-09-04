@@ -54,7 +54,7 @@ class TestBlogCLI:
                 "date_parsed": "2025-01-15"
             },
             "frontmatter": {
-                "title": "Daily Devlog — Jan 15, 2025",
+                "title": "PCL-Labs — Jan 15, 2025",
                 "date": "2025-01-15",
                 "author": "Test Author",
                 "tags": ["feat"],
@@ -89,7 +89,7 @@ class TestBlogCLI:
         
         assert result.exit_code == 0
         assert "Generated blog post: drafts/2025-01-15.md" in result.output
-        assert "Title: Daily Devlog — Jan 15, 2025" in result.output
+        assert "Title: PCL-Labs — Jan 15, 2025" in result.output
         assert "Stories: 0" in result.output
         
         # Verify the builder was called correctly
@@ -164,11 +164,11 @@ class TestBlogCLI:
         mock_builder = Mock()
         mock_builder.build_digest.return_value = sample_digest
         mock_builder.generate_markdown.return_value = """---
-title: Daily Devlog — Jan 15, 2025
+title: PCL-Labs — Jan 15, 2025
 date: 2025-01-15
 ---
 
-# Daily Devlog — Jan 15, 2025
+# PCL-Labs — Jan 15, 2025
 
 Today's development work focused on new features.
 
@@ -189,11 +189,11 @@ Today's development work focused on new features.
         result = runner.invoke(devlog, ['blog', 'preview', '--date', '2025-01-15'])
         
         assert result.exit_code == 0
-        assert "Title: Daily Devlog — Jan 15, 2025" in result.output
+        assert "Title: PCL-Labs — Jan 15, 2025" in result.output
         assert "Date: 2025-01-15" in result.output
         assert "Tags: feat" in result.output
         assert "Preview:" in result.output
-        assert "  # Daily Devlog — Jan 15, 2025" in result.output
+        assert "  # PCL-Labs — Jan 15, 2025" in result.output
         assert "  Today's development work focused on new features." in result.output
     
 

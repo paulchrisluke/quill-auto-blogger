@@ -44,7 +44,7 @@ class RelatedPostsService:
         current_title: str,
         max_posts: int = 3,
         repo: Optional[str] = None
-    ) -> List[Tuple[str, str, float]]:
+    ) -> List[Dict[str, Any]]:
         """
         Find related posts based on scoring algorithm.
         
@@ -56,12 +56,12 @@ class RelatedPostsService:
             repo: Repository to check for published posts (defaults to self.default_repo)
             
         Returns:
-            List of (title, path, score) tuples, sorted by score descending
+            List of related post dictionaries with title, url, score, image, and description
         """
         # Find all published blog posts - try local first, then remote
         published_posts = []
         if self.blogs_dir.exists():
-            published_posts = self._find_published_posts()
+            published_posts = self._load_local_final_digests()
         
 
         
@@ -118,12 +118,27 @@ class RelatedPostsService:
             
             # Only include posts with a meaningful score
             if score > 0.0:
-                scored_posts.append((post["title"], post["path"], score))
+                # Format date to ISO format with timezone
+                date_str = post["date"]
+                if date_str and not date_str.endswith("Z"):
+                    # Convert YYYY-MM-DD to YYYY-MM-DDTHH:MM:SSZ
+                    date_str = f"{date_str}T00:00:00Z"
+                
+                related_post = {
+                    "title": post["title"],
+                    "url": post.get("url", f"https://paulchrisluke.com/blog/{post.get('date', '')}"),
+                    "score": round(score, 3),
+                    "date": date_str,
+                    "image": self._get_featured_image(post),
+                    "description": post.get("description", ""),
+                    "tags": post.get("tags", [])
+                }
+                scored_posts.append(related_post)
             else:
                 logger.debug(f"Skipping post {post['title']} - score too low: {score}")
         
         # Sort by score descending and return top results
-        scored_posts.sort(key=lambda x: x[2], reverse=True)
+        scored_posts.sort(key=lambda x: x["score"], reverse=True)
         return scored_posts[:max_posts]
     
     def _find_published_posts(self) -> List[Dict[str, Any]]:
@@ -149,13 +164,15 @@ class RelatedPostsService:
                         digest = json.load(f)
                     
                     # Extract post information
-                    if digest.get("version") == "2" and "frontmatter" in digest:
+                    if "frontmatter" in digest:
                         frontmatter = digest["frontmatter"]
                         post_info = {
                             "date": digest["date"],
                             "title": frontmatter.get("title", ""),
                             "tags": frontmatter.get("tags", []),
-                            "path": f"/blog/{digest['date']}"
+                            "description": frontmatter.get("description", ""),
+                            "path": f"/blog/{digest['date']}",
+                            "digest": digest  # Store full digest for image extraction
                         }
                         posts.append(post_info)
                         
@@ -227,13 +244,15 @@ class RelatedPostsService:
                                     digest = digest_response.json()
                                     
                                     # Extract post information
-                                    if digest.get("version") == "2" and "frontmatter" in digest:
+                                    if "frontmatter" in digest:
                                         frontmatter = digest["frontmatter"]
                                         post_info = {
                                             "date": digest["date"],
                                             "title": frontmatter.get("title", ""),
                                             "tags": frontmatter.get("tags", []),
-                                            "path": f"/blog/{digest['date']}"
+                                            "description": frontmatter.get("description", ""),
+                                            "path": f"/blog/{digest['date']}",
+                                            "digest": digest  # Store full digest for image extraction
                                         }
                                         posts.append(post_info)
                                         logger.info(f"Found remote post: {date_str} - {post_info['title']}")
@@ -369,3 +388,78 @@ class RelatedPostsService:
         score = math.pow(0.5, decay_factor)
         
         return max(0.0, min(1.0, score))
+    
+    def _get_featured_image(self, post: Dict[str, Any]) -> Optional[str]:
+        """Extract featured image URL from post data."""
+        try:
+            digest = post.get("digest", {})
+            
+            # Try to get from frontmatter og:image
+            frontmatter = digest.get("frontmatter", {})
+            og_data = frontmatter.get("og", {})
+            if og_data.get("og:image"):
+                return og_data["og:image"]
+            
+            # Try to get from story packets
+            story_packets = digest.get("story_packets", [])
+            if story_packets:
+                first_story = story_packets[0]
+                video_data = first_story.get("video", {})
+                thumbnails = video_data.get("thumbnails", {})
+                if thumbnails.get("intro"):
+                    # Convert to proper CDN URL
+                    thumbnail_path = thumbnails["intro"]
+                    if not thumbnail_path.startswith('http'):
+                        return f"https://media.paulchrisluke.com/assets/{thumbnail_path}"
+                    return thumbnail_path
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting featured image for post {post.get('title', 'unknown')}: {e}")
+            return None
+    
+    def _load_local_final_digests(self) -> List[Dict[str, Any]]:
+        """Load all FINAL and PRE-CLEANED digests from the local blogs directory."""
+        posts = []
+        
+        try:
+            # Find all FINAL and PRE-CLEANED digest files
+            final_files = list(self.blogs_dir.rglob("FINAL-*_digest.json"))
+            pre_cleaned_files = list(self.blogs_dir.rglob("PRE-CLEANED-*_digest.json"))
+            all_files = final_files + pre_cleaned_files
+            
+            for file_path in all_files:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        digest = json.load(f)
+                    
+                    # Extract post information
+                    frontmatter = digest.get("frontmatter", {})
+                    post_date = digest.get("date", "")
+                    
+                    if not post_date or not frontmatter:
+                        continue
+                    
+                    # Create post data structure
+                    post_data = {
+                        "title": frontmatter.get("title", ""),
+                        "date": post_date,
+                        "tags": frontmatter.get("tags", []),
+                        "description": frontmatter.get("description", ""),
+                        "url": f"https://paulchrisluke.com/blog/{post_date}",
+                        "digest": digest
+                    }
+                    
+                    posts.append(post_data)
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to load FINAL digest {file_path}: {e}")
+                    continue
+            
+            logger.info(f"Loaded {len(posts)} posts from local FINAL digests")
+            return posts
+            
+        except Exception as e:
+            logger.error(f"Failed to load local FINAL digests: {e}")
+            return []

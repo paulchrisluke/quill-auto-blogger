@@ -200,7 +200,7 @@ class TestR2Publisher:
         all_blogs = [blog_data]
         
         with patch.object(publisher.related_service, 'find_related_posts') as mock_find:
-            mock_find.return_value = [('Related Post', '/blog/2025-08-26', 0.8)]
+            mock_find.return_value = [{'title': 'Related Post', 'path': '/blog/2025-08-26', 'score': 0.8}]
             
             enhanced = publisher._enhance_with_related_posts(blog_data, all_blogs)
             

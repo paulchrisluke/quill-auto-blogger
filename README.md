@@ -272,14 +272,14 @@ blogs/
 
 ```yaml
 ---
-title: "Daily Devlog — Jan 15, 2025"
+title: "PCL-Labs — Jan 15, 2025"
 date: "2025-01-15"
 author: "Your Name"
 schema:
   article:
     "@context": "https://schema.org"
     "@type": "Article"
-    headline: "Daily Devlog — Jan 15, 2025"
+    headline: "PCL-Labs — Jan 15, 2025"
     datePublished: "2025-01-15"
     author:
       "@type": "Person"
@@ -305,7 +305,7 @@ schema:
           "@type": "Answer"
           text: "Answer text"
 og:
-  og:title: "Daily Devlog — Jan 15, 2025"
+  og:title: "PCL-Labs — Jan 15, 2025"
   og:description: "Daily development log with 3 Twitch clips and 5 GitHub events"
   og:type: "article"
 ```

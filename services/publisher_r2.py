@@ -317,6 +317,12 @@ class R2Publisher:
     def _enhance_with_related_posts(self, blog_data: Dict[str, Any], all_blogs: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Enhance blog data with related posts using lightweight scoring."""
         try:
+            # Skip if related posts already exist (they're generated in the FINAL digest)
+            existing_related_posts = blog_data.get('related_posts', [])
+            if existing_related_posts:
+                logger.debug(f"Skipping related posts enhancement - {len(existing_related_posts)} already exist")
+                return blog_data
+            
             frontmatter = blog_data.get('frontmatter', {})
             current_tags = frontmatter.get('tags', [])
             current_title = frontmatter.get('title', '')
@@ -337,11 +343,11 @@ class R2Publisher:
             if related_posts:
                 # Convert to the format expected by the frontend
                 related_posts_data = []
-                for title, path, score in related_posts:
+                for post in related_posts:
                     related_posts_data.append({
-                        "title": title,
-                        "url": f"{self.frontend_domain}{path}",
-                        "score": round(score, 3)
+                        "title": post.get("title", ""),
+                        "url": f"{self.frontend_domain}{post.get('path', '')}",
+                        "score": round(post.get("score", 0), 3)
                     })
                 
                 blog_data['related_posts'] = related_posts_data

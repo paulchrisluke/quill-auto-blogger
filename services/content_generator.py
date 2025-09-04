@@ -25,7 +25,7 @@ class ContentGenerator:
     
     def generate(self, ai_enabled: bool = True, force_ai: bool = False, related_enabled: bool = True) -> str:
         """
-        Generate complete blog content with optional AI enhancements.
+        Generate bare scaffold blog content with placeholders for AI enhancement.
         
         Args:
             ai_enabled: Whether to enable AI-assisted content generation
@@ -37,25 +37,16 @@ class ContentGenerator:
         """
         content_parts = []
         
-        # 1. Holistic intro (if available)
-        if self.frontmatter.get("holistic_intro"):
-            content_parts.append(self.frontmatter["holistic_intro"])
-            content_parts.append("")
+        # 1. Holistic intro placeholder (will be filled by AI)
+        content_parts.append("[AI_HOLISTIC_INTRO]")
+        content_parts.append("")
         
         # 2. Lead paragraph (if available)
         if self.frontmatter.get("lead"):
             content_parts.append(self.frontmatter["lead"])
             content_parts.append("")
         
-        # 3. Summary paragraph
-        content_parts.append(
-            f"Today's development activities include {len(self.clips)} Twitch "
-            f"{'clip' if len(self.clips)==1 else 'clips'} and {len(self.events)} GitHub "
-            f"{'event' if len(self.events)==1 else 'events'}."
-        )
-        content_parts.append("")
-        
-        # 4. Stories section with integrated story packets
+        # 3. Stories section with minimal structure
         if self.story_packets:
             content_parts.append("## Stories")
             content_parts.append("")
@@ -88,133 +79,49 @@ class ContentGenerator:
                         content_parts.append(f"#### {packet.get('title_human', packet.get('title_raw', 'Untitled'))}")
                         content_parts.append("")
                         
-                        # Use AI comprehensive intro for a more fluid, comprehensive blog post
-                        if packet.get('ai_comprehensive_intro'):
-                            content_parts.append(packet['ai_comprehensive_intro'])
-                            content_parts.append("")
-                        elif packet.get('ai_micro_intro'):
-                            # Fallback to micro-intro if comprehensive not available
-                            content_parts.append(packet['ai_micro_intro'])
-                            content_parts.append("")
-                        
-                        # Add highlights in a more natural way
+                        # Add highlights as simple list
                         if packet.get('highlights'):
-                            content_parts.append("**Key improvements:**")
                             for highlight in packet['highlights']:
                                 content_parts.append(f"- {highlight}")
                             content_parts.append("")
                         
-                        # Add video if available and rendered
+                        # Add video placeholder
                         if (packet.get('video', {}).get('path') and 
                             packet.get('video', {}).get('status') == 'rendered'):
                             video_path = packet['video']['path']
-                            
-                            # Convert relative video paths to public URLs
-                            if video_path.startswith('out/videos/'):
-                                # Convert to public stories URL with consistent format
-                                path_parts = video_path.split('/')
-                                if len(path_parts) >= 3:
-                                    try:
-                                        date_part = path_parts[2]  # Get date from out/videos/YYYY-MM-DD/
-                                        filename = path_parts[-1]  # Get filename
-                                        # Convert to YYYY/MM/DD format
-                                        date_obj = datetime.strptime(date_part, "%Y-%m-%d")
-                                        public_path = f"stories/{date_obj.strftime('%Y/%m/%d')}/{filename}"
-                                        video_path = public_path
-                                    except (ValueError, IndexError) as e:
-                                        logger.warning(f"Failed to parse video path {video_path}: {e}")
-                                        # Fall back to original path
-                                        pass
-                            
-                            # Convert to Cloudflare R2 URL for API consumption
-                            if video_path.startswith('stories/') or video_path.startswith('/stories/'):
-                                # Remove leading slash if present
-                                clean_path = video_path.lstrip('/')
-                                cloudflare_url = self.utils.get_cloudflare_url(clean_path)
-                                video_path = cloudflare_url
-                            
-                            # Add video embed for website preview (only for secure paths)
-                            if video_path.startswith(('https://', '/stories/')):
-                                # Escape video path for HTML attribute to prevent XSS
-                                escaped_video_path = html.escape(video_path, quote=True)
-                                
-                                # Generate thumbnail URL for the video
-                                thumbnail_url = self.utils.get_video_thumbnail_url(video_path, packet.get('id', ''))
-                                
-                                if thumbnail_url:
-                                    # Escape thumbnail URL for HTML attribute to prevent XSS
-                                    escaped_thumbnail_url = html.escape(thumbnail_url, quote=True)
-                                    content_parts.append(f'<video controls poster="{escaped_thumbnail_url}" src="{escaped_video_path}"></video>')
-                                else:
-                                    content_parts.append(f'<video controls src="{escaped_video_path}"></video>')
-                                content_parts.append("")
-                            else:
-                                # For non-secure paths, just show the link
-                                content_parts.append(f"**Video:** [Watch Story]({video_path})")
-                                content_parts.append("")
+                            content_parts.append(f"[video: {video_path}]")
+                            content_parts.append("")
                         
-                        # Add PR link
+                        # Add PR placeholder
                         if packet.get('links', {}).get('pr_url'):
                             pr_url = packet['links']['pr_url']
-                            # Sanitize PR URL to prevent markdown/script injection
-                            if self._is_safe_url(pr_url):
-                                content_parts.append(f"**PR:** [{pr_url}]({pr_url})")
-                                content_parts.append("")
-                            else:
-                                logger.warning(f"Skipping unsafe PR URL: {pr_url}")
+                            content_parts.append(f"[pr: {pr_url}]")
+                            content_parts.append("")
                         
                         content_parts.append("---")
                         content_parts.append("")
         
-        # 5. Twitch clips section (if not covered by stories)
+        # 4. Twitch clips section (if not covered by stories)
         if self.clips and not self.story_packets:
             content_parts.append("## Twitch Clips")
             content_parts.append("")
             
             for clip in self.clips:
                 content_parts.append(f"### {clip.get('title', 'Untitled Clip')}")
-                if clip.get('duration') is not None:
-                    content_parts.append(f"**Duration:** {clip['duration']} seconds")
-                content_parts.append(f"**Views:** {clip.get('view_count', 'Unknown')}")
-                content_parts.append(f"**URL:** {clip.get('url', '')}")
+                content_parts.append(f"[clip: {clip.get('url', '')}]")
                 content_parts.append("")
-                
-                if clip.get('transcript'):
-                    content_parts.append("**Transcript:**")
-                    content_parts.append(f"> {clip.get('transcript', '')}")
-                    content_parts.append("")
         
-        # 6. GitHub events section (if not covered by stories)
+        # 5. GitHub events section (if not covered by stories)
         if self.events and not self.story_packets:
             content_parts.append("## GitHub Activity")
             content_parts.append("")
             
             for event in self.events:
                 content_parts.append(f"### {event.get('type', 'unknown')} in {event.get('repo', '')}")
-                content_parts.append(f"**Actor:** {event.get('actor', 'Unknown')}")
-                created = event.get('created_at', 'Unknown')
-                if isinstance(created, (datetime, date)):
-                    created = created.isoformat()
-                content_parts.append(f"**Time:** {created}")
-                
-                if event.get('url'):
-                    content_parts.append(f"**URL:** {event.get('url', '')}")
-                
-                if event.get('title'):
-                    content_parts.append(f"**Title:** {event.get('title', '')}")
-                
-                if event.get('body'):
-                    content_parts.append(f"**Description:** {event.get('body', '')}")
-                
-                # Add commit messages if available
-                if event.get('details', {}).get('commit_messages'):
-                    content_parts.append("**Commits:**")
-                    for msg in event.get('details', {}).get('commit_messages', []):
-                        content_parts.append(f"- {msg}")
-                
+                content_parts.append(f"[event: {event.get('url', '')}]")
                 content_parts.append("")
         
-        # 7. Wrap-up paragraph (if available)
+        # 6. Wrap-up placeholder (will be filled by AI if not in frontmatter)
         wrap_up_existing = (self.frontmatter.get("wrap_up") or "").strip()
         if wrap_up_existing:
             content_parts.append("")
@@ -222,10 +129,14 @@ class ContentGenerator:
             content_parts.append("")
             content_parts.append(wrap_up_existing)
             content_parts.append("")
+        else:
+            content_parts.append("[AI_WRAP_UP]")
+            content_parts.append("")
         
-        # 8. Related posts block
-        if related_enabled:
-            content_parts.extend(self._generate_related_posts())
+        # 7. Related posts are handled in structured data, not markdown
+        
+        # 8. Add signature
+        content_parts.extend(self._get_signature())
         
         # Generate the base markdown
         markdown = "\n".join(content_parts)
@@ -233,58 +144,6 @@ class ContentGenerator:
         # Post-process with AI enhancements
         return self.post_process_markdown(markdown, ai_enabled, force_ai)
     
-    def _generate_related_posts(self) -> List[str]:
-        """Generate related posts section."""
-        try:
-            from .related import RelatedPostsService
-            
-            related_service = RelatedPostsService()
-            
-            # Extract repo from GitHub events to check for related posts
-            repo = None
-            if self.events:
-                # Get the first GitHub event's repo
-                first_event = self.events[0]
-                if first_event.get("repo"):
-                    repo = first_event["repo"]
-            
-            related_posts = related_service.find_related_posts(
-                self.target_date,
-                self.frontmatter.get("tags", []),
-                self.frontmatter.get("title", ""),
-                repo=repo
-            )
-            
-            if related_posts:
-                return self._format_related_posts(related_posts)
-            else:
-                return self._format_no_related_posts()
-                
-        except Exception as e:
-            logger.warning(f"Failed to generate related posts: {e}")
-            return self._format_no_related_posts()
-    
-    def _format_related_posts(self, related_posts: List[Tuple[str, str, float]]) -> List[str]:
-        """Format related posts block."""
-        related_block = ["\n## Related posts\n"]
-        
-        for title, path, score in related_posts:
-            related_block.append(f"- [{title}]({path})")
-        
-        related_block.append("")  # Add blank line
-        related_block.extend(self._get_signature())
-        
-        return related_block
-    
-    def _format_no_related_posts(self) -> List[str]:
-        """Format no related posts message."""
-        no_posts = [
-            "\n## Related posts\n",
-            "No related posts found for this blog post."
-        ]
-        no_posts.extend(self._get_signature())
-        
-        return no_posts
     
     def _get_signature(self) -> List[str]:
         """Get the blog signature."""
@@ -293,7 +152,7 @@ class ContentGenerator:
             "",
             "[https://upwork.com/freelancers/paulchrisluke](https://upwork.com/freelancers/paulchrisluke)",
             "",
-            "_Hi. I'm Chris. I am a morally ambiguous technology marketer. Ridiculously rich people ask me to solve problems they didn't know they have. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _like a high-class hooker or find someone who knows how to get ahold of me._"
+            "_Hi. I'm Chris. I'm a morally ambiguous technology marketer and builder at PCL Labs. I turn raw events into stories with wit, irreverence, and emotional honesty. I help solve complex technical challenges through AI blog automation, schema-driven SEO, and developer workflow optimization. Book me on_ [Upwork](https://upwork.com/freelancers/paulchrisluke) _or find someone who knows how to get ahold of me._"
         ]
     
     def post_process_markdown(self, markdown: str, ai_enabled: bool, force_ai: bool) -> str:
@@ -301,7 +160,7 @@ class ContentGenerator:
         Post-process markdown with AI inserts and enhancements.
         
         Args:
-            markdown: Raw markdown content
+            markdown: Raw markdown content with placeholders
             ai_enabled: Whether AI is enabled
             force_ai: Whether to force AI regeneration
             
@@ -309,7 +168,8 @@ class ContentGenerator:
             Enhanced markdown content
         """
         if not ai_enabled:
-            return markdown
+            # Still need to replace placeholders even without AI
+            return self._replace_placeholders(markdown)
         
         try:
             from .ai_inserts import AIInsertsService
@@ -367,21 +227,18 @@ class ContentGenerator:
                         self.frontmatter["schema"]["blogPosting"]["headline"] = improved_title
                 markdown = self._update_title_in_markdown(markdown, improved_title)
             
-            # 3. Story micro-intros
-            markdown = self._insert_story_micro_intros(markdown, ai_service, force_ai)
-            
-            # 4. Generate holistic intro and wrap-up
+            # 3. Generate holistic intro and wrap-up
             holistic_intro = ai_service.make_holistic_intro(self.target_date, inputs, force_ai)
             if holistic_intro:
-                markdown = self._insert_holistic_intro(markdown, holistic_intro)
+                markdown = markdown.replace("[AI_HOLISTIC_INTRO]", holistic_intro)
             
             # Only generate wrap-up if one doesn't already exist in frontmatter (trimmed)
             if not self.frontmatter.get("wrap_up", "").strip():
                 wrap_up = ai_service.make_wrap_up(self.target_date, inputs, force_ai)
                 if wrap_up:
-                    markdown = self._insert_wrap_up(markdown, wrap_up)
+                    markdown = markdown.replace("[AI_WRAP_UP]", f"## Wrap-Up\n\n{wrap_up}")
             
-            # 5. Generate AI-suggested tags
+            # 4. Generate AI-suggested tags
             suggested_tags = ai_service.suggest_tags(self.target_date, inputs, force_ai)
             if suggested_tags:
                 # Merge with existing tags, avoiding duplicates
@@ -393,11 +250,15 @@ class ContentGenerator:
                 if "schema" in self.frontmatter and "article" in self.frontmatter["schema"]:
                     self.frontmatter["schema"]["article"]["keywords"] = list(existing_tags)
             
+            # 5. Replace all placeholders with AI-generated content
+            markdown = self._replace_placeholders_with_ai(markdown, ai_service, force_ai)
+            
             return markdown
             
         except Exception as e:
             logger.warning(f"Post-processing failed: {e}")
-            return markdown  # Return original markdown on error
+            # Still try to replace placeholders even on error
+            return self._replace_placeholders(markdown)
     
     def _update_title_in_markdown(self, markdown: str, new_title: str) -> str:
         """Update both frontmatter and H1 title."""
@@ -418,94 +279,169 @@ class ContentGenerator:
         
         return markdown
     
-    def _insert_story_micro_intros(self, markdown: str, ai_service, force_ai: bool = False) -> str:
-        """Insert story micro-intros under each story heading."""
-        for packet in self.story_packets:
-            story_title = packet.get("title_human", "")
-            if not story_title:
-                continue
-            
-            # Find the story heading
-            heading_pattern = rf"^(#### {re.escape(story_title)})$"
-            
-            # Skip micro-intro insertion if we already have comprehensive intro in content
-            # (comprehensive intro is now added in main content generation)
-            if packet.get("ai_comprehensive_intro"):
-                continue
-                
-            # Use existing micro-intro if available, otherwise generate one
-            micro_intro = packet.get("ai_micro_intro")
-            if not micro_intro:
-                # Prepare inputs for AI
-                story_inputs = {
-                    "title": story_title,
-                    "why": packet.get("why", ""),
-                    "highlights_csv": ",".join(packet.get("highlights", []))
-                }
-                micro_intro = ai_service.make_story_micro_intro(self.target_date, story_inputs, force_ai)
-            
-            # Insert micro-intro after heading
-            if micro_intro:
-                replacement = rf"\1\n\n{micro_intro}\n"
-                markdown = re.sub(heading_pattern, replacement, markdown, flags=re.MULTILINE)
+    def _replace_placeholders(self, markdown: str) -> str:
+        """Replace placeholders with basic content when AI is disabled."""
+        # Replace video placeholders with simple links
+        markdown = re.sub(r'\[video: ([^\]]+)\]', r'**Video:** [Watch Story](\1)', markdown)
+        
+        # Replace PR placeholders with simple links
+        markdown = re.sub(r'\[pr: ([^\]]+)\]', r'**PR:** [\1](\1)', markdown)
+        
+        # Replace clip placeholders with simple links
+        markdown = re.sub(r'\[clip: ([^\]]+)\]', r'**Clip:** [Watch](\1)', markdown)
+        
+        # Replace event placeholders with simple links
+        markdown = re.sub(r'\[event: ([^\]]+)\]', r'**Event:** [View](\1)', markdown)
+        
+        # Remove AI placeholders
+        markdown = markdown.replace("[AI_HOLISTIC_INTRO]", "")
+        markdown = markdown.replace("[AI_WRAP_UP]", "")
         
         return markdown
     
-    def _insert_holistic_intro(self, markdown: str, intro: str) -> str:
-        """Insert holistic intro paragraph after the lead but before GitHub/Twitch stats."""
-        lines = markdown.splitlines()
+    def _replace_placeholders_with_ai(self, markdown: str, ai_service, force_ai: bool = False) -> str:
+        """Replace placeholders with AI-generated content."""
+        # Replace video placeholders with AI-generated video descriptions
+        def replace_video(match):
+            video_path = match.group(1)
+            # Generate AI description for the video
+            video_description = self._generate_video_description(video_path, ai_service, force_ai)
+            return video_description
         
-        # Find the line with "Today's development activities include..." or similar
-        # This should be in the markdown body, not frontmatter
-        for i, line in enumerate(lines):
-            if "Today's development activities include" in line or "Twitch clips" in line or "GitHub events" in line:
-                # Insert holistic intro before this line
-                lines.insert(i, '')
-                lines.insert(i, intro)
-                lines.insert(i, '')
-                break
-        else:
-            # If we can't find the stats line, insert after the first paragraph after H1
-            for i, line in enumerate(lines):
-                if line.startswith('# ') and not line.startswith('##'):
-                    # Found H1, look for the next non-empty line (should be the lead)
-                    for j in range(i + 1, len(lines)):
-                        if lines[j].strip() and not lines[j].startswith('---'):
-                            # Insert holistic intro after the lead
-                            lines.insert(j + 1, '')
-                            lines.insert(j + 2, intro)
-                            lines.insert(j + 3, '')
-                            break
-                    break
+        markdown = re.sub(r'\[video: ([^\]]+)\]', replace_video, markdown)
         
-        return '\n'.join(lines)
+        # Replace PR placeholders with AI-generated PR descriptions
+        def replace_pr(match):
+            pr_url = match.group(1)
+            # Generate AI description for the PR
+            pr_description = self._generate_pr_description(pr_url, ai_service, force_ai)
+            return pr_description
+        
+        markdown = re.sub(r'\[pr: ([^\]]+)\]', replace_pr, markdown)
+        
+        # Replace clip placeholders with AI-generated clip descriptions
+        def replace_clip(match):
+            clip_url = match.group(1)
+            # Generate AI description for the clip
+            clip_description = self._generate_clip_description(clip_url, ai_service, force_ai)
+            return clip_description
+        
+        markdown = re.sub(r'\[clip: ([^\]]+)\]', replace_clip, markdown)
+        
+        # Replace event placeholders with AI-generated event descriptions
+        def replace_event(match):
+            event_url = match.group(1)
+            # Generate AI description for the event
+            event_description = self._generate_event_description(event_url, ai_service, force_ai)
+            return event_description
+        
+        markdown = re.sub(r'\[event: ([^\]]+)\]', replace_event, markdown)
+        
+        return markdown
     
-    def _insert_wrap_up(self, markdown: str, wrap_up: str) -> str:
-        """Insert wrap-up section before the Related posts section."""
-        lines = markdown.splitlines()
-        
-        # Idempotency: if a Wrap-Up section is already present, no-op
-        if re.search(r'(?mi)^\s*##\s*Wrap[- ]?Up\s*$', markdown):
-            return markdown
-
-        # Find the "Related posts" section
-        for i, line in enumerate(lines):
-            if re.match(r'^\s*##\s*Related\s+posts\s*$', line, re.IGNORECASE):
-                # Insert wrap-up section before Related posts
-                # Insert in correct order: header, blank, content, blank
-                lines.insert(i, "## Wrap-Up")
-                lines.insert(i + 1, '')
-                lines.insert(i + 2, wrap_up)
-                lines.insert(i + 3, '')
-                break
-        else:
-            # If no Related posts section, append at the end
-            lines.append("")
-            lines.append("## Wrap-Up")
-            lines.append("")
-            lines.append(wrap_up)
-        
-        return '\n'.join(lines)
+    def _generate_video_description(self, video_path: str, ai_service, force_ai: bool = False) -> str:
+        """Generate AI description for a video."""
+        try:
+            # Convert video path to proper URL format
+            if video_path.startswith('out/videos/'):
+                # Convert to public stories URL with consistent format
+                path_parts = video_path.split('/')
+                if len(path_parts) >= 3:
+                    try:
+                        date_part = path_parts[2]  # Get date from out/videos/YYYY-MM-DD/
+                        filename = path_parts[-1]  # Get filename
+                        # Convert to YYYY/MM/DD format
+                        date_obj = datetime.strptime(date_part, "%Y-%m-%d")
+                        public_path = f"stories/{date_obj.strftime('%Y/%m/%d')}/{filename}"
+                        video_path = public_path
+                    except (ValueError, IndexError) as e:
+                        logger.warning(f"Failed to parse video path {video_path}: {e}")
+                        pass
+            
+            # Convert to Cloudflare R2 URL for API consumption
+            if video_path.startswith('stories/') or video_path.startswith('/stories/'):
+                # Remove leading slash if present
+                clean_path = video_path.lstrip('/')
+                cloudflare_url = self.utils.get_cloudflare_url(clean_path)
+                video_path = cloudflare_url
+            
+            # Generate thumbnail URL for the video
+            thumbnail_url = self.utils.get_video_thumbnail_url(video_path, "")
+            
+            if video_path.startswith(('https://', '/stories/')):
+                # Escape video path for HTML attribute to prevent XSS
+                escaped_video_path = html.escape(video_path, quote=True)
+                
+                if thumbnail_url:
+                    # Escape thumbnail URL for HTML attribute to prevent XSS
+                    escaped_thumbnail_url = html.escape(thumbnail_url, quote=True)
+                    return f'<video controls poster="{escaped_thumbnail_url}" src="{escaped_video_path}"></video>'
+                else:
+                    return f'<video controls src="{escaped_video_path}"></video>'
+            else:
+                # For non-secure paths, just show the link
+                return f"**Video:** [Watch Story]({video_path})"
+                
+        except Exception as e:
+            logger.warning(f"Failed to generate video description: {e}")
+            return f"**Video:** [Watch Story]({video_path})"
+    
+    def _generate_pr_description(self, pr_url: str, ai_service, force_ai: bool = False) -> str:
+        """Generate AI description for a PR."""
+        try:
+            # Sanitize PR URL to prevent markdown/script injection
+            if self._is_safe_url(pr_url):
+                return f"**PR:** [{pr_url}]({pr_url})"
+            else:
+                logger.warning(f"Skipping unsafe PR URL: {pr_url}")
+                return ""
+        except Exception as e:
+            logger.warning(f"Failed to generate PR description: {e}")
+            return f"**PR:** [{pr_url}]({pr_url})"
+    
+    def _generate_clip_description(self, clip_url: str, ai_service, force_ai: bool = False) -> str:
+        """Generate AI description for a Twitch clip."""
+        try:
+            # Find the clip data
+            clip_data = None
+            for clip in self.clips:
+                if clip.get('url') == clip_url:
+                    clip_data = clip
+                    break
+            
+            if clip_data:
+                description = f"**Clip:** [Watch]({clip_url})"
+                if clip_data.get('duration') is not None:
+                    description += f" ({clip_data['duration']}s)"
+                if clip_data.get('view_count'):
+                    description += f" - {clip_data['view_count']} views"
+                return description
+            else:
+                return f"**Clip:** [Watch]({clip_url})"
+        except Exception as e:
+            logger.warning(f"Failed to generate clip description: {e}")
+            return f"**Clip:** [Watch]({clip_url})"
+    
+    def _generate_event_description(self, event_url: str, ai_service, force_ai: bool = False) -> str:
+        """Generate AI description for a GitHub event."""
+        try:
+            # Find the event data
+            event_data = None
+            for event in self.events:
+                if event.get('url') == event_url:
+                    event_data = event
+                    break
+            
+            if event_data:
+                description = f"**Event:** [View]({event_url})"
+                if event_data.get('actor'):
+                    description += f" by {event_data['actor']}"
+                return description
+            else:
+                return f"**Event:** [View]({event_url})"
+        except Exception as e:
+            logger.warning(f"Failed to generate event description: {e}")
+            return f"**Event:** [View]({event_url})"
     
     def _is_safe_url(self, url: str) -> bool:
         """

@@ -28,7 +28,7 @@ class TestRelatedPostsService:
                 "version": "2",
                 "date": "2025-01-10",
                 "frontmatter": {
-                    "title": "Daily Devlog — Jan 10, 2025",
+                    "title": "PCL-Labs — Jan 10, 2025",
                     "tags": ["feat", "docs"]
                 }
             },
@@ -36,7 +36,7 @@ class TestRelatedPostsService:
                 "version": "2",
                 "date": "2025-01-15",
                 "frontmatter": {
-                    "title": "Daily Devlog — Jan 15, 2025",
+                    "title": "PCL-Labs — Jan 15, 2025",
                     "tags": ["feat", "fix", "perf"]
                 }
             },
@@ -44,7 +44,7 @@ class TestRelatedPostsService:
                 "version": "2",
                 "date": "2025-01-20",
                 "frontmatter": {
-                    "title": "Daily Devlog — Jan 20, 2025",
+                    "title": "PCL-Labs — Jan 20, 2025",
                     "tags": ["security", "infra"]
                 }
             },
@@ -52,7 +52,7 @@ class TestRelatedPostsService:
                 "version": "2",
                 "date": "2025-02-01",
                 "frontmatter": {
-                    "title": "Daily Devlog — Feb 1, 2025",
+                    "title": "PCL-Labs — Feb 1, 2025",
                     "tags": ["feat", "docs", "perf"]
                 }
             }
@@ -80,7 +80,7 @@ class TestRelatedPostsService:
         """Test basic related posts finding."""
         current_date = "2025-01-15"
         current_tags = ["feat", "fix"]
-        current_title = "Daily Devlog — Jan 15, 2025"
+        current_title = "PCL-Labs — Jan 15, 2025"
         
         related_posts = related_service.find_related_posts(
             current_date, current_tags, current_title
@@ -90,11 +90,11 @@ class TestRelatedPostsService:
         assert len(related_posts) > 0
         
         # Current date should not be included
-        for title, path, score in related_posts:
-            assert "Jan 15" not in title
+        for post in related_posts:
+            assert "Jan 15" not in post.get("title", "")
         
         # Should be sorted by score descending
-        scores = [score for _, _, score in related_posts]
+        scores = [post.get("score", 0) for post in related_posts]
         assert scores == sorted(scores, reverse=True)
     
     def test_find_related_posts_no_blogs_dir(self, related_service):
@@ -151,7 +151,7 @@ class TestRelatedPostsService:
         """Test max posts limit."""
         current_date = "2025-01-15"
         current_tags = ["feat", "fix"]
-        current_title = "Daily Devlog — Jan 15, 2025"
+        current_title = "PCL-Labs — Jan 15, 2025"
         
         # Request only 2 posts
         related_posts = related_service.find_related_posts(
@@ -190,12 +190,12 @@ class TestRelatedPostsService:
     def test_compute_related_score_title_similarity(self, related_service):
         """Test title similarity scoring."""
         current_tags = ["feat"]
-        current_title = "Daily Devlog — Jan 15, 2025"
+        current_title = "PCL-Labs — Jan 15, 2025"
         current_date = "2025-01-15"
         
         # Similar title
         post_tags = ["feat"]
-        post_title = "Daily Devlog — Jan 10, 2025"
+        post_title = "PCL-Labs — Jan 10, 2025"
         post_date = "2025-01-10"
         
         score_similar = related_service._compute_related_score(
@@ -244,7 +244,7 @@ class TestRelatedPostsService:
     def test_compute_related_score_weighted_combination(self, related_service):
         """Test that all scoring components contribute."""
         current_tags = ["feat", "fix"]
-        current_title = "Daily Devlog — Jan 15, 2025"
+        current_title = "PCL-Labs — Jan 15, 2025"
         current_date = "2025-01-15"
         
         # Post with high tags overlap but different title and old date
@@ -307,8 +307,8 @@ class TestRelatedPostsService:
     
     def test_compute_title_similarity_basic(self, related_service):
         """Test basic title similarity calculation."""
-        current_title = "Daily Devlog — Jan 15, 2025"
-        post_title = "Daily Devlog — Jan 10, 2025"
+        current_title = "PCL-Labs — Jan 15, 2025"
+        post_title = "PCL-Labs — Jan 10, 2025"
         
         score = related_service._compute_title_similarity(current_title, post_title)
         
@@ -318,8 +318,8 @@ class TestRelatedPostsService:
     
     def test_compute_title_similarity_stop_words_removed(self, related_service):
         """Test that stop words are removed from similarity calculation."""
-        current_title = "The Daily Devlog — Jan 15, 2025"
-        post_title = "A Daily Devlog — Jan 10, 2025"
+        current_title = "The PCL-Labs — Jan 15, 2025"
+        post_title = "A PCL-Labs — Jan 10, 2025"
         
         score = related_service._compute_title_similarity(current_title, post_title)
         
@@ -441,7 +441,7 @@ class TestRelatedPostsService:
         """Test finding related posts with remote repo specified."""
         current_date = "2025-01-15"
         current_tags = ["feat", "fix"]
-        current_title = "Daily Devlog — Jan 15, 2025"
+        current_title = "PCL-Labs — Jan 15, 2025"
         
         # Mock the remote posts fetching
         with patch.object(related_service, '_fetch_published_posts_from_remote') as mock_remote:
@@ -474,7 +474,7 @@ class TestRelatedPostsService:
         """Test graceful handling of remote API failures."""
         current_date = "2025-01-15"
         current_tags = ["feat", "fix"]
-        current_title = "Daily Devlog — Jan 15, 2025"
+        current_title = "PCL-Labs — Jan 15, 2025"
         
         # Create a local blog post for testing
         local_blog_dir = related_service.blogs_dir / "2025-01-10"
@@ -516,7 +516,7 @@ class TestRelatedPostsService:
         """Test that posts without required fields are filtered out."""
         current_date = "2025-01-15"
         current_tags = ["feat", "fix"]
-        current_title = "Daily Devlog — Jan 15, 2025"
+        current_title = "PCL-Labs — Jan 15, 2025"
         
         # Mock the remote posts fetching to return invalid posts
         with patch.object(related_service, '_fetch_published_posts_from_remote') as mock_remote:
