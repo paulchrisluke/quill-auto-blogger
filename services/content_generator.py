@@ -88,17 +88,18 @@ class ContentGenerator:
                         content_parts.append(f"#### {packet.get('title_human', packet.get('title_raw', 'Untitled'))}")
                         content_parts.append("")
                         
-                        # Add AI micro-intro if available
-                        if packet.get('ai_micro_intro'):
+                        # Use AI comprehensive intro for a more fluid, comprehensive blog post
+                        if packet.get('ai_comprehensive_intro'):
+                            content_parts.append(packet['ai_comprehensive_intro'])
+                            content_parts.append("")
+                        elif packet.get('ai_micro_intro'):
+                            # Fallback to micro-intro if comprehensive not available
                             content_parts.append(packet['ai_micro_intro'])
                             content_parts.append("")
                         
-                        if packet.get('why'):
-                            content_parts.append(f"**Why:** {packet['why']}")
-                            content_parts.append("")
-                        
+                        # Add highlights in a more natural way
                         if packet.get('highlights'):
-                            content_parts.append("**Highlights:**")
+                            content_parts.append("**Key improvements:**")
                             for highlight in packet['highlights']:
                                 content_parts.append(f"- {highlight}")
                             content_parts.append("")
@@ -422,6 +423,11 @@ class ContentGenerator:
             # Find the story heading
             heading_pattern = rf"^(#### {re.escape(story_title)})$"
             
+            # Skip micro-intro insertion if we already have comprehensive intro in content
+            # (comprehensive intro is now added in main content generation)
+            if packet.get("ai_comprehensive_intro"):
+                continue
+                
             # Use existing micro-intro if available, otherwise generate one
             micro_intro = packet.get("ai_micro_intro")
             if not micro_intro:
