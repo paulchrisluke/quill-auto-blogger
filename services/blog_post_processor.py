@@ -23,7 +23,9 @@ class BlogPostProcessor:
         """Get allowed domains for Twitch embeds from environment."""
         domains = os.getenv("TWITCH_EMBED_DOMAINS")
         if not domains:
-            raise ValueError("TWITCH_EMBED_DOMAINS environment variable is required")
+            # Provide a fallback for development/testing
+            logger.warning("TWITCH_EMBED_DOMAINS environment variable not set, using fallback")
+            return "paulchrisluke.com,www.paulchrisluke.com"
         return domains
     
     def process_blog_content(self, ai_content: str, digest: Dict[str, Any]) -> str:
