@@ -3,6 +3,7 @@ Utility methods for digest building operations.
 """
 
 import logging
+import random
 from datetime import datetime
 from pathlib import Path
 from typing import List, Any, Optional, Dict
@@ -16,8 +17,20 @@ class DigestUtils:
     def __init__(self, media_domain: str, blog_default_image: str):
         self.media_domain = media_domain
         self.blog_default_image = blog_default_image
-        # Stock image fallback for when no good images are available
-        self.stock_fallback_image = "https://source.unsplash.com/1200x630/?technology,programming,developer"
+        # Pool of reliable tech-themed stock images for fallback
+        self.stock_fallback_images = [
+            "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1200&h=630&fit=crop",  # Code on screen
+            "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=1200&h=630&fit=crop",  # Developer workspace
+            "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=1200&h=630&fit=crop",  # Programming setup
+            "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1200&h=630&fit=crop",  # Data visualization
+            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1200&h=630&fit=crop",  # Tech workspace
+        ]
+    
+    def get_random_stock_image(self) -> str:
+        """Get a random stock image from the pool."""
+        selected_image = random.choice(self.stock_fallback_images)
+        logger.info(f"Selected random stock image: {selected_image}")
+        return selected_image
     
     def select_best_image(self, story_packets: List[Any]) -> str:
         """
@@ -34,8 +47,8 @@ class DigestUtils:
             URL string for the best image
         """
         if not story_packets:
-            logger.warning("No story packets provided for image selection, using stock fallback image")
-            return self.stock_fallback_image
+            logger.warning("No story packets provided for image selection, using random stock fallback image")
+            return self.get_random_stock_image()
         
         # Priority order for story types (lower number = higher priority)
         type_priority = {
@@ -84,8 +97,8 @@ class DigestUtils:
                 raise
         
         # No suitable video thumbnail found
-        logger.warning("No suitable video thumbnail found in any story packets, using stock fallback image")
-        return self.stock_fallback_image
+        logger.warning("No suitable video thumbnail found in any story packets, using random stock fallback image")
+        return self.get_random_stock_image()
     
     def get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
         """

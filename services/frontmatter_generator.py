@@ -99,10 +99,10 @@ class FrontmatterGenerator:
         try:
             best_image = utils.select_best_image(stories)
             if not best_image:
-                best_image = utils.stock_fallback_image
+                best_image = utils.get_random_stock_image()
         except Exception as e:
             logger.warning(f"Failed to select best image from stories: {e}")
-            best_image = utils.stock_fallback_image
+            best_image = utils.get_random_stock_image()
 
         # Placeholders for AI
         seo_description = "[AI_GENERATE_SEO_DESCRIPTION]"
