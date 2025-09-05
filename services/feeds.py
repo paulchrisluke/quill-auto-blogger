@@ -327,10 +327,10 @@ class FeedGenerator:
                 "api_url": f"{self.api_domain}/blogs/{date_str}/{date_str}_page.publish.json",
                 "tags": tags,
                 "description": description,
-                "story_count": len(blog.get('stories', [])),
+                "story_count": len(blog.get('story_packets', [])),
                 "has_video": any(
                     story.get('videoId') is not None 
-                    for story in blog.get('stories', [])
+                    for story in blog.get('story_packets', [])
                 )
             }
             blogs_list.append(blog_entry)

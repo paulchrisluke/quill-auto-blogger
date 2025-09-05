@@ -101,6 +101,9 @@ class CloudflareAIClient:
 
     def _count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken."""
+        if self.tokenizer is None:
+            # Fallback to character-based estimation when tiktoken fails
+            return len(text) // 4
         return len(self.tokenizer.encode(text))
 
     def _validate_token_limits(self, system: str, prompt: str, max_tokens: int) -> None:

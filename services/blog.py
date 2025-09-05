@@ -693,9 +693,23 @@ class BlogDigestBuilder:
                 self.io.save_enriched_digest(enriched_digest, target_date)
             
             # Step 2: Use AI-generated content from enriched digest
-            if enriched_digest.get("ai_generated_content"):
+            # Check if this is an enriched digest with AI-generated content (has content/markdown_body fields)
+            if enriched_digest.get("content") or enriched_digest.get("markdown_body"):
+                logger.info("Using AI-generated content from enriched digest for publish package")
+                
+                # The enriched digest already has the AI content in the main fields
+                # No need to extract from a nested ai_generated_content field
+                consolidated_content = enriched_digest.get("markdown_body", enriched_digest.get("content", ""))
+                
+                # Post-process the AI content with technical precision
+                from .blog_post_processor import BlogPostProcessor
+                processor = BlogPostProcessor()
+                consolidated_content = processor.process_blog_content(consolidated_content, enriched_digest)
+                
+            elif enriched_digest.get("ai_generated_content"):
+                # Legacy format - extract from nested ai_generated_content
                 ai_content = enriched_digest["ai_generated_content"]
-                logger.info("Using AI-generated content for publish package")
+                logger.info("Using AI-generated content from legacy format for publish package")
                 
                 # Update frontmatter with AI-generated title, description, and tags
                 if "frontmatter" not in enriched_digest:
@@ -718,6 +732,7 @@ class BlogDigestBuilder:
                 
             else:
                 # Fall back to traditional content generation
+                logger.info("No AI-generated content found, falling back to traditional content generation")
                 content_gen = ContentGenerator(enriched_digest, self.utils)
                 consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
             
