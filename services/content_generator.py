@@ -573,6 +573,9 @@ class ContentGenerator:
             video_objects = get_schema_property(schema, "video")
             if video_objects:
                 self._attach_thumbnails_to_video_objects(video_objects, story_packets)
+            
+            # Persist the migrated and modified schema back to frontmatter
+            frontmatter["schema"] = schema
         
         # Ensure all images are absolute URLs
         self._normalize_image_urls(normalized_data)
@@ -625,3 +628,6 @@ class ContentGenerator:
                 clean_path = image.lstrip('/')
                 normalized_image = self.utils.get_cloudflare_url(clean_path)
                 set_schema_property(schema, "image", normalized_image)
+            
+            # Persist the migrated and modified schema back to frontmatter
+            frontmatter["schema"] = schema

@@ -94,7 +94,7 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
         # Step 4: Assemble publish package
         logger.info("Step 4: Assembling publish package...")
         publish_package = builder.assemble_publish_package(target_date)
-        logger.info(f"Assembled publish package with {len(publish_package.get('story_packets', []))} stories")
+        logger.info(f"Assembled publish package with {len(publish_package.get('stories', []))} stories")
         
         # Count rendered videos
         rendered_count = sum(1 for packet in normalized_digest.get('story_packets', []) 
