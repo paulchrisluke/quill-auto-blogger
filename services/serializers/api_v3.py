@@ -22,7 +22,7 @@ class ApiV3Serializer:
         self.blog_author = blog_author
         self.blog_base_url = blog_base_url.rstrip("/")
         self.media_domain = media_domain
-        self.default_image = f"{media_domain}/assets/pcl-labs-logo.svg"
+        self.default_image = "https://source.unsplash.com/1200x630/?technology,programming,developer"
     
     def build(self, normalized_digest: Dict[str, Any]) -> Dict[str, Any]:
         """

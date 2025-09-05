@@ -64,7 +64,7 @@ class BlogDigestBuilder:
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.media_domain = os.getenv("MEDIA_DOMAIN", "https://media.paulchrisluke.com").rstrip("/")
-        self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", f"{self.media_domain}/assets/pcl-labs-logo.svg")
+        self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", "https://source.unsplash.com/1200x630/?technology,programming,developer")
         self.worker_domain = os.getenv("WORKER_DOMAIN", "https://quill-blog-api-prod.paulchrisluke.workers.dev")
         
         # Blog signature configuration

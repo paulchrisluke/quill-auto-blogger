@@ -16,6 +16,8 @@ class DigestUtils:
     def __init__(self, media_domain: str, blog_default_image: str):
         self.media_domain = media_domain
         self.blog_default_image = blog_default_image
+        # Stock image fallback for when no good images are available
+        self.stock_fallback_image = "https://source.unsplash.com/1200x630/?technology,programming,developer"
     
     def select_best_image(self, story_packets: List[Any]) -> str:
         """
@@ -32,8 +34,8 @@ class DigestUtils:
             URL string for the best image
         """
         if not story_packets:
-            logger.warning("No story packets provided for image selection, using default blog image")
-            return self.blog_default_image
+            logger.warning("No story packets provided for image selection, using stock fallback image")
+            return self.stock_fallback_image
         
         # Priority order for story types (lower number = higher priority)
         type_priority = {
@@ -82,8 +84,8 @@ class DigestUtils:
                 raise
         
         # No suitable video thumbnail found
-        logger.warning("No suitable video thumbnail found in any story packets, using default blog image")
-        return self.blog_default_image
+        logger.warning("No suitable video thumbnail found in any story packets, using stock fallback image")
+        return self.stock_fallback_image
     
     def get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
         """
