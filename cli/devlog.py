@@ -204,9 +204,9 @@ def blog_generate(target_date: str, no_ai: bool, force_ai: bool, no_related: boo
         
 
         
-        # Save PRE-CLEANED digest (raw, no AI enhancements)
-        digest_path = builder.save_digest(digest)
-        click.echo(f"[OK] Saved PRE-CLEANED digest: {digest_path}")
+        # Save normalized digest
+        digest_path = builder.io.save_digest(digest, target_date, "normalized")
+        click.echo(f"[OK] Saved normalized digest: {digest_path}")
         
         # Create FINAL digest with AI enhancements for API consumption
         final_digest = builder.create_final_digest(target_date)
@@ -215,22 +215,28 @@ def blog_generate(target_date: str, no_ai: bool, force_ai: bool, no_related: boo
         else:
             click.echo(f"[ERROR] Failed to create FINAL digest")
         
-        # Generate markdown with M5 options (for human readability)
-        ai_options = {
-            "ai_enabled": not no_ai,
-            "force_ai": force_ai,
-            "related_enabled": not no_related,
-            "jsonld_enabled": not no_jsonld
-        }
+        # AI-generated content is now available in the enriched digest
+        if final_digest and final_digest.get("ai_generated_content"):
+            ai_content = final_digest["ai_generated_content"]
+            click.echo(f"[OK] AI-generated blog content available")
+            click.echo(f"[INFO] Title: {ai_content.get('title', 'N/A')}")
+            click.echo(f"[INFO] Description: {ai_content.get('description', 'N/A')[:100]}...")
+            click.echo(f"[INFO] Tags: {', '.join(ai_content.get('tags', []))}")
+        else:
+            click.echo(f"[WARN] No AI-generated content available")
         
-        markdown = builder.generate_markdown(digest, **ai_options)
+        # Assemble publish package with AI-generated content
+        try:
+            publish_package = builder.assemble_publish_package(target_date)
+            if publish_package:
+                click.echo(f"[OK] Assembled publish package with AI-generated content")
+                click.echo(f"[INFO] Publish package title: {publish_package.get('content', {}).get('title', 'N/A')}")
+                click.echo(f"[INFO] Publish package ready for API consumption")
+            else:
+                click.echo(f"[ERROR] Failed to assemble publish package")
+        except Exception as e:
+            click.echo(f"[ERROR] Failed to assemble publish package: {e}")
         
-        # Save to drafts
-        file_path = builder.save_markdown(target_date, markdown)
-        
-        click.echo(f"[OK] Generated blog post: {file_path}")
-        click.echo(f"[INFO] Title: {digest['frontmatter']['title']}")
-        click.echo(f"[INFO] Stories: {len(digest.get('story_packets', []))}")
         click.echo(f"[INFO] Schema data included in digest for API consumption")
         
     except Exception as e:
@@ -417,7 +423,7 @@ def site_publish(dry_run):
         
         # Publish blog JSON files
         click.echo("[INFO] Publishing blog JSON files...")
-        blogs_dir = Path("blogs")
+        blogs_dir = Path("data")
         blog_results = publisher.publish_blogs(blogs_dir)
         
         # Display results

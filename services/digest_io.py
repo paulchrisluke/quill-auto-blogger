@@ -11,7 +11,7 @@ from datetime import datetime
 
 from pydantic import ValidationError
 from models import TwitchClip, GitHubEvent, Meta, RawEvents, NormalizedDigest, EnrichedDigest, PublishPackage
-from .ai_inserts import AIInsertsService
+from .comprehensive_blog_generator import ComprehensiveBlogGenerator
 from .ai_client import AIClientError
 from services.utils import CacheManager
 
@@ -173,35 +173,51 @@ class DigestIO:
 
     def enhanceDigestWithAI(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Public method to enhance digest data with AI content.
-        Idempotent: skips fields that already exist.
+        Public method to enhance digest data with comprehensive AI content.
+        Generates entire blog post from raw data in single AI call.
         
         Args:
             data: Digest data dictionary (must be NormalizedDigest)
             
         Returns:
             Enhanced digest data with AI content (EnrichedDigest)
+            
+        Raises:
+            AIClientError: If AI generation fails (no fallback)
         """
         try:
             # Validate input is NormalizedDigest
             self._validate_meta_kind(data, "NormalizedDigest")
             
-            # Extract date from data for AI service
+            # Extract date from data
             target_date = data.get("date", "")
             if not target_date:
-                logger.warning("No date found in digest data, skipping AI enhancement")
-                return data
+                raise ValueError("No date found in digest data")
             
-            ai = AIInsertsService()
-            enhanced_data = self._enhance_with_ai(target_date, data, ai)
+            # Get raw data for AI
+            twitch_clips = data.get("twitch_clips", [])
+            github_events = data.get("github_events", [])
+            
+            # Generate comprehensive blog content
+            ai_generator = ComprehensiveBlogGenerator()
+            blog_content = ai_generator.generate_blog_content(target_date, twitch_clips, github_events)
+            
+            # Create enhanced digest with AI content
+            enhanced_data = data.copy()
+            enhanced_data["ai_generated_content"] = blog_content
             
             # Update meta to EnrichedDigest
             enhanced_data["meta"] = {"kind": "EnrichedDigest", "version": 1, "generated_at": datetime.now().isoformat()}
             
+            logger.info(f"Successfully enhanced digest with comprehensive AI content for {target_date}")
             return enhanced_data
-        except (AIClientError, requests.exceptions.RequestException, ValueError, RuntimeError) as e:
-            logger.exception(f"AI enhancement failed: {e}")
-            return data  # Return original data on error
+            
+        except (AIClientError, ValueError, RuntimeError) as e:
+            logger.error(f"Comprehensive AI enhancement failed for {target_date}: {e}")
+            raise  # No fallback - fail the pipeline
+        except Exception as e:
+            logger.error(f"Unexpected error in comprehensive AI enhancement: {e}")
+            raise AIClientError(f"Comprehensive AI enhancement failed: {e}")
 
     def create_enriched_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
         """Enhance normalized digest with AI and save enriched version."""
@@ -220,75 +236,13 @@ class DigestIO:
             logger.exception(f"Enriched digest creation failed: {e}")
             return None
 
+    def create_final_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
+        """Create final digest with AI enhancements (alias for create_enriched_digest)."""
+        return self.create_enriched_digest(target_date)
 
-    def _enhance_with_ai(self, date: str, digest: Dict[str, Any], ai: AIInsertsService) -> Dict[str, Any]:
-        """Inject AI-generated content into digest. Idempotent - skips existing fields."""
-        front = digest.get("frontmatter", {})
-        packets = digest.get("story_packets", [])
 
-        story_titles = [p.get("title_human", "") for p in packets]
-        inputs = {
-            "title": front.get("title", ""),
-            "tags_csv": ",".join(front.get("tags", [])),
-            "lead": front.get("lead", ""),
-            "story_titles_csv": ",".join(story_titles),
-        }
 
-        # SEO description - only if missing or placeholder
-        if not front.get("description") or "[AI_GENERATE_SEO_DESCRIPTION]" in front.get("description", ""):
-            desc = ai.make_seo_description(date, inputs, force_ai=True)
-            if desc:
-                front["description"] = desc
-                front.setdefault("og", {})["og:description"] = desc
-
-        # Holistic intro - only if missing
-        if not front.get("holistic_intro"):
-            holistic_intro = ai.make_holistic_intro(date, inputs, force_ai=True)
-            if holistic_intro:
-                front["holistic_intro"] = holistic_intro
-
-        # Story intros - ensure ai_comprehensive_intro is populated
-        enhanced_packets = []
-        for p in packets:
-            # Only generate if missing or empty
-            if not p.get("ai_comprehensive_intro"):
-                s_inputs = {
-                    "title": p.get("title_human", ""),
-                    "why": p.get("why", ""),
-                    "highlights_csv": ",".join(p.get("highlights", [])),
-                }
-                intro = ai.make_story_comprehensive_intro(date, s_inputs, force_ai=True)
-                if intro:
-                    p["ai_comprehensive_intro"] = intro
-            enhanced_packets.append(p)
-
-        digest["frontmatter"] = front
-        digest["story_packets"] = enhanced_packets
-
-        # Update schema description if present
-        if "schema" in front:
-            from services.utils import set_schema_property
-            if desc := front.get("description"):
-                set_schema_property(front["schema"], "description", desc)
-
-        # Add related posts (Python processing, no AI needed) - only if missing
-        if not digest.get("related_posts"):
-            from .related import RelatedPostsService
-            related_service = RelatedPostsService()
-            current_tags = front.get("tags", [])
-            current_title = front.get("title", "")
-            
-            related_posts = related_service.find_related_posts(
-                current_date=date,
-                current_tags=current_tags,
-                current_title=current_title,
-                max_posts=3
-            )
-            digest["related_posts"] = related_posts
-
-        return digest
-
-    def buildNormalizedDigest(self, target_date: str, kind: str = "PRE-CLEANED") -> Path:
+    def buildNormalizedDigest(self, target_date: str, kind: str = "normalized") -> Path:
         """
         Build a digest for a specific date and kind.
         
@@ -313,19 +267,19 @@ class DigestIO:
         path = self.save_digest(digest, target_date, kind)
         return path
 
-    def get_digest_path(self, target_date: str, kind: str = "PRE-CLEANED") -> Path:
+    def get_digest_path(self, target_date: str, kind: str = "normalized") -> Path:
         """
         Get the path for a digest file.
         
         Args:
             target_date: Date in YYYY-MM-DD format
-            kind: Kind of digest (PRE-CLEANED, FINAL, etc.)
+            kind: Kind of digest (normalized, enriched, etc.)
             
         Returns:
             Path to the digest file
         """
-        date_dir = self.blogs_dir / target_date
-        return date_dir / f"{kind}-{target_date}_digest.json"
+        date_dir = self.data_dir / target_date
+        return date_dir / f"digest.{kind}.json"
 
     def load_digest(self, path: Path) -> Dict[str, Any]:
         """
@@ -343,21 +297,21 @@ class DigestIO:
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    def save_digest(self, data: Dict[str, Any], target_date: str, kind: str = "PRE-CLEANED") -> Path:
+    def save_digest(self, data: Dict[str, Any], target_date: str, kind: str = "normalized") -> Path:
         """
         Save digest data to a file.
         
         Args:
             data: Digest data dictionary
             target_date: Date in YYYY-MM-DD format
-            kind: Kind of digest (PRE-CLEANED, FINAL, etc.)
+            kind: Kind of digest (normalized, enriched, etc.)
             
         Returns:
             Path to the saved digest file
         """
-        date_dir = self.blogs_dir / target_date
+        date_dir = self.data_dir / target_date
         date_dir.mkdir(parents=True, exist_ok=True)
-        path = date_dir / f"{kind}-{target_date}_digest.json"
+        path = date_dir / f"digest.{kind}.json"
         
         # Convert Pydantic models to dicts
         serializable = {

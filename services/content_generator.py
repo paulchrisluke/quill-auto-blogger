@@ -177,98 +177,27 @@ class ContentGenerator:
             # Still need to replace placeholders even without AI
             return self._replace_placeholders(markdown)
         
-        try:
-            from .ai_inserts import AIInsertsService
+        # AI enhancements are now handled by comprehensive AI generation
+        # This method now only handles post-processing of AI-generated content
+        
+        # Update frontmatter images with smart selection
+        best_image = self.utils.select_best_image(self.story_packets)
+        if "og" not in self.frontmatter:
+            self.frontmatter["og"] = {}
+        if best_image:
+            self.frontmatter["og"]["og:image"] = best_image
             
-            # Initialize AI service
-            ai_service = AIInsertsService()
+        # Update schema image (support both article and blogPosting schemas)
+        if "schema" in self.frontmatter:
+            from services.utils import set_schema_property
+            if "article" in self.frontmatter["schema"]:
+                self.frontmatter["schema"]["article"]["image"] = best_image
+            else:
+                # Use unified schema format for BlogPosting
+                set_schema_property(self.frontmatter["schema"], "image", best_image)
             
-            # Prepare inputs for AI
-            story_titles = [packet.get("title_human", "") for packet in self.story_packets]
-            inputs = {
-                "title": self.frontmatter.get("title", ""),
-                "tags_csv": ",".join(self.frontmatter.get("tags", [])),
-                "lead": self.frontmatter.get("lead", ""),
-                "story_titles_csv": ",".join(story_titles)
-            }
-            
-            # 1. SEO Description
-            seo_description = ai_service.make_seo_description(self.target_date, inputs, force_ai)
-            
-            # Update frontmatter og:description
-            if "og" not in self.frontmatter:
-                self.frontmatter["og"] = {}
-            self.frontmatter["og"]["og:description"] = seo_description
-            
-            # Set frontmatter description
-            if "description" not in self.frontmatter:
-                self.frontmatter["description"] = seo_description
-            
-            # Update frontmatter images with smart selection
-            best_image = self.utils.select_best_image(self.story_packets)
-            if "og" in self.frontmatter:
-                self.frontmatter["og"]["og:image"] = best_image
-            # Update schema image (support both article and blogPosting schemas)
-            if "schema" in self.frontmatter:
-                from services.utils import set_schema_property
-                if "article" in self.frontmatter["schema"]:
-                    self.frontmatter["schema"]["article"]["image"] = best_image
-                else:
-                    # Use unified schema format for BlogPosting
-                    set_schema_property(self.frontmatter["schema"], "image", best_image)
-            
-            # 2. Title punch-up (optional)
-            current_title = self.frontmatter.get("title", "")
-            improved_title = ai_service.punch_up_title(self.target_date, current_title, force_ai)
-            
-            if improved_title:
-                # Update frontmatter and H1
-                self.frontmatter["title"] = improved_title
-                # Also update og:title and headline in frontmatter
-                if "og" in self.frontmatter:
-                    self.frontmatter["og"]["og:title"] = improved_title
-                # Update schema headline (support both article and blogPosting schemas)
-                if "schema" in self.frontmatter:
-                    from services.utils import set_schema_property
-                    if "article" in self.frontmatter["schema"]:
-                        self.frontmatter["schema"]["article"]["headline"] = improved_title
-                    else:
-                        # Use unified schema format for BlogPosting
-                        set_schema_property(self.frontmatter["schema"], "headline", improved_title)
-                markdown = self._update_title_in_markdown(markdown, improved_title)
-            
-            # 3. Generate holistic intro and wrap-up
-            holistic_intro = ai_service.make_holistic_intro(self.target_date, inputs, force_ai)
-            if holistic_intro:
-                markdown = markdown.replace("[AI_HOLISTIC_INTRO]", holistic_intro)
-            
-            # Only generate wrap-up if one doesn't already exist in frontmatter (trimmed)
-            if not self.frontmatter.get("wrap_up", "").strip():
-                wrap_up = ai_service.make_wrap_up(self.target_date, inputs, force_ai)
-                if wrap_up:
-                    markdown = markdown.replace("[AI_WRAP_UP]", f"## Wrap-Up\n\n{wrap_up}")
-            
-            # 4. Generate AI-suggested tags
-            suggested_tags = ai_service.suggest_tags(self.target_date, inputs, force_ai)
-            if suggested_tags:
-                # Merge with existing tags, avoiding duplicates
-                existing_tags = set(self.frontmatter.get("tags", []))
-                existing_tags.update(suggested_tags)
-                self.frontmatter["tags"] = list(existing_tags)
-                
-                # Also update schema keywords
-                if "schema" in self.frontmatter and "article" in self.frontmatter["schema"]:
-                    self.frontmatter["schema"]["article"]["keywords"] = list(existing_tags)
-            
-            # 5. Replace all placeholders with AI-generated content
-            markdown = self._replace_placeholders_with_ai(markdown, ai_service, force_ai)
-            
-            return markdown
-            
-        except Exception as e:
-            logger.warning(f"Post-processing failed: {e}")
-            # Still try to replace placeholders even on error
-            return self._replace_placeholders(markdown)
+        # Replace placeholders with existing content
+        return self._replace_placeholders(markdown)
     
     def _update_title_in_markdown(self, markdown: str, new_title: str) -> str:
         """Update both frontmatter and H1 title."""

@@ -70,16 +70,20 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
         logger.info("Step 2: Building normalized digest...")
         normalized_digest = builder.build_normalized_digest(target_date)
         
-        # Check if we have story packets (merged PRs)
+        # Check if we have story packets (merged PRs) - only if feature flag is enabled
         story_count = len(normalized_digest.get('story_packets', []))
         result["story_count"] = story_count
         
-        if story_count == 0:
-            logger.info(f"No story packets found for {target_date}, skipping blog generation")
-            result["error"] = "No story packets found"
+        # Check if we have any data to work with (clips or events)
+        twitch_clips = normalized_digest.get('twitch_clips', [])
+        github_events = normalized_digest.get('github_events', [])
+        
+        if not twitch_clips and not github_events:
+            logger.info(f"No data found for {target_date}, skipping blog generation")
+            result["error"] = "No data found"
             return result
         
-        logger.info(f"Found {story_count} story packets, continuing pipeline...")
+        logger.info(f"Found {len(twitch_clips)} Twitch clips and {len(github_events)} GitHub events, continuing pipeline...")
         
         # Save normalized digest
         normalized_path = builder.io.save_normalized_digest(normalized_digest, target_date)

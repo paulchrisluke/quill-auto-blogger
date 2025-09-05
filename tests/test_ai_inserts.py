@@ -7,10 +7,10 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import Mock, patch
-from services.ai_inserts import AIInsertsService, AIClientError
+from services.ai_inserts import AITranscriptionService, AIClientError
 
 
-class TestAIInsertsService:
+class TestAITranscriptionService:
     """Test AI inserts service functionality."""
     
     @pytest.fixture
@@ -30,7 +30,7 @@ class TestAIInsertsService:
         monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test_token")
         
         with patch('services.ai_inserts.CloudflareAIClient'):
-            service = AIInsertsService()
+            service = AITranscriptionService()
             service.cache_dir = temp_cache_dir
             return service
     
@@ -38,7 +38,7 @@ class TestAIInsertsService:
         """Test initialization when AI is disabled."""
         monkeypatch.setenv("AI_POLISH_ENABLED", "false")
         
-        service = AIInsertsService()
+        service = AITranscriptionService()
         assert not service.ai_enabled
         assert service.ai_client is None
     
@@ -50,7 +50,7 @@ class TestAIInsertsService:
         
         with patch('services.ai_inserts.CloudflareAIClient') as mock_client:
             mock_client.return_value.model = "test-model"
-            service = AIInsertsService()
+            service = AITranscriptionService()
             
             assert service.ai_enabled
             assert service.ai_client is not None
@@ -62,7 +62,7 @@ class TestAIInsertsService:
         monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test_token")
         
         with patch('services.ai_inserts.CloudflareAIClient', side_effect=AIClientError("test error")):
-            service = AIInsertsService()
+            service = AITranscriptionService()
             
             assert not service.ai_enabled
             assert service.ai_client is None

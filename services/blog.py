@@ -57,6 +57,9 @@ class BlogDigestBuilder:
         self.blogs_dir = Path("blogs")
         self.blogs_dir.mkdir(parents=True, exist_ok=True)
         
+        # Feature flags
+        self.story_packets_enabled = os.getenv("STORY_PACKETS_ENABLED", "false").lower() == "true"
+        
         # Blog metadata from environment
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
@@ -181,16 +184,17 @@ class BlogDigestBuilder:
         clips_data = [clip.model_dump(mode="json") for clip in twitch_clips]
         events_data = [event.model_dump(mode="json") for event in github_events]
         
-        # Generate story packets from merged PRs
-        story_packets = self._generate_story_packets(events_data, clips_data, target_date)
+        # Generate story packets from merged PRs (only if feature flag enabled)
+        if self.story_packets_enabled:
+            story_packets = self._generate_story_packets(events_data, clips_data, target_date)
+        else:
+            story_packets = []
+            logger.info("Story packet generation disabled via feature flag")
         
         # Generate clean frontmatter with enhanced schema.org
         frontmatter = self.frontmatter_gen.generate(
             target_date, clips_data, events_data, story_packets
         )
-        
-        # Enhance story packets with thumbnail URLs before serialization
-        enhanced_story_packets = self.utils.enhance_story_packets_with_thumbnail_urls(story_packets, target_date)
         
         # Build clean digest structure with enhanced schema.org
         digest = {
@@ -199,9 +203,16 @@ class BlogDigestBuilder:
             "twitch_clips": clips_data,
             "github_events": events_data,
             "metadata": self._generate_metadata(target_date, twitch_clips, github_events),
-            "frontmatter": frontmatter.model_dump(mode="json", by_alias=True),
-            "story_packets": [packet.model_dump(mode="json") for packet in enhanced_story_packets]
+            "frontmatter": frontmatter.model_dump(mode="json", by_alias=True)
         }
+        
+        # Only include story packets if feature flag is enabled
+        if self.story_packets_enabled and story_packets:
+            # Enhance story packets with thumbnail URLs before serialization
+            enhanced_story_packets = self.utils.enhance_story_packets_with_thumbnail_urls(story_packets, target_date)
+            digest["story_packets"] = [packet.model_dump(mode="json") for packet in enhanced_story_packets]
+        else:
+            digest["story_packets"] = []
         
         return digest
 
@@ -326,7 +337,34 @@ class BlogDigestBuilder:
         
         # Generate content using ContentGenerator
         content_gen = ContentGenerator(digest, self.utils)
-        content = content_gen.generate(ai_enabled, force_ai, related_enabled)
+        
+        # Check if we have AI-generated content and use it
+        if ai_enabled and digest.get("ai_generated_content"):
+            ai_content = digest["ai_generated_content"]
+            logger.info("Using AI-generated content for blog post")
+            
+            # Update frontmatter with AI-generated title, description, and tags
+            if "title" in ai_content:
+                content_gen.frontmatter["title"] = ai_content["title"]
+            if "description" in ai_content:
+                content_gen.frontmatter["description"] = ai_content["description"]
+            if "tags" in ai_content:
+                content_gen.frontmatter["tags"] = ai_content["tags"]
+            
+            # Get AI-generated content
+            ai_generated_content = ai_content.get("markdown_body", ai_content.get("content", ""))
+            
+            # Post-process the AI content with technical precision
+            from .blog_post_processor import BlogPostProcessor
+            processor = BlogPostProcessor()
+            content = processor.process_blog_content(ai_generated_content, digest)
+            
+            # Enhance frontmatter with technical data
+            content_gen.frontmatter = processor.enhance_frontmatter(content_gen.frontmatter, digest)
+            
+        else:
+            # Fall back to traditional content generation
+            content = content_gen.generate(ai_enabled, force_ai, related_enabled)
         
         # Post-process markdown if AI is enabled
         if ai_enabled and digest.get("version") == "2":
@@ -413,6 +451,11 @@ class BlogDigestBuilder:
         target_date: str
     ) -> List[StoryPacket]:
         """Generate story packets from merged PRs."""
+        # Feature flag: Skip story packet generation if disabled
+        if not self.story_packets_enabled:
+            logger.info(f"Story packets disabled via feature flag for {target_date}")
+            return []
+        
         story_packets = []
         
         # Find merged PRs
@@ -655,14 +698,43 @@ class BlogDigestBuilder:
                 # Save enriched digest
                 self.io.save_enriched_digest(enriched_digest, target_date)
             
-            # Step 2: Generate content with AI enhancements
-            content_gen = ContentGenerator(enriched_digest, self.utils)
-            consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
+            # Step 2: Use AI-generated content from enriched digest
+            if enriched_digest.get("ai_generated_content"):
+                ai_content = enriched_digest["ai_generated_content"]
+                logger.info("Using AI-generated content for publish package")
+                
+                # Update frontmatter with AI-generated title, description, and tags
+                if "frontmatter" not in enriched_digest:
+                    enriched_digest["frontmatter"] = {}
+                
+                if "title" in ai_content:
+                    enriched_digest["frontmatter"]["title"] = ai_content["title"]
+                if "description" in ai_content:
+                    enriched_digest["frontmatter"]["description"] = ai_content["description"]
+                if "tags" in ai_content:
+                    enriched_digest["frontmatter"]["tags"] = ai_content["tags"]
+                
+                # Use AI-generated content directly
+                consolidated_content = ai_content.get("markdown_body", ai_content.get("content", ""))
+                
+                # Post-process the AI content with technical precision
+                from .blog_post_processor import BlogPostProcessor
+                processor = BlogPostProcessor()
+                consolidated_content = processor.process_blog_content(consolidated_content, enriched_digest)
+                
+            else:
+                # Fall back to traditional content generation
+                content_gen = ContentGenerator(enriched_digest, self.utils)
+                consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
             
-            # Step 3: Render videos for story packets if they don't exist
-            self._ensure_videos_rendered(enriched_digest, target_date)
+            # Step 3: Render videos for story packets if they don't exist (only if feature flag enabled)
+            if self.story_packets_enabled:
+                self._ensure_videos_rendered(enriched_digest, target_date)
+            else:
+                logger.info("Story packet video rendering disabled via feature flag")
             
             # Step 4: Normalize assets (convert local paths to Cloudflare URLs)
+            content_gen = ContentGenerator(enriched_digest, self.utils)
             enriched_digest = content_gen.normalize_assets(enriched_digest)
             
             # Step 4.5: Add the generated content to the digest
@@ -700,14 +772,11 @@ class BlogDigestBuilder:
             from services.publisher_r2 import R2Publisher
             r2_publisher = R2Publisher()
             
-            # Save to temporary file for R2Publisher to process
-            temp_api_file = self.blogs_dir / target_date / f"{target_date}_page.publish.json"
-            with open(temp_api_file, 'w', encoding='utf-8') as f:
-                json.dump(publish_package, f, indent=2, ensure_ascii=False, cls=DateEncoder)
-            
             # Use R2Publisher's publish_blogs method for idempotent upload
-            results = r2_publisher.publish_blogs(self.blogs_dir)
-            if str(temp_api_file.relative_to(self.blogs_dir)) in results and results[str(temp_api_file.relative_to(self.blogs_dir))]:
+            # The publish package is already saved in data_dir, so we pass that to R2Publisher
+            results = r2_publisher.publish_blogs(self.data_dir)
+            publish_file_path = f"{target_date}/{target_date}_page.publish.json"
+            if publish_file_path in results and results[publish_file_path]:
                 logger.info(f"Successfully uploaded API v3 publish package to R2 for {target_date}")
             else:
                 logger.warning(f"Failed to upload API v3 publish package to R2 for {target_date}")
@@ -824,44 +893,6 @@ class BlogDigestBuilder:
             logger.error(f"Error generating related posts for {target_date}: {e}")
             return []
     
-    def savePublishPackage(self, target_date: str, api_data: Dict[str, Any]) -> None:
-        """
-        Save v3 API response to JSON file for R2 serving and local development.
-        
-        Args:
-            target_date: Date in YYYY-MM-DD format
-            api_data: The v3 API response data to save
-        """
-        try:
-            # Ensure blogs directory exists for this date
-            date_dir = self.blogs_dir / target_date
-            date_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Save v3 API response to main blogs directory
-            api_file_path = date_dir / f"{target_date}_digest.enriched.json"
-            with open(api_file_path, 'w', encoding='utf-8') as f:
-                json.dump(api_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
-            
-            logger.info(f"Saved v3 API response to {api_file_path}")
-            
-            # Also save a copy to cloudflare-worker/blogs directory for local development
-            try:
-                cloudflare_worker_dir = Path("cloudflare-worker/blogs") / target_date
-                cloudflare_worker_dir.mkdir(parents=True, exist_ok=True)
-                
-                cloudflare_worker_file_path = cloudflare_worker_dir / f"{target_date}_page.publish.json"
-                with open(cloudflare_worker_file_path, 'w', encoding='utf-8') as f:
-                    json.dump(api_data, f, indent=2, ensure_ascii=False, cls=DateEncoder)
-                
-                logger.info(f"Saved v3 API response to cloudflare-worker directory: {cloudflare_worker_file_path}")
-                
-            except Exception as e:
-                logger.warning(f"Failed to save v3 API response to cloudflare-worker directory: {e}")
-                # Don't fail the main operation for this
-                
-        except Exception as e:
-            logger.exception("Failed to save v3 API response for %s", target_date)
-            # Don't raise - this is not critical for API functionality
     
     def get_blog_markdown(self, target_date: str) -> str:
         """Get raw markdown content for a date."""

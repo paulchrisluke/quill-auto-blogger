@@ -459,9 +459,9 @@ async def get_blog_post(date: str):
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
         
-        # Get blog data
+        # Get blog data from publish package
         builder = BlogDigestBuilder()
-        blog_data = builder.get_blog_api_data(date)
+        blog_data = builder.io.load_publish_package(date)
         
         return blog_data
         
