@@ -336,7 +336,7 @@ class AuthService:
                 "Accept": "application/vnd.github.v3+json"
             }
             
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=30.0)) as client:
                 # Get token info from GitHub API
                 response = client.get("https://api.github.com/user", headers=headers)
                 if response.status_code == 200:
@@ -378,7 +378,7 @@ class AuthService:
         }
         
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=30.0)) as client:
                 response = client.post(url, data=data)
                 response.raise_for_status()
                 
@@ -412,8 +412,8 @@ class AuthService:
                 "Authorization": f"Bearer {token}"
             }
             
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
-                response = client.get("https://api.twitch.tv/helix/users", headers=headers)
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=30.0)) as client:
+                response = client.get("https://id.twitch.tv/oauth2/validate", headers=headers)
                 return response.status_code == 200
                 
         except Exception:
@@ -431,7 +431,7 @@ class AuthService:
                 "Accept": "application/vnd.github.v3+json"
             }
             
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=30.0)) as client:
                 response = client.get("https://api.github.com/user", headers=headers)
                 return response.status_code == 200
                 
@@ -475,7 +475,7 @@ class AuthService:
                 "Content-Type": "application/json"
             }
             
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0)) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=30.0)) as client:
                 response = client.get("https://discord.com/api/v10/users/@me", headers=headers)
                 return response.status_code == 200
                 

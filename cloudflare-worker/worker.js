@@ -48,7 +48,7 @@ async function handleMediaDomain(request, env, path) {
       status: 200,
       headers: getCORSHeaders()
     });
-  } else if (path.startsWith('/stories/') || path.startsWith('/assets/')) {
+  } else if (path.startsWith('/stories/') || path.startsWith('/assets/') || path === '/pcl-labs-logo.svg') {
     // Serve media assets directly from R2
     const assetKey = path.startsWith('/assets/') ? path.substring(8) : path.substring(1);
     return await serveR2Asset(env, assetKey, request);
@@ -67,6 +67,9 @@ async function handleApiDomain(request, env, path) {
   } else if (path === '/favicon.ico') {
     // Serve favicon directly from R2
     return await serveR2Asset(env, 'favicon.ico', request);
+  } else if (path === '/pcl-labs-logo.svg') {
+    // Serve logo directly from R2
+    return await serveR2Asset(env, 'pcl-labs-logo.svg', request);
   } else if (path === '/blogs') {
     // Serve blogs index
     return await handleBlogsIndex(request, env);
@@ -162,8 +165,8 @@ async function serveR2Asset(env, key, request) {
       headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400'); // 24 hours
       headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
       headers.set('Cache-Tag', 'video,assets');
-    } else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
-      headers.set('Content-Type', `image/${ext === 'jpg' ? 'jpeg' : ext}`);
+    } else if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) {
+      headers.set('Content-Type', ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`);
       headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400'); // 24 hours
       headers.set('CDN-Cache-Control', 'public, max-age=86400'); // 24 hours edge
       headers.set('Cache-Tag', 'image,assets');

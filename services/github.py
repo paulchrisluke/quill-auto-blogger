@@ -35,7 +35,7 @@ class GitHubService:
         events = []
         
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=30.0), http2=True) as client:
                 # Get user events
                 response = client.get(
                     f"{self.base_url}/users/{username}/events",
@@ -112,7 +112,7 @@ class GitHubService:
         events = []
         
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=30.0), http2=True) as client:
                 # Get repository events
                 response = client.get(
                     f"{self.base_url}/repos/{repo}/events",
@@ -289,7 +289,7 @@ class GitHubService:
         headers = self.auth_service.get_github_headers()
         
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=30.0), http2=True) as client:
                 response = client.get(f"{self.base_url}/users/{username}", headers=headers)
                 response.raise_for_status()
                 return response.json()
@@ -302,7 +302,7 @@ class GitHubService:
         headers = self.auth_service.get_github_headers()
         
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=30.0), http2=True) as client:
                 response = client.get(f"{self.base_url}/repos/{repo}", headers=headers)
                 response.raise_for_status()
                 return response.json()

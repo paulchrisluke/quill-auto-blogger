@@ -8,6 +8,7 @@ import logging
 import copy
 from datetime import datetime, date
 from typing import List, Dict, Any, Tuple
+from services.utils import set_schema_property
 
 logger = logging.getLogger(__name__)
 
@@ -184,17 +185,12 @@ class ContentGenerator:
         best_image = self.utils.select_best_image(self.story_packets)
         if "og" not in self.frontmatter:
             self.frontmatter["og"] = {}
-        if best_image:
+        if best_image and not self.frontmatter["og"].get("og:image"):
             self.frontmatter["og"]["og:image"] = best_image
             
         # Update schema image (support both article and blogPosting schemas)
         if "schema" in self.frontmatter and best_image:
-            from services.utils import set_schema_property
-            if "article" in self.frontmatter["schema"]:
-                self.frontmatter["schema"]["article"]["image"] = best_image
-            else:
-                # Use unified schema format for BlogPosting
-                set_schema_property(self.frontmatter["schema"], "image", best_image)
+            set_schema_property(self.frontmatter["schema"], "image", best_image)
             
         # Replace placeholders with existing content
         return self._replace_placeholders(markdown)
@@ -493,10 +489,7 @@ class ContentGenerator:
         if frontmatter.get("schema"):
             schema = frontmatter["schema"]
             # Handle both old and new schema formats
-            from services.utils import get_schema_property, migrate_legacy_schema_to_unified
-            
-            # Migrate to unified format if needed
-            schema = migrate_legacy_schema_to_unified(schema)
+            from services.utils import get_schema_property
             
             # Attach thumbnails to video objects
             video_objects = get_schema_property(schema, "video")
@@ -545,11 +538,9 @@ class ContentGenerator:
         
         # Normalize schema image
         if frontmatter.get("schema"):
-            from services.utils import get_schema_property, set_schema_property, migrate_legacy_schema_to_unified
+            from services.utils import get_schema_property, set_schema_property
             
             schema = frontmatter["schema"]
-            # Migrate to unified format if needed
-            schema = migrate_legacy_schema_to_unified(schema)
             
             # Get and normalize image
             image = get_schema_property(schema, "image")

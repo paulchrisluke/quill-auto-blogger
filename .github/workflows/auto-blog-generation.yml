@@ -27,7 +27,7 @@ jobs:
         env:
           BLOG_AUTHOR: "Paul Chris Luke"
           BLOG_BASE_URL: "https://paulchrisluke.com"
-          BLOG_DEFAULT_IMAGE: "https://paulchrisluke.com/pcl-labs-logo.svg"
+          BLOG_DEFAULT_IMAGE: "https://media.paulchrisluke.com/assets/pcl-labs-logo.svg"
           WORKER_DOMAIN: "https://quill-blog-api-prod.paulchrisluke.workers.dev"
           MEDIA_DOMAIN: "https://media.paulchrisluke.com"
         run: |
@@ -113,7 +113,7 @@ jobs:
           yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
           
           # Check if blog file exists before attempting upload
-          blog_path = Path('blogs') / f'{yesterday}/API-v3-{yesterday}_digest.json'
+          blog_path = Path('data') / f'{yesterday}/page.publish.json'
           if not blog_path.exists():
               print(f'No blog for {yesterday}, skipping upload')
               exit(0)
@@ -121,10 +121,10 @@ jobs:
           try:
               publisher = R2Publisher()
               print(f'Uploading blogs to R2...')
-              results = publisher.publish_blogs(Path('blogs'))
+              results = publisher.publish_blogs(Path('data'))
               
               # Check if our blog was uploaded
-              blog_key = f'{yesterday}/API-v3-{yesterday}_digest.json'
+              blog_key = f'blogs/{yesterday}/{yesterday}_page.publish.json'
               if blog_key in results and results[blog_key]:
                   print(f'✅ Successfully uploaded blog for {yesterday} to R2')
               else:

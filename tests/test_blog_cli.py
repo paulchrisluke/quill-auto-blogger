@@ -71,6 +71,24 @@ class TestBlogCLI:
         mock_builder.build_normalized_digest.return_value = sample_digest
         mock_builder.generate_markdown.return_value = "# Test Blog Post\n\nContent here."
         mock_builder.save_markdown.return_value = Path("drafts/2025-01-15.md")
+        
+        # Mock the io object and its methods
+        mock_io = Mock()
+        mock_io.save_digest.return_value = Path("data/2025-01-15/digest.normalized.json")
+        mock_builder.io = mock_io
+        
+        # Mock additional methods called by the CLI
+        mock_builder.create_final_digest.return_value = {
+            "ai_generated_content": {
+                "title": "PCL-Labs — Jan 15, 2025",
+                "description": "Today's development work focused on new features.",
+                "tags": ["feat"]
+            }
+        }
+        mock_builder.assemble_publish_package.return_value = {
+            "content": {"title": "PCL-Labs — Jan 15, 2025"}
+        }
+        
         mock_builder_class.return_value = mock_builder
         
         # Mock Path to return our temp directories
@@ -88,20 +106,16 @@ class TestBlogCLI:
             result = runner.invoke(devlog, ['blog', 'generate', '--date', '2025-01-15'])
         
         assert result.exit_code == 0
-        assert "Generated blog post: drafts/2025-01-15.md" in result.output
+        assert "Saved normalized digest: data/2025-01-15/digest.normalized.json" in result.output
+        assert "Created FINAL digest with AI enhancements" in result.output
+        assert "AI-generated blog content available" in result.output
         assert "Title: PCL-Labs — Jan 15, 2025" in result.output
-        assert "Stories: 0" in result.output
         
         # Verify the builder was called correctly
         mock_builder.build_normalized_digest.assert_called_once_with("2025-01-15")
-        mock_builder.generate_markdown.assert_called_once_with(
-            sample_digest,
-            ai_enabled=True,
-            force_ai=False,
-            related_enabled=True,
-            jsonld_enabled=True
-        )
-        mock_builder.save_markdown.assert_called_once_with("2025-01-15", "# Test Blog Post\n\nContent here.")
+        mock_builder.io.save_digest.assert_called_once()
+        mock_builder.create_final_digest.assert_called_once_with("2025-01-15")
+        mock_builder.assemble_publish_package.assert_called_once_with("2025-01-15")
     
     @patch('services.blog.BlogDigestBuilder')
     def test_blog_generate_without_date(self, mock_builder_class, runner, temp_data_dir, temp_blogs_dir, sample_digest):
@@ -112,6 +126,24 @@ class TestBlogCLI:
         mock_builder.build_normalized_digest.return_value = sample_digest
         mock_builder.generate_markdown.return_value = "# Test Blog Post\n\nContent here."
         mock_builder.save_markdown.return_value = Path("drafts/2025-01-15.md")
+        
+        # Mock the io object and its methods
+        mock_io = Mock()
+        mock_io.save_digest.return_value = Path("data/2025-01-15/digest.normalized.json")
+        mock_builder.io = mock_io
+        
+        # Mock additional methods called by the CLI
+        mock_builder.create_final_digest.return_value = {
+            "ai_generated_content": {
+                "title": "PCL-Labs — Jan 15, 2025",
+                "description": "Today's development work focused on new features.",
+                "tags": ["feat"]
+            }
+        }
+        mock_builder.assemble_publish_package.return_value = {
+            "content": {"title": "PCL-Labs — Jan 15, 2025"}
+        }
+        
         mock_builder_class.return_value = mock_builder
         
         # Mock Path to return our temp directories
@@ -130,11 +162,15 @@ class TestBlogCLI:
         
         assert result.exit_code == 0
         assert "Using latest date: 2025-01-15" in result.output
-        assert "Generated blog post: drafts/2025-01-15.md" in result.output
+        assert "Saved normalized digest: data/2025-01-15/digest.normalized.json" in result.output
+        assert "Created FINAL digest with AI enhancements" in result.output
         
         # Verify the builder was called correctly
         mock_builder.build_latest_digest.assert_called_once()
         mock_builder.build_normalized_digest.assert_called_once_with("2025-01-15")
+        mock_builder.io.save_digest.assert_called_once()
+        mock_builder.create_final_digest.assert_called_once_with("2025-01-15")
+        mock_builder.assemble_publish_package.assert_called_once_with("2025-01-15")
     
     def test_blog_generate_invalid_date(self, runner):
         """Test blog generate command with invalid date format."""

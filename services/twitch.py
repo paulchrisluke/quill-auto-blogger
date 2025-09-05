@@ -44,7 +44,7 @@ class TwitchService:
         clips = []
         
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0), http2=True) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=30.0), http2=True) as client:
                 cursor = None
                 while True:
                     q = dict(params)
@@ -255,7 +255,7 @@ class TwitchService:
         params = {"login": username}
         
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=10.0), http2=True) as client:
+            with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=10.0, write=10.0, pool=30.0), http2=True) as client:
                 response = client.get(f"{self.base_url}/users", headers=headers, params=params)
                 
                 # Handle non-2xx status codes and surface 429 retry hints

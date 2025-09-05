@@ -40,14 +40,14 @@ class ApiV3Serializer:
         related_posts = normalized_digest.get("related_posts", [])
         target_date = normalized_digest.get("date", "")
         
-        # Generate canonical URL
+        # Generate content first to get the title
+        content = self._extract_content(normalized_digest)
+        
+        # Generate canonical URL using the extracted title
         canonical_url = self._generate_canonical_url(
-            frontmatter.get("title", ""), 
+            content.get("title", ""), 
             target_date
         )
-        
-        # Generate content
-        content = self._extract_content(normalized_digest)
         
         # Calculate word count and time required
         word_count = self._word_count(content["body"])
@@ -127,12 +127,27 @@ class ApiV3Serializer:
     
     def _extract_content(self, normalized_digest: Dict[str, Any]) -> Dict[str, Any]:
         """Extract content fields from normalized digest."""
-        frontmatter = normalized_digest.get("frontmatter", {})
+        # Handle both legacy frontmatter format and enriched digest format
+        if "frontmatter" in normalized_digest:
+            # Legacy format with frontmatter
+            frontmatter = normalized_digest.get("frontmatter", {})
+            title = frontmatter.get("title", "")
+            summary = frontmatter.get("description", "")
+            tags = frontmatter.get("tags", [])
+        else:
+            # Enriched digest format (direct fields)
+            title = normalized_digest.get("title", "")
+            summary = normalized_digest.get("description", "")
+            tags = normalized_digest.get("tags", [])
         
-        # Get body content - prefer from content.body, fallback to articleBody
+        # Get body content - try multiple sources
         body = ""
         if "content" in normalized_digest and "body" in normalized_digest["content"]:
             body = normalized_digest["content"]["body"]
+        elif "markdown_body" in normalized_digest:
+            body = normalized_digest["markdown_body"]
+        elif "content" in normalized_digest and isinstance(normalized_digest["content"], str):
+            body = normalized_digest["content"]
         elif "articleBody" in normalized_digest:
             body = normalized_digest["articleBody"]
         
@@ -140,10 +155,10 @@ class ApiV3Serializer:
         body = self._clean_placeholders(body)
         
         return {
-            "title": self._clean_placeholders(frontmatter.get("title", "")),
-            "summary": self._clean_placeholders(frontmatter.get("description", "")),
+            "title": self._clean_placeholders(title),
+            "summary": self._clean_placeholders(summary),
             "body": body,
-            "tags": frontmatter.get("tags", [])
+            "tags": tags
         }
     
     def _build_media(self, story_packets: List[Dict[str, Any]]) -> Dict[str, Any]:

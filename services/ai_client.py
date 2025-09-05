@@ -5,30 +5,42 @@ Thin Cloudflare Workers AI client for M5 surgical AI inserts.
 import os
 import requests
 import logging
-import tiktoken
+import time
+from datetime import datetime
 from dotenv import load_dotenv
+
+import tiktoken
 
 # Load environment variables
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Model-specific token limits and context windows
+# Model-specific token limits, context windows, and pricing
 MODEL_LIMITS = {
     "openai/llama-3.1-8b-instruct": {
         "context_window": 128000,  # 128k tokens
         "max_output_tokens": 4096,
-        "tiktoken_model": "cl100k_base"  # GPT-4 tokenizer (closest approximation for Llama)
+        "tiktoken_model": "cl100k_base",  # GPT-4 tokenizer (closest approximation for Llama)
+        "parameters": "8B",  # 8 billion parameters
+        "cost_per_million_tokens": 0.15,  # $0.15 per million tokens (3.1B-8B parameter range)
+        "display_name": "Llama 3.1 8B Instruct"
     },
     "@cf/meta/llama-3.1-8b-instruct": {
         "context_window": 128000,  # 128k tokens
         "max_output_tokens": 4096,
-        "tiktoken_model": "cl100k_base"
+        "tiktoken_model": "cl100k_base",
+        "parameters": "8B",
+        "cost_per_million_tokens": 0.15,
+        "display_name": "Llama 3.1 8B Instruct (CF)"
     },
     "llama-3.1-8b-instruct": {
         "context_window": 128000,  # 128k tokens
         "max_output_tokens": 4096,
-        "tiktoken_model": "cl100k_base"
+        "tiktoken_model": "cl100k_base",
+        "parameters": "8B",
+        "cost_per_million_tokens": 0.15,
+        "display_name": "Llama 3.1 8B Instruct"
     }
 }
 
@@ -68,38 +80,41 @@ class CloudflareAIClient:
 
     def _init_tokenizer(self):
         """Initialize the appropriate tokenizer for the model."""
-        try:
-            model_config = MODEL_LIMITS.get(self.model, MODEL_LIMITS["openai/llama-3.1-8b-instruct"])
-            self.tokenizer = tiktoken.get_encoding(model_config["tiktoken_model"])
-            self.model_config = model_config
+        model_config = MODEL_LIMITS.get(self.model, MODEL_LIMITS["openai/llama-3.1-8b-instruct"])
+        self.tokenizer = tiktoken.get_encoding(model_config["tiktoken_model"])
+        self.model_config = model_config
+        
+        # Calculate model limit and clamp max_input_tokens
+        model_limit = max(0, model_config["context_window"] - model_config["max_output_tokens"])
+        
+        if self.max_input_tokens == 0:
+            # Use model limit if not configured
+            self.max_input_tokens = model_limit
+        else:
+            # Clamp to model limit to prevent exceeding context window
+            original_value = self.max_input_tokens
+            self.max_input_tokens = min(self.max_input_tokens, model_limit)
+            if original_value != self.max_input_tokens:
+                logger.info(f"Clamped max_input_tokens from {original_value} to {self.max_input_tokens} (model limit)")
             
-            # Set max input tokens if not configured
-            if self.max_input_tokens == 0:
-                self.max_input_tokens = model_config["context_window"] - model_config["max_output_tokens"]
-                
-            logger.info(f"Initialized tokenizer for {self.model}, max input tokens: {self.max_input_tokens}")
-        except Exception as e:
-            logger.warning(f"Failed to initialize tokenizer: {e}. Falling back to character-based estimation.")
-            self.tokenizer = None
-            self.model_config = MODEL_LIMITS.get(self.model, MODEL_LIMITS["openai/llama-3.1-8b-instruct"])
+        logger.info(f"Initialized tokenizer for {self.model}, max input tokens: {self.max_input_tokens}")
 
     def _count_tokens(self, text: str) -> int:
-        """Count tokens in text using tiktoken or fallback to estimation."""
-        if self.tokenizer:
-            try:
-                return len(self.tokenizer.encode(text))
-            except Exception as e:
-                logger.warning(f"Token counting failed: {e}. Using estimation.")
-        
-        # Fallback to character-based estimation
-        return self._estimate_tokens(text)
+        """Count tokens in text using tiktoken."""
+        return len(self.tokenizer.encode(text))
 
     def _validate_token_limits(self, system: str, prompt: str, max_tokens: int) -> None:
         """Validate that the request doesn't exceed token limits."""
         if not self.validate_tokens:
             return
-            
-        input_tokens = self._count_tokens(system + prompt)
+        
+        # Ensure max_tokens is a positive integer
+        if max_tokens <= 0:
+            raise TokenLimitExceededError(f"max_tokens must be positive, got: {max_tokens}")
+        
+        # Count input tokens with clear separator for better estimation
+        input_text = system + "\n\n" + prompt
+        input_tokens = self._count_tokens(input_text)
         total_tokens = input_tokens + max_tokens
         
         if input_tokens > self.max_input_tokens:
@@ -120,11 +135,15 @@ class CloudflareAIClient:
         logger.info(f"Token validation passed - Input: {input_tokens:,}, Max output: {max_tokens:,}, Total: {total_tokens:,}")
 
     def generate(self, prompt: str, system: str, max_tokens: int = None) -> str:
-        """Generate text using Cloudflare Workers AI with token usage tracking."""
+        """Generate text using Cloudflare Workers AI with comprehensive logging."""
         max_tokens = max_tokens or self.default_max_tokens
         
         # Validate token limits before making the request
         self._validate_token_limits(system, prompt, max_tokens)
+        
+        # Record start time for response time tracking
+        start_time = time.time()
+        request_timestamp = datetime.now().isoformat()
         
         headers = {
             "Authorization": f"Bearer {self.api_token}",
@@ -148,17 +167,24 @@ class CloudflareAIClient:
             resp.raise_for_status()
             data = resp.json()
             
-            # Extract token usage and log cost
-            self._log_token_usage(data, system, prompt)
+            # Calculate response time
+            response_time = time.time() - start_time
+            
+            # Extract token usage and log comprehensive details
+            self._log_token_usage(data, system, prompt, response_time, request_timestamp)
             
             return data["result"]["response"]
         except requests.exceptions.Timeout:
+            response_time = time.time() - start_time
+            logger.error(f"AI request timed out after {self.timeout}s (actual: {response_time:.2f}s)")
             raise AIClientError(f"Request timed out after {self.timeout}s")
         except requests.exceptions.HTTPError as e:
+            response_time = time.time() - start_time
             status = getattr(resp, "status_code", "unknown")
             reason = getattr(resp, "reason", "")
             url = getattr(resp, "url", self.base_url)
-            logger.error("AI request failed: status=%s reason=%s url=%s", status, reason, url)
+            logger.error("AI request failed: status=%s reason=%s url=%s response_time=%.2fs", 
+                        status, reason, url, response_time)
             # Log sanitized error payload (avoid echoing prompts/PII)
             try:
                 err = resp.json()
@@ -168,11 +194,13 @@ class CloudflareAIClient:
                 logger.debug("AI error body (non-JSON, truncated): %s", getattr(resp, "text", "")[:256])
             raise AIClientError(str(e)) from e
         except Exception as e:
-            logger.error(f"AI request failed: {e}")
-            raise AIClientError(str(e)) from e
+            response_time = time.time() - start_time
+            logger.error("Unexpected error in AI request: %s (response_time=%.2fs)", e, response_time)
+            raise AIClientError(f"Unexpected error: {e}")
 
-    def _log_token_usage(self, response_data: dict, system: str, prompt: str) -> None:
-        """Log token usage and estimated cost."""
+    def _log_token_usage(self, response_data: dict, system: str, prompt: str, 
+                        response_time: float, request_timestamp: str) -> None:
+        """Log comprehensive AI usage details including model, tokens, response time, and cost."""
         try:
             # Extract token usage from response (Cloudflare doesn't provide this)
             usage = response_data.get("result", {}).get("usage", {})
@@ -181,28 +209,38 @@ class CloudflareAIClient:
             
             # Cloudflare Workers AI doesn't return token usage, so we calculate it
             if input_tokens == 0 and output_tokens == 0:
-                input_tokens = self._count_tokens(system + prompt)
+                input_tokens = self._count_tokens(system + "\n\n" + prompt)
                 response_text = response_data.get("result", {}).get("response", "")
                 output_tokens = self._count_tokens(response_text)
             
-            # Calculate estimated cost (Cloudflare Workers AI pricing)
-            # Input: ~$0.50 per 1M tokens, Output: ~$1.50 per 1M tokens
-            input_cost = (input_tokens / 1_000_000) * 0.50
-            output_cost = (output_tokens / 1_000_000) * 1.50
-            total_cost = input_cost + output_cost
+            # Get model information and pricing
+            model_info = self.model_config
+            model_name = model_info.get("display_name", self.model)
+            model_params = model_info.get("parameters", "Unknown")
+            cost_per_million = model_info.get("cost_per_million_tokens", 0.15)
             
+            # Calculate cost based on actual Cloudflare Workers AI pricing
+            # Cloudflare uses blended pricing (input + output combined)
+            total_tokens = input_tokens + output_tokens
+            total_cost = (total_tokens / 1_000_000) * cost_per_million
+            
+            # Log comprehensive usage information
             logger.info(
-                f"AI Token Usage - Input: {input_tokens:,} tokens, "
-                f"Output: {output_tokens:,} tokens, "
-                f"Estimated Cost: ${total_cost:.4f}"
+                f"AI_USAGE - Model: {model_name} ({model_params}) | "
+                f"Input: {input_tokens:,} tokens | Output: {output_tokens:,} tokens | "
+                f"Total: {total_tokens:,} tokens | Response Time: {response_time:.2f}s | "
+                f"Cost: ${total_cost:.4f} | Timestamp: {request_timestamp}"
+            )
+            
+            # Also log in a more structured format for easier parsing
+            logger.info(
+                f"AI_USAGE_STRUCTURED - "
+                f"model={self.model} display_name={model_name} parameters={model_params} "
+                f"input_tokens={input_tokens} output_tokens={output_tokens} total_tokens={total_tokens} "
+                f"response_time={response_time:.3f} cost={total_cost:.6f} "
+                f"cost_per_million={cost_per_million} timestamp={request_timestamp}"
             )
             
         except Exception as e:
             logger.warning(f"Failed to log token usage: {e}")
 
-    def _estimate_tokens(self, text: str) -> int:
-        """Estimate token count based on character count (rough approximation)."""
-        if not text:
-            return 0
-        # Rough approximation: 4 characters ≈ 1 token
-        return max(1, len(text) // 4)

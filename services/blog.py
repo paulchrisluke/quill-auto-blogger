@@ -117,13 +117,10 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing FINAL digest for {target_date}")
                 
-                # Check if digest has enhanced schema.org (support both legacy and unified formats)
+                # Check if digest has enhanced schema.org (unified format)
                 frontmatter = digest.get("frontmatter", {})
                 schema = frontmatter.get("schema", {})
-                has_enhanced_schema = (
-                    schema.get("@type") == "BlogPosting" or  # Unified format
-                    schema.get("blogPosting")  # Legacy format
-                )
+                has_enhanced_schema = schema.get("@type") == "BlogPosting"
                 if "frontmatter" in digest and has_enhanced_schema:
                     logger.info(f"Loaded existing FINAL digest with enhanced schema for {target_date}")
                     
@@ -146,13 +143,10 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing pre-cleaned digest for {target_date}")
                 
-                # Check if digest has enhanced schema.org (support both legacy and unified formats)
+                # Check if digest has enhanced schema.org (unified format)
                 frontmatter = digest.get("frontmatter", {})
                 schema = frontmatter.get("schema", {})
-                has_enhanced_schema = (
-                    schema.get("@type") == "BlogPosting" or  # Unified format
-                    schema.get("blogPosting")  # Legacy format
-                )
+                has_enhanced_schema = schema.get("@type") == "BlogPosting"
                 if "frontmatter" in digest and has_enhanced_schema:
                     logger.info(f"Found existing digest with enhanced schema for {target_date}")
                     
@@ -254,7 +248,7 @@ class BlogDigestBuilder:
         Returns:
             Enriched digest dictionary
         """
-        return self.io.enhanceDigestWithAI(normalized_digest)
+        return self.io.create_enriched_digest(target_date)
 
     def save_publish_package(self, package: Dict[str, Any], target_date: str) -> Path:
         """
@@ -694,7 +688,7 @@ class BlogDigestBuilder:
                 logger.info(f"Enriched digest not found, building from normalized digest")
                 # Load normalized digest and enhance it
                 normalized_digest = self.io.load_normalized_digest(target_date)
-                enriched_digest = self.io.enhanceDigestWithAI(normalized_digest)
+                enriched_digest = self.io.create_enriched_digest(target_date)
                 # Save enriched digest
                 self.io.save_enriched_digest(enriched_digest, target_date)
             
@@ -840,12 +834,9 @@ class BlogDigestBuilder:
         
         # Normalize schema image
         if frontmatter.get("schema"):
-            from services.utils import get_schema_property, set_schema_property, migrate_legacy_schema_to_unified
+            from services.utils import get_schema_property, set_schema_property
             
             schema = frontmatter["schema"]
-            # Migrate to unified format if needed
-            schema = migrate_legacy_schema_to_unified(schema)
-            frontmatter["schema"] = schema
             
             # Get and normalize image
             image = get_schema_property(schema, "image")

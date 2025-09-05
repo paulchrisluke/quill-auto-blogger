@@ -193,13 +193,11 @@ class FeedGenerator:
         Get the last modified date for a blog post.
         
         Priority:
-        1. dateModified from top-level schema (new format)
-        2. dateModified from legacy schema.blogPosting
-        3. datePublished from top-level schema (new format)
-        4. datePublished from legacy schema.blogPosting
-        5. Frontmatter date
-        6. Blog date
-        7. Current date as fallback
+        1. dateModified from schema
+        2. datePublished from schema
+        3. Frontmatter date
+        4. Blog date
+        5. Current date as fallback
         """
         try:
             frontmatter = blog.get('frontmatter', {})
@@ -218,7 +216,7 @@ class FeedGenerator:
                     return date_published.split('T')[0]
                 return date_published
             
-            # Try legacy schema.blogPosting format (for backward compatibility)
+            # Get dates from schema
             from services.utils import get_schema_property
             
             date_modified = get_schema_property(schema, 'dateModified')
@@ -269,14 +267,27 @@ class FeedGenerator:
         blogs_list = []
         
         for blog in sorted_blogs:
-            frontmatter = blog.get('frontmatter', {})
-            date_str = blog.get('date', '')
+            # Handle published format
+            if 'frontmatter' in blog:
+                frontmatter = blog.get('frontmatter', {})
+                date_str = blog.get('date', '')
+                title = frontmatter.get('title', f'PCL Labs Devlog — {date_str}')
+                description = frontmatter.get('description', frontmatter.get('lead', ''))
+                author = frontmatter.get('author', 'Paul Chris Luke')
+                tags = frontmatter.get('tags', [])
+                canonical_url = frontmatter.get('canonical', f"{self.frontend_domain}/blog/{date_str}")
+            else:
+                # Published format
+                date_str = blog.get('datePublished', '')
+                content = blog.get('content', {})
+                title = content.get('title', f'PCL Labs Devlog — {date_str}')
+                description = content.get('summary', '')
+                author = 'Paul Chris Luke'  # Default author
+                tags = content.get('tags', [])
+                canonical_url = blog.get('url', f"{self.frontend_domain}/blog/{date_str}")
             
-            if not date_str or not frontmatter:
+            if not date_str or not title:
                 continue
-            
-            # Get canonical URL
-            canonical_url = frontmatter.get('canonical', f"{self.frontend_domain}/blog/{date_str}")
             
             # Get the best image for this blog post
             best_image = blog.get('image')  # Use the image field directly from the blog data
@@ -284,13 +295,13 @@ class FeedGenerator:
             # Create BlogPosting schema entry
             blog_posting = {
                 "@type": "BlogPosting",
-                "headline": frontmatter.get('title', f'PCL Labs Devlog — {date_str}'),
-                "description": frontmatter.get('description', frontmatter.get('lead', '')),
+                "headline": title,
+                "description": description,
                 "url": canonical_url,
                 "datePublished": date_str,
                 "author": {
                     "@type": "Person",
-                    "name": frontmatter.get('author', 'Paul Chris Luke')
+                    "name": author
                 },
                 "publisher": {
                     "@type": "Organization",
@@ -310,16 +321,16 @@ class FeedGenerator:
             # Create API-friendly blog entry
             blog_entry = {
                 "date": date_str,
-                "title": frontmatter.get('title', f'PCL Labs Devlog — {date_str}'),
-                "author": frontmatter.get('author', 'Paul Chris Luke'),
+                "title": title,
+                "author": author,
                 "canonical_url": canonical_url,
                 "api_url": f"{self.api_domain}/blogs/{date_str}/{date_str}_page.publish.json",
-                "tags": frontmatter.get('tags', []),
-                "description": frontmatter.get('description', ''),
-                "story_count": len(blog.get('story_packets', [])),
+                "tags": tags,
+                "description": description,
+                "story_count": len(blog.get('stories', [])),
                 "has_video": any(
-                    packet.get('video', {}).get('status') == 'rendered' 
-                    for packet in blog.get('story_packets', [])
+                    story.get('videoId') is not None 
+                    for story in blog.get('stories', [])
                 )
             }
             blogs_list.append(blog_entry)

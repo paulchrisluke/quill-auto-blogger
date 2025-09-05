@@ -122,7 +122,7 @@ class ComprehensiveBlogGenerator:
             result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=max_tokens)
             
             # Parse AI response
-            parsed_content = self._parse_ai_response(result)
+            parsed_content = self._parse_ai_response(result, date)
             
             logger.info(f"Successfully generated comprehensive blog content for {date}")
             return parsed_content
@@ -162,7 +162,7 @@ class ComprehensiveBlogGenerator:
             result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=max_tokens)
             
             # Parse AI response
-            parsed_content = self._parse_ai_response(result)
+            parsed_content = self._parse_ai_response(result, date)
             
             logger.info(f"Successfully generated comprehensive blog content for {date} with reduced data")
             return parsed_content
@@ -451,7 +451,7 @@ Return your response in the following JSON format:
     "title": "SEO-optimized title that captures the day's essence (be specific and engaging)",
     "description": "SEO description for meta tags (150-160 characters)",
     "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-    "content": "Complete blog post in markdown format with rich narrative and personality"
+    "content": "Complete blog post in markdown format with rich narrative and personality. All newlines must be escaped as \\n for valid JSON."
 }}
 
 Voice Guidelines:
@@ -570,11 +570,17 @@ IMPORTANT:
 - NO BULLET POINTS OR LISTS - use flowing paragraphs instead
 - BE EXTENSIVE - this should be a substantial, detailed blog post
 
+CRITICAL JSON FORMATTING REQUIREMENTS:
+- All newlines in the content field must be escaped as \\n
+- All quotes in the content must be escaped as \\"
+- The response must be valid JSON that can be parsed
+- Do not include any text outside the JSON object
+
 Return only the JSON response as specified in the system prompt."""
 
         return system_prompt, user_prompt
     
-    def _parse_ai_response(self, ai_response: str) -> Dict[str, Any]:
+    def _parse_ai_response(self, ai_response: str, date: str = None) -> Dict[str, Any]:
         """Parse AI response into structured format."""
         try:
             # Clean up the response (remove any markdown formatting if present)
@@ -617,6 +623,10 @@ Return only the JSON response as specified in the system prompt."""
             if 'content' in parsed and 'markdown_body' not in parsed:
                 parsed['markdown_body'] = parsed['content']
             
+            # Add date field for compatibility with ContentGenerator
+            if date:
+                parsed['date'] = date
+            
             # Validate content
             if not parsed['title'] or len(parsed['title']) < 10:
                 raise ValueError("Title too short or empty")
@@ -658,10 +668,14 @@ Return only the JSON response as specified in the system prompt."""
                     tags = tag_matches
                 
                 # Extract content - handle multiline content properly
-                content_match = re.search(r'"content":\s*"([^"]*(?:\\.[^"]*)*)"', ai_response, re.DOTALL)
+                # First try to find content between quotes, handling escaped quotes
+                content_match = re.search(r'"content":\s*"((?:[^"\\]|\\.)*)"', ai_response, re.DOTALL)
                 if not content_match:
-                    # Try alternative pattern for content that might span multiple lines
-                    content_match = re.search(r'"content":\s*"([^"]*)"', ai_response, re.DOTALL)
+                    # Try to find content between quotes and the next field
+                    content_match = re.search(r'"content":\s*"([^"]*(?:"[^"]*"[^"]*)*)"', ai_response, re.DOTALL)
+                if not content_match:
+                    # Last resort: find content between quotes and closing brace
+                    content_match = re.search(r'"content":\s*"([^"]*)"\s*}', ai_response, re.DOTALL)
                 
                 content = content_match.group(1) if content_match else "Content could not be extracted"
                 
@@ -695,8 +709,11 @@ Return only the JSON response as specified in the system prompt."""
         def fix_newlines_in_strings(match):
             # Only replace actual newlines, not escaped ones
             content = match.group(1)
-            # Replace actual newlines with escaped newlines
+            # Replace actual newlines and control characters with escaped versions
             fixed = content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+            # Fix other control characters
+            import re
+            fixed = re.sub(r'[\x00-\x1f\x7f-\x9f]', lambda m: f'\\u{ord(m.group(0)):04x}', fixed)
             return f'"{fixed}"'
         
         # Use a more sophisticated regex that handles escaped quotes

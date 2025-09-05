@@ -171,28 +171,19 @@ class DigestIO:
         self._validate_meta_kind(data, "PublishPackage")
         return data
 
-    except (AIClientError, ValueError, RuntimeError) as e:
-        logger.error(f"Comprehensive AI enhancement failed for {target_date}: {e}")
-        # Consider adding a fallback strategy here
-        # Option 1: Return digest with partial enhancement
-        # enhanced_data = data.copy()
-        # enhanced_data["ai_generated_content"] = {"error": str(e), "fallback": True}
-        # enhanced_data["meta"] = {
-        #     "kind": "EnrichedDigest",
-        #     "version": 1,
-        #     "generated_at": datetime.now().isoformat()
-        # }
-        # return enhanced_data
-        # Option 2: Re-raise but with more context
-        raise AIClientError(f"Critical: AI enhancement failed for {target_date}, no fallback available: {e}")
     def create_enriched_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
         """Enhance normalized digest with AI and save enriched version."""
         try:
             # Load normalized digest
             digest = self.load_normalized_digest(target_date)
             
-            # Enhance with AI
-            enriched_digest = self.enhanceDigestWithAI(digest)
+            # Enhance with AI using ComprehensiveBlogGenerator
+            generator = ComprehensiveBlogGenerator()
+            enriched_digest = generator.generate_blog_content(
+                target_date, 
+                digest.get('twitch_clips', []), 
+                digest.get('github_events', [])
+            )
             
             # Save enriched digest
             self.save_enriched_digest(enriched_digest, target_date)

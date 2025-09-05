@@ -127,11 +127,11 @@ class R2Publisher:
             logger.error(f"Site directory does not exist: {local_dir}")
             return results
         
-        site_files = ['index.html', 'favicon.ico']
+        site_files = ['index.html', 'favicon.ico', 'pcl-labs-logo.svg']
         
         for filename in site_files:
-            # Look for favicon.ico in public directory, index.html in root
-            if filename == 'favicon.ico':
+            # Look for static assets in public directory, index.html in root
+            if filename in ['favicon.ico', 'pcl-labs-logo.svg']:
                 file_path = Path("public") / filename
             else:
                 file_path = local_dir / filename
@@ -143,7 +143,11 @@ class R2Publisher:
             
             try:
                 local_md5 = self._hash_md5(file_path)
-                r2_key = filename
+                # Upload logo to assets/ path for media domain serving
+                if filename == 'pcl-labs-logo.svg':
+                    r2_key = f"assets/{filename}"
+                else:
+                    r2_key = filename
                 
                 if self._should_skip(r2_key, local_md5):
                     logger.info(f"↻ Skipped {filename} (identical content)")
@@ -168,16 +172,16 @@ class R2Publisher:
         
         return results
     
-    def publish_blogs(self, blogs_dir: Path) -> Dict[str, bool]:
+    def publish_blogs(self, data_dir: Path) -> Dict[str, bool]:
         """Upload API-v3 digest JSON files idempotently with enhanced features."""
         results = {}
         
-        if not blogs_dir.exists():
-            logger.error(f"Blogs directory does not exist: {blogs_dir}")
+        if not data_dir.exists():
+            logger.error(f"Data directory does not exist: {data_dir}")
             return results
         
-        # Find all API-v3 digest files
-        api_v3_files = list(blogs_dir.rglob("*_page.publish.json"))
+        # Find all published blog files in data directory
+        api_v3_files = list(data_dir.rglob("*page.publish.json"))
         
         if not api_v3_files:
             logger.info("No API-v3 digest files found")
@@ -201,10 +205,12 @@ class R2Publisher:
         for file_path in api_v3_files:
             try:
                 # Calculate R2 key: blogs/YYYY-MM-DD/YYYY-MM-DD_page.publish.json
-                relative_path = file_path.relative_to(blogs_dir)
+                relative_path = file_path.relative_to(data_dir)
                 # Convert to POSIX style to ensure forward slashes on all platforms
                 relative_path_posix = relative_path.as_posix()
-                r2_key = f"blogs/{relative_path_posix}"
+                # Transform data/YYYY-MM-DD/page.publish.json to blogs/YYYY-MM-DD/YYYY-MM-DD_page.publish.json
+                date_dir = relative_path.parent.name
+                r2_key = f"blogs/{date_dir}/{date_dir}_page.publish.json"
                 
                 # Load blog data for enhancement
                 with open(file_path, 'r', encoding='utf-8') as f:
@@ -224,7 +230,7 @@ class R2Publisher:
                 
                 if self._should_skip(r2_key, local_md5):
                     logger.info(f"↻ Skipped {r2_key} (identical content)")
-                    results[str(relative_path_posix)] = True
+                    results[r2_key] = True
                     continue
                 
                 # Upload enhanced file
@@ -237,7 +243,7 @@ class R2Publisher:
                     )
                 
                 logger.info(f"✓ Uploaded {r2_key}")
-                results[str(relative_path_posix)] = True
+                results[r2_key] = True
                 
                 # Upload assets for this blog (images, videos, etc.)
                 self._upload_blog_assets(file_path.parent)
@@ -252,7 +258,7 @@ class R2Publisher:
                 
             except Exception as e:
                 logger.error(f"✗ Failed to upload {file_path}: {e}")
-                results[str(relative_path_posix)] = False
+                results[r2_key] = False
         
         return results
     

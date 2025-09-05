@@ -5,6 +5,7 @@ Handles adding specific links, data, formatting, and technical precision.
 
 import re
 import logging
+import os
 from typing import Dict, List, Any, Optional
 from urllib.parse import urlparse
 
@@ -15,6 +16,15 @@ class BlogPostProcessor:
     
     def __init__(self):
         self.logger = logger
+        # Get allowed domains for Twitch embeds from environment
+        self.twitch_embed_domains = self._get_twitch_embed_domains()
+    
+    def _get_twitch_embed_domains(self) -> str:
+        """Get allowed domains for Twitch embeds from environment."""
+        domains = os.getenv("TWITCH_EMBED_DOMAINS")
+        if not domains:
+            raise ValueError("TWITCH_EMBED_DOMAINS environment variable is required")
+        return domains
     
     def process_blog_content(self, ai_content: str, digest: Dict[str, Any]) -> str:
         """
@@ -85,7 +95,7 @@ class BlogPostProcessor:
                 
                 video_embed = (
                     f'<iframe '
-                    f'src="https://clips.twitch.tv/embed?clip={clip_id}&parent=yourdomain.com" '
+                    f'src="https://clips.twitch.tv/embed?clip={clip_id}&parent={self.twitch_embed_domains}" '
                     f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
                     f'</iframe>'
                 )
@@ -167,8 +177,18 @@ class BlogPostProcessor:
             return None
         
         try:
-            # Extract clip ID from URL path (e.g., /clip_id -> clip_id)
-            clip_id = url.split('/')[-1]
+            # Parse URL properly to handle query strings and fragments
+            parsed = urlparse(url)
+            
+            # Get path segments, removing empty ones and trailing slashes
+            path_segments = [seg for seg in parsed.path.split('/') if seg]
+            
+            if not path_segments:
+                self.logger.warning(f"No path segments found in URL: {url}")
+                return None
+            
+            # Take the last non-empty path segment as the clip ID
+            clip_id = path_segments[-1]
             
             # Basic validation of clip ID format
             if not clip_id or len(clip_id) < 3:

@@ -70,7 +70,8 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
         logger.info("Step 2: Building normalized digest...")
         normalized_digest = builder.build_normalized_digest(target_date)
         
-        # Check if we have story packets (merged PRs) - only if feature flag is enabled
+        # Check if we have story packets (merged PRs) - always compute for reporting
+        # Note: STORY_PACKETS_ENABLED feature flag controls generation, not counting
         story_count = len(normalized_digest.get('story_packets', []))
         result["story_count"] = story_count
         
@@ -92,7 +93,7 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
         
         # Step 3: Enhance with AI → Enriched Digest
         logger.info("Step 3: Enhancing with AI...")
-        enriched_digest = builder.io.enhanceDigestWithAI(normalized_digest)
+        enriched_digest = builder.io.create_enriched_digest(target_date)
         enriched_path = builder.io.save_enriched_digest(enriched_digest, target_date)
         logger.info(f"Saved enriched digest: {enriched_path}")
         

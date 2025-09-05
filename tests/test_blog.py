@@ -506,9 +506,9 @@ class TestBlogDigestBuilder:
         json_path = builder.save_digest(digest)
         
         # Check that files were created
-        date_dir = temp_blogs_dir / "2025-01-15"
+        date_dir = temp_data_dir / "2025-01-15"  # Files are saved to data_dir, not blogs_dir
         assert json_path.exists()
-        assert json_path.name == "PRE-CLEANED-2025-01-15_digest.json"
+        assert json_path.name == "digest.normalized.json"
         assert date_dir.exists()
         
         # Check JSON content
