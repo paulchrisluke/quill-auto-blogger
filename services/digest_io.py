@@ -171,54 +171,20 @@ class DigestIO:
         self._validate_meta_kind(data, "PublishPackage")
         return data
 
-    def enhanceDigestWithAI(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Public method to enhance digest data with comprehensive AI content.
-        Generates entire blog post from raw data in single AI call.
-        
-        Args:
-            data: Digest data dictionary (must be NormalizedDigest)
-            
-        Returns:
-            Enhanced digest data with AI content (EnrichedDigest)
-            
-        Raises:
-            AIClientError: If AI generation fails (no fallback)
-        """
-        try:
-            # Validate input is NormalizedDigest
-            self._validate_meta_kind(data, "NormalizedDigest")
-            
-            # Extract date from data
-            target_date = data.get("date", "")
-            if not target_date:
-                raise ValueError("No date found in digest data")
-            
-            # Get raw data for AI
-            twitch_clips = data.get("twitch_clips", [])
-            github_events = data.get("github_events", [])
-            
-            # Generate comprehensive blog content
-            ai_generator = ComprehensiveBlogGenerator()
-            blog_content = ai_generator.generate_blog_content(target_date, twitch_clips, github_events)
-            
-            # Create enhanced digest with AI content
-            enhanced_data = data.copy()
-            enhanced_data["ai_generated_content"] = blog_content
-            
-            # Update meta to EnrichedDigest
-            enhanced_data["meta"] = {"kind": "EnrichedDigest", "version": 1, "generated_at": datetime.now().isoformat()}
-            
-            logger.info(f"Successfully enhanced digest with comprehensive AI content for {target_date}")
-            return enhanced_data
-            
-        except (AIClientError, ValueError, RuntimeError) as e:
-            logger.error(f"Comprehensive AI enhancement failed for {target_date}: {e}")
-            raise  # No fallback - fail the pipeline
-        except Exception as e:
-            logger.error(f"Unexpected error in comprehensive AI enhancement: {e}")
-            raise AIClientError(f"Comprehensive AI enhancement failed: {e}")
-
+    except (AIClientError, ValueError, RuntimeError) as e:
+        logger.error(f"Comprehensive AI enhancement failed for {target_date}: {e}")
+        # Consider adding a fallback strategy here
+        # Option 1: Return digest with partial enhancement
+        # enhanced_data = data.copy()
+        # enhanced_data["ai_generated_content"] = {"error": str(e), "fallback": True}
+        # enhanced_data["meta"] = {
+        #     "kind": "EnrichedDigest",
+        #     "version": 1,
+        #     "generated_at": datetime.now().isoformat()
+        # }
+        # return enhanced_data
+        # Option 2: Re-raise but with more context
+        raise AIClientError(f"Critical: AI enhancement failed for {target_date}, no fallback available: {e}")
     def create_enriched_digest(self, target_date: str) -> Optional[Dict[str, Any]]:
         """Enhance normalized digest with AI and save enriched version."""
         try:

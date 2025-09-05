@@ -188,7 +188,7 @@ class ContentGenerator:
             self.frontmatter["og"]["og:image"] = best_image
             
         # Update schema image (support both article and blogPosting schemas)
-        if "schema" in self.frontmatter:
+        if "schema" in self.frontmatter and best_image:
             from services.utils import set_schema_property
             if "article" in self.frontmatter["schema"]:
                 self.frontmatter["schema"]["article"]["image"] = best_image

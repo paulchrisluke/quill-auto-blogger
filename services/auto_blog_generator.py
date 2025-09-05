@@ -74,11 +74,12 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
         story_count = len(normalized_digest.get('story_packets', []))
         result["story_count"] = story_count
         
-        # Check if we have any data to work with (clips or events)
+        # Check if we have any data to work with (clips, events, or story packets)
         twitch_clips = normalized_digest.get('twitch_clips', [])
         github_events = normalized_digest.get('github_events', [])
+        story_packets = normalized_digest.get('story_packets', [])
         
-        if not twitch_clips and not github_events:
+        if not twitch_clips and not github_events and not story_packets:
             logger.info(f"No data found for {target_date}, skipping blog generation")
             result["error"] = "No data found"
             return result

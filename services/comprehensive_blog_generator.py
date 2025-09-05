@@ -6,16 +6,38 @@ Generates entire blog posts from raw data in a single AI call.
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
-from .ai_client import CloudflareAIClient, AIClientError
+from .ai_client import CloudflareAIClient, AIClientError, TokenLimitExceededError
 
 # Load environment variables
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# Precompiled regex patterns for low-value commit messages
+LOW_VALUE_PATTERNS = [
+    re.compile(r'^update\s+', re.IGNORECASE),
+    re.compile(r'^fix\s+', re.IGNORECASE),
+    re.compile(r'^bump\s+', re.IGNORECASE),
+    re.compile(r'^chore\s*:', re.IGNORECASE),
+    re.compile(r'^style\s*:', re.IGNORECASE),
+    re.compile(r'^refactor\s*:', re.IGNORECASE),
+    re.compile(r'^clean\s+', re.IGNORECASE),
+    re.compile(r'^remove\s+', re.IGNORECASE),
+    re.compile(r'^delete\s+', re.IGNORECASE),
+    re.compile(r'^merge\s+', re.IGNORECASE),
+    re.compile(r'^resolve\s+', re.IGNORECASE),
+    re.compile(r'^update\s+.*\.json', re.IGNORECASE),
+    re.compile(r'^update\s+.*\.md', re.IGNORECASE),
+    re.compile(r'^update\s+.*\.txt', re.IGNORECASE),
+    re.compile(r'^update\s+.*\.yml', re.IGNORECASE),
+    re.compile(r'^update\s+.*\.yaml', re.IGNORECASE),
+    re.compile(r'^update\s+.*\.lock', re.IGNORECASE)
+]
 
 
 class ComprehensiveBlogGenerator:
@@ -91,7 +113,12 @@ class ComprehensiveBlogGenerator:
             logger.info(f"User prompt length: {len(user_prompt)}")
             logger.info(f"Total prompt length: {len(system_prompt) + len(user_prompt)}")
             logger.info(f"Max tokens: {max_tokens}")
-            logger.info(f"Estimated input tokens: {(len(system_prompt) + len(user_prompt)) // 4}")
+            # Log actual token count if available
+            if hasattr(self.ai_client, '_count_tokens'):
+                estimated_tokens = self.ai_client._count_tokens(system_prompt + user_prompt)
+                logger.info(f"Estimated input tokens: {estimated_tokens:,}")
+            else:
+                logger.info(f"Estimated input tokens: {(len(system_prompt) + len(user_prompt)) // 4}")
             result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=max_tokens)
             
             # Parse AI response
@@ -100,12 +127,58 @@ class ComprehensiveBlogGenerator:
             logger.info(f"Successfully generated comprehensive blog content for {date}")
             return parsed_content
             
+        except TokenLimitExceededError as e:
+            logger.error(f"Token limit exceeded for {date}: {e}")
+            # Try to reduce prompt size and retry
+            return self._handle_token_limit_exceeded(date, twitch_clips, github_events, e)
         except AIClientError as e:
             logger.error(f"AI generation failed for {date}: {e}")
             raise
         except Exception as e:
             logger.error(f"Unexpected error in comprehensive blog generation: {e}")
             raise AIClientError(f"Comprehensive blog generation failed: {e}")
+    
+    def _handle_token_limit_exceeded(self, date: str, twitch_clips: List[Dict[str, Any]], github_events: List[Dict[str, Any]], error: TokenLimitExceededError) -> Dict[str, Any]:
+        """Handle token limit exceeded by reducing data size and retrying."""
+        logger.info(f"Attempting to reduce prompt size for {date} due to token limit")
+        
+        # Reduce data size by limiting clips and events
+        reduced_clips = twitch_clips[:3]  # Limit to 3 clips
+        reduced_events = github_events[:10]  # Limit to 10 events
+        
+        logger.info(f"Reduced data: {len(reduced_clips)} clips, {len(reduced_events)} events")
+        
+        try:
+            # Prepare reduced data for AI
+            ai_data = self._prepare_ai_data(date, reduced_clips, reduced_events)
+            
+            # Generate comprehensive prompt with reduced data
+            system_prompt, user_prompt = self._create_comprehensive_prompt(ai_data)
+            
+            # Use lower max tokens for output
+            max_tokens = int(os.getenv("AI_COMPREHENSIVE_MAX_TOKENS", "8000")) // 2  # Reduce by half
+            
+            logger.info(f"Retrying with reduced prompt size - Max tokens: {max_tokens}")
+            result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=max_tokens)
+            
+            # Parse AI response
+            parsed_content = self._parse_ai_response(result)
+            
+            logger.info(f"Successfully generated comprehensive blog content for {date} with reduced data")
+            return parsed_content
+            
+        except TokenLimitExceededError:
+            logger.error(f"Still exceeding token limits after reduction for {date}")
+            # Return a minimal fallback response
+            return {
+                "title": f"Daily Digest - {date}",
+                "description": f"Daily digest for {date} with limited content due to size constraints.",
+                "tags": ["daily-digest", "limited-content"],
+                "content": f"# Daily Digest - {date}\n\nContent generation was limited due to input size constraints. Please check individual clips and events for full details."
+            }
+        except Exception as e:
+            logger.error(f"Failed to generate reduced content for {date}: {e}")
+            raise AIClientError(f"Failed to generate content even with reduced data: {e}")
     
     def _prepare_ai_data(self, date: str, twitch_clips: List[Dict[str, Any]], github_events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Prepare data for AI consumption - only clips with transcripts and events with good commit messages."""
@@ -255,30 +328,9 @@ class ComprehensiveBlogGenerator:
         
         message_lower = message.lower().strip()
         
-        # Common low-value patterns
-        low_value_patterns = [
-            r'^update\s+',
-            r'^fix\s+',
-            r'^bump\s+',
-            r'^chore\s*:',
-            r'^style\s*:',
-            r'^refactor\s*:',
-            r'^clean\s+',
-            r'^remove\s+',
-            r'^delete\s+',
-            r'^merge\s+',
-            r'^resolve\s+',
-            r'^update\s+.*\.json',
-            r'^update\s+.*\.md',
-            r'^update\s+.*\.txt',
-            r'^update\s+.*\.yml',
-            r'^update\s+.*\.yaml',
-            r'^update\s+.*\.lock'
-        ]
-        
-        import re
-        for pattern in low_value_patterns:
-            if re.match(pattern, message_lower):
+        # Check against precompiled low-value patterns
+        for pattern in LOW_VALUE_PATTERNS:
+            if pattern.match(message_lower):
                 return False
         
         return True
@@ -410,6 +462,24 @@ Voice Guidelines:
         clips = ai_data.get('twitch_clips', [])
         events = ai_data.get('github_events', [])
         
+        # Safe JSON serialization function to handle datetime and other non-serializable objects
+        def safe_json_serializer(obj):
+            """Convert non-serializable objects to safe representations."""
+            if hasattr(obj, 'isoformat'):  # datetime objects
+                return obj.isoformat()
+            elif hasattr(obj, '__dict__'):  # custom objects
+                return str(obj)
+            else:
+                return str(obj)
+        
+        def safe_json_dumps(data, indent=2):
+            """Safely serialize data to JSON with fallback handling."""
+            try:
+                return json.dumps(data, indent=indent, ensure_ascii=False, default=safe_json_serializer)
+            except Exception as e:
+                # Fallback to string representation if JSON serialization fails
+                return f"<Serialization Error: {str(e)}>\nData: {repr(data)}"
+        
         user_prompt = f"""Generate a blog post for {ai_data.get('date')} based on this data:
 
 DAY SUMMARY:
@@ -419,10 +489,10 @@ DAY SUMMARY:
 - Notable clips: {', '.join(summary.get('notable_clips', [])[:3])}
 
 DETAILED TWITCH CLIPS:
-{json.dumps(clips, indent=2, ensure_ascii=False)}
+{safe_json_dumps(clips)}
 
 DETAILED GITHUB EVENTS:
-{json.dumps(events, indent=2, ensure_ascii=False)}
+{safe_json_dumps(events)}
 
 STORY CONTEXT:
 This is a day in the life of Paul Chris Luke, a developer who live-streams his coding sessions and builds AI automation tools. The irony is that he's building tools that might eventually replace parts of his own job, all while live-streaming the process and explaining the absurdity of it to his audience.
@@ -515,22 +585,27 @@ Return only the JSON response as specified in the system prompt."""
                 cleaned_response = cleaned_response[:-3]
             cleaned_response = cleaned_response.strip()
             
-            # Handle potential newlines and control characters in JSON strings
-            import re
-            # Replace newlines and control characters in string values with spaces
-            # This regex finds strings and replaces newlines/control chars within them
-            def clean_string(match):
-                content = match.group(1)
-                # Replace newlines and control characters with spaces
-                cleaned = re.sub(r'[\n\r\t\f\v]', ' ', content)
-                # Escape any remaining quotes within the string
-                cleaned = cleaned.replace('"', '\\"')
-                return f'"{cleaned}"'
+            # Parse JSON with proper error handling and recovery
+            parsed = None
+            parse_attempts = [
+                # First attempt: parse as-is
+                cleaned_response,
+                # Second attempt: try to fix common JSON issues
+                self._fix_common_json_issues(cleaned_response),
+                # Third attempt: extract JSON from markdown code blocks
+                self._extract_json_from_markdown(cleaned_response)
+            ]
             
-            cleaned_response = re.sub(r'"([^"]*)"', clean_string, cleaned_response)
-            
-            # Parse JSON
-            parsed = json.loads(cleaned_response)
+            for attempt, response_text in enumerate(parse_attempts, 1):
+                try:
+                    parsed = json.loads(response_text)
+                    logger.info(f"Successfully parsed JSON on attempt {attempt}")
+                    break
+                except json.JSONDecodeError as e:
+                    logger.warning(f"JSON parse attempt {attempt} failed: {e}")
+                    if attempt == len(parse_attempts):
+                        # All attempts failed, raise the last error
+                        raise e
             
             # Validate required fields
             required_fields = ['title', 'description', 'tags', 'content']
@@ -610,3 +685,46 @@ Return only the JSON response as specified in the system prompt."""
             logger.error(f"Failed to parse AI response: {e}")
             logger.error(f"AI Response: {ai_response}")
             raise ValueError(f"Failed to parse AI response: {e}")
+    
+    def _fix_common_json_issues(self, json_text: str) -> str:
+        """Fix common JSON issues without corrupting valid content."""
+        import re
+        
+        # Fix unescaped newlines in string values (but preserve escaped ones)
+        # This is safer than the previous approach as it only targets actual newlines
+        def fix_newlines_in_strings(match):
+            # Only replace actual newlines, not escaped ones
+            content = match.group(1)
+            # Replace actual newlines with escaped newlines
+            fixed = content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+            return f'"{fixed}"'
+        
+        # Use a more sophisticated regex that handles escaped quotes
+        # This pattern matches strings but respects escaped quotes
+        fixed_text = re.sub(r'"((?:[^"\\]|\\.)*)"', fix_newlines_in_strings, json_text)
+        
+        return fixed_text
+    
+    def _extract_json_from_markdown(self, text: str) -> str:
+        """Extract JSON from markdown code blocks or other formatting."""
+        import re
+        
+        # Try to find JSON within markdown code blocks
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+        if json_match:
+            return json_match.group(1)
+        
+        # Try to find JSON object boundaries
+        start_brace = text.find('{')
+        if start_brace != -1:
+            # Find the matching closing brace
+            brace_count = 0
+            for i, char in enumerate(text[start_brace:], start_brace):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        return text[start_brace:i+1]
+        
+        return text
