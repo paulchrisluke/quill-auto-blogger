@@ -40,7 +40,7 @@ class FeedGenerator:
             RSS XML string
         """
         # Sort by date descending (newest first)
-        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('date', ''), reverse=True)
+        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('datePublished', x.get('date', '')), reverse=True)
         
         rss_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/">
@@ -86,14 +86,15 @@ class FeedGenerator:
                 # Get description from lead or content
                 description = frontmatter.get('lead', '')
                 if not description and 'content' in blog:
-                    content = blog['content'].get('body', '')
+                    content = blog['content'] if isinstance(blog['content'], str) else blog['content'].get('body', '')
                     description = content[:200] + '...' if len(content) > 200 else content
                 
                 # Get image
                 image_url = frontmatter.get('og', {}).get('og:image', '')
                 
                 # Get full content for content:encoded
-                full_content = blog.get('content', {}).get('body', description)
+                content_field = blog.get('content', '')
+                full_content = content_field if isinstance(content_field, str) else content_field.get('body', description)
                 
                 # Escape values for XML
                 title = html.escape(frontmatter.get('title', f'PCL Labs Devlog — {date_str}'))
@@ -149,7 +150,7 @@ class FeedGenerator:
             Sitemap XML string
         """
         # Sort by date descending (newest first)
-        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('date', ''), reverse=True)
+        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('datePublished', x.get('date', '')), reverse=True)
         
         sitemap_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -260,7 +261,7 @@ class FeedGenerator:
             Blogs index dictionary with schema.org Blog structure
         """
         # Sort by date descending (newest first)
-        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('date', ''), reverse=True)
+        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('datePublished', x.get('date', '')), reverse=True)
         
         # Generate BlogPosting entries for schema.org
         blog_posts = []
@@ -279,11 +280,10 @@ class FeedGenerator:
             else:
                 # Published format
                 date_str = blog.get('datePublished', '')
-                content = blog.get('content', {})
-                title = content.get('title', f'PCL Labs Devlog — {date_str}')
-                description = content.get('summary', '')
+                title = blog.get('title', f'PCL Labs Devlog — {date_str}')
+                description = blog.get('summary', '')
                 author = 'Paul Chris Luke'  # Default author
-                tags = content.get('tags', [])
+                tags = blog.get('tags', [])
                 canonical_url = blog.get('url', f"{self.frontend_domain}/blog/{date_str}")
             
             if not date_str or not title:
@@ -320,7 +320,7 @@ class FeedGenerator:
             
             # Create API-friendly blog entry
             blog_entry = {
-                "date": date_str,
+                "datePublished": date_str,
                 "title": title,
                 "author": author,
                 "canonical_url": canonical_url,

@@ -766,8 +766,8 @@ class BlogDigestBuilder:
             content_gen = ContentGenerator(enriched_digest, self.utils)
             enriched_digest = content_gen.normalize_assets(enriched_digest)
             
-            # Step 4.5: Add the generated content to the digest
-            enriched_digest["content"] = {"body": consolidated_content}
+            # Step 4.5: Don't overwrite the AI-generated content - it's already in the correct format
+            # enriched_digest["content"] = {"body": consolidated_content}
             
             # Step 4: Use the new API v3 serializer to build publish package
             from .serializers.api_v3 import build as build_api_v3
@@ -1016,20 +1016,21 @@ def _validate_api_data(data: dict) -> None:
     
     # Validate required fields exist
     required_fields = ["url", "datePublished", "dateModified", "wordCount", "timeRequired", 
-                      "content", "media", "stories", "related", "schema", "headers"]
+                      "title", "summary", "content", "media", "stories", "related", "schema", "headers"]
     for field in required_fields:
         if field not in data:
             logger.warning(f"Required field '{field}' missing from API v3 data")
     
-    # Validate content structure
-    content = data.get("content", {})
-    if not isinstance(content, dict):
-        logger.warning("Content field should be a dictionary")
-    else:
-        required_content_fields = ["title", "summary", "body", "tags"]
-        for field in required_content_fields:
-            if field not in content:
-                logger.warning(f"Required content field '{field}' missing")
+    # Validate content structure - now content is a string, title/summary are top-level
+    content = data.get("content", "")
+    if not isinstance(content, str):
+        logger.warning("Content field should be a string")
+    
+    # Check for required top-level fields
+    required_top_level_fields = ["title", "summary"]
+    for field in required_top_level_fields:
+        if field not in data:
+            logger.warning(f"Required top-level field '{field}' missing")
     
     # Validate media structure
     media = data.get("media", {})
@@ -1066,7 +1067,7 @@ def _validate_api_data(data: dict) -> None:
         logger.warning(f"timeRequired not in ISO8601 format: {time_required}")
     
     # Check for AI placeholders
-    body = content.get("body", "")
+    body = content if isinstance(content, str) else ""
     if "[AI_" in str(body):
         logger.warning("AI placeholders found in body content")
     

@@ -189,6 +189,11 @@ class DigestIO:
             enriched_digest = digest.copy()
             enriched_digest.update(ai_content)
             
+            # Update with filtered data that was actually used for AI generation
+            prepared_data = generator._prepare_ai_data(target_date, digest.get('twitch_clips', []), digest.get('github_events', []))
+            enriched_digest['twitch_clips'] = prepared_data['twitch_clips']
+            enriched_digest['github_events'] = prepared_data['github_events']
+            
             # Ensure the meta kind is correct for enriched digest
             enriched_digest["meta"] = {
                 "kind": "EnrichedDigest",

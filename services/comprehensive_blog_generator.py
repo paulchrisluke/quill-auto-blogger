@@ -224,17 +224,23 @@ class ComprehensiveBlogGenerator:
         }
     
     def _filter_merged_events(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Filter GitHub events to only include merged PullRequestEvents."""
+        """Filter GitHub events to include only merged PullRequestEvents and PushEvents."""
         merged_events = []
         
         for event in events:
-            # Only include PullRequestEvents that are merged
             if event.get('type') == 'PullRequestEvent':
                 # Check if the PR was merged
                 details = event.get('details', {})
                 if details.get('merged', False):
                     merged_events.append(event)
                     logger.info(f"Including merged PR: {details.get('title', 'No title')} (PR #{details.get('number', 'No number')})")
+            elif event.get('type') == 'PushEvent':
+                # Include PushEvents (they represent actual work done)
+                merged_events.append(event)
+                details = event.get('details', {})
+                branch = details.get('branch', 'unknown branch')
+                commits = details.get('commits', 0)
+                logger.info(f"Including PushEvent: {commits} commits to {branch}")
         
         return merged_events
     
@@ -270,6 +276,9 @@ class ComprehensiveBlogGenerator:
         for event in events:
             enriched_event = event.copy()
             
+            # Truncate long text fields to reduce token usage
+            self._truncate_event_text(enriched_event)
+            
             # Add contextual information
             enriched_event["context"] = {
                 "event_type_category": "code_change" if event.get('type') in ['PullRequestEvent', 'PushEvent'] else "other",
@@ -295,6 +304,46 @@ class ComprehensiveBlogGenerator:
             enriched.append(enriched_event)
         
         return enriched
+    
+    def _truncate_event_text(self, event: Dict[str, Any]) -> None:
+        """Clean and truncate event data to focus on merges and commit messages."""
+        # Clean up the event to focus on what matters
+        details = event.get('details', {})
+        if details:
+            # For merged PRs, keep only essential info
+            if event.get('type') == 'PullRequestEvent' and details.get('merged', False):
+                # Keep PR title, number, and commit messages
+                pr = details.get('pull_request', {})
+                if pr:
+                    # Truncate PR body to just the essential summary
+                    if pr.get('body') and len(pr['body']) > 300:
+                        pr['body'] = pr['body'][:300] + "... [truncated]"
+                
+                # Clean up commit messages - remove noise and keep meaningful ones
+                commit_messages = details.get('commit_messages', [])
+                if commit_messages:
+                    cleaned_messages = []
+                    for msg in commit_messages:
+                        # Skip merge commits and other noise
+                        if not any(skip in msg.lower() for skip in ['merge', 'revert', 'fix lint', 'update readme']):
+                            if len(msg) > 150:
+                                cleaned_messages.append(msg[:150] + "...")
+                            else:
+                                cleaned_messages.append(msg)
+                    details['commit_messages'] = cleaned_messages[:5]  # Limit to 5 most relevant commits
+            
+            # For push events, clean up commit messages
+            elif event.get('type') == 'PushEvent':
+                commit_messages = details.get('commit_messages', [])
+                if commit_messages:
+                    cleaned_messages = []
+                    for msg in commit_messages:
+                        if not any(skip in msg.lower() for skip in ['merge', 'revert', 'fix lint']):
+                            if len(msg) > 150:
+                                cleaned_messages.append(msg[:150] + "...")
+                            else:
+                                cleaned_messages.append(msg)
+                    details['commit_messages'] = cleaned_messages[:5]
     
     def _summarize_commit_messages(self, pr_event: Dict[str, Any]) -> str:
         """Summarize the commit messages for a merged PR to provide better context."""
@@ -397,7 +446,7 @@ class ComprehensiveBlogGenerator:
             "push_events": len(push_events),
             "high_view_clips": len(high_view_clips),
             "clips_with_transcripts": len(clips_with_transcripts),
-            "key_achievements": [e.get('title', '') for e in merged_prs[:3]],  # Top 3 merged PRs
+            "key_achievements": [e.get('title', '') for e in merged_prs[:3]] + [e.get('details', {}).get('commit_messages', [''])[0] for e in push_events[:3] if e.get('details', {}).get('commit_messages')],  # Top 3 merged PRs + PushEvent commit messages
             "notable_clips": [c.get('title', '') for c in high_view_clips[:3]]  # Top 3 clips by views
         }
     
@@ -419,7 +468,7 @@ CRITICAL REQUIREMENTS:
 8. Include the human story behind the technical work
 
 NARRATIVE STRUCTURE (Follow This Pattern - BE EXTENSIVE AND DETAILED):
-- **Hook**: Start with a compelling, personality-driven opening (like "August 25, 2025, will go down as the day I became a Clanker.")
+- **Hook**: Start with a compelling, personality-driven opening using the ACTUAL DATE from the data
 - **Context**: Set the scene with the day's activities and the absurdity of the situation (2-3 paragraphs)
 - **What Shipped**: Detailed sections for each major PR with rich context and personality (1-2 paragraphs per PR)
 - **Twitch Clips**: Bring the clips to life with personality and humor (2-3 paragraphs)
@@ -497,7 +546,7 @@ DETAILED GITHUB EVENTS:
 STORY CONTEXT:
 This is a day in the life of Paul Chris Luke, a developer who live-streams his coding sessions and builds AI automation tools. The irony is that he's building tools that might eventually replace parts of his own job, all while live-streaming the process and explaining the absurdity of it to his audience.
 
-The "Clanker" reference comes from a derogatory term for AI, which becomes hilariously ironic when you're the one building AI systems. This creates a meta-commentary about the automation paradox - building tools that automate the very work you're doing.
+Focus on the actual technical work and the human story behind it.
 
 WRITING INSTRUCTIONS:
 Create a compelling, EXTENSIVE narrative that weaves together the technical work with the human story behind it. Focus on STORY and PERSONALITY, not technical formatting. Use the SPECIFIC details provided - actual PR numbers, clip titles, view counts, transcripts, and event details. Make it engaging and authentic to Paul's voice. Include the meta-commentary about building automation tools while live-streaming the process.
@@ -514,9 +563,9 @@ NARRATIVE WRITING STYLE (CRITICAL):
 - Avoid documentation-style writing - this is storytelling, not changelog
 
 EXAMPLE OF GOOD PR WRITING:
-Instead of: "The first PR, #32, was a feature/clip recap pipeline analysis, which included daily recap posts generated as standard Markdown files, pull requests targeting the staging branch by default, and updated notification wording for the bot channel."
+Instead of: "The first PR was a feature/clip recap pipeline analysis, which included daily recap posts generated as standard Markdown files, pull requests targeting the staging branch by default, and updated notification wording for the bot channel."
 
-Do this: "The first major milestone of the day was PR #32: clip recap pipeline analysis, which transformed how Twitch highlights get processed inside my system. Up until now, handling clips was messy — duplicates, inconsistent formatting, and a lot of manual cleanup. With this PR, I introduced caching and deduplication that make ingestion far more efficient. On top of that, the pipeline now generates daily recap posts in Markdown, automatically creating structured updates I can share with my community. Even the bot's notifications were polished with clearer wording, making the workflow more transparent for both me and my viewers. In short, this wasn't just about technical optimization; it was about building a smoother bridge between live-streaming content and developer storytelling."
+Do this: "The first major milestone of the day was a significant refactor that transformed how data gets processed inside my system. Up until now, handling this workflow was messy — duplicates, inconsistent formatting, and a lot of manual cleanup. With this change, I introduced caching and deduplication that make ingestion far more efficient. On top of that, the pipeline now generates structured updates automatically, creating organized content I can share with my community. Even the notifications were polished with clearer wording, making the workflow more transparent for both me and my viewers. In short, this wasn't just about technical optimization; it was about building a smoother bridge between live-streaming content and developer storytelling."
 
 SEO AND DEPTH REQUIREMENTS:
 - Target 200+ words per major section
@@ -540,7 +589,7 @@ TWITCH SECTION ENHANCEMENT:
 
 TRANSITION IMPROVEMENTS:
 - Create smooth handoffs between sections
-- Example: "But development doesn't happen in isolation. While the code merged quietly in the background, Twitch captured the human side of the work — the jams, the commentary, and yes, the irony of calling myself a Clanker."
+- Example: "But development doesn't happen in isolation. While the code merged quietly in the background, Twitch captured the human side of the work — the jams, the commentary, and the irony of building automation tools while live-streaming the process."
 - Use transitional phrases that connect themes across sections
 - Make the flow feel like a continuous story, not separate sections
 
@@ -561,7 +610,7 @@ LENGTH AND DETAIL REQUIREMENTS (CRITICAL):
 - Use the full narrative structure with rich detail in every section
 
 IMPORTANT: 
-- Start with a personality-driven hook (like "August 25, 2025, will go down as the day I became a Clanker.")
+- Start with a personality-driven hook using the actual date and events from the data
 - Include self-aware humor and meta-commentary throughout
 - End with a witty, memorable closer
 - Avoid generic corporate language
