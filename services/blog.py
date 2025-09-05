@@ -333,9 +333,12 @@ class BlogDigestBuilder:
         content_gen = ContentGenerator(digest, self.utils)
         
         # Check if we have AI-generated content and use it
-        if ai_enabled and digest.get("ai_generated_content"):
-            ai_content = digest["ai_generated_content"]
+        # For enriched digests, the AI content is directly in the digest fields
+        if ai_enabled and (digest.get("ai_generated_content") or digest.get("content")):
             logger.info("Using AI-generated content for blog post")
+            
+            # Use AI content from enriched digest directly
+            ai_content = digest.get("ai_generated_content", digest)
             
             # Update frontmatter with AI-generated title, description, and tags
             if "title" in ai_content:
