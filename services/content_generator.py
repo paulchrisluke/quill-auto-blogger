@@ -5,6 +5,7 @@ Content generation for blog posts.
 import html
 import re
 import logging
+import copy
 from datetime import datetime, date
 from typing import List, Dict, Any, Tuple
 
@@ -544,8 +545,8 @@ class ContentGenerator:
         Returns:
             Digest data with normalized assets
         """
-        # Create a copy to avoid modifying the original
-        normalized_data = data.copy()
+        # Create a deep copy to avoid modifying the original
+        normalized_data = copy.deepcopy(data)
         
         # Normalize story packet video paths
         story_packets = normalized_data.get("story_packets", [])

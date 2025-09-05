@@ -268,7 +268,8 @@ class DigestIO:
         # Update schema description if present
         if "schema" in front:
             from services.utils import set_schema_property
-            set_schema_property(front["schema"], "description", front["description"])
+            if desc := front.get("description"):
+                set_schema_property(front["schema"], "description", desc)
 
         # Add related posts (Python processing, no AI needed) - only if missing
         if not digest.get("related_posts"):

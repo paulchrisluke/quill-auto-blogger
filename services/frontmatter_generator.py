@@ -4,10 +4,13 @@ Frontmatter generation for blog posts.
 
 import re
 import unicodedata
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from story_schema import FrontmatterInfo
 from .digest_utils import DigestUtils
+
+logger = logging.getLogger(__name__)
 
 
 class FrontmatterGenerator:
@@ -115,18 +118,18 @@ class FrontmatterGenerator:
             "datePublished": date_str,
             "author": {
                 "@type": "Person", 
-                "@id": "https://paulchrisluke.com#author",
+                "@id": f"{self.frontend}#author",
                 "name": self.author,
-                "url": "https://paulchrisluke.com"
+                "url": self.frontend
             },
             "publisher": {
                 "@type": "Organization",
-                "@id": "https://paulchrisluke.com#organization", 
+                "@id": f"{self.frontend}#organization", 
                 "name": "PCL Labs",
-                "url": "https://paulchrisluke.com",
+                "url": self.frontend,
                 "logo": {
                     "@type": "ImageObject",
-                    "url": "https://media.paulchrisluke.com/assets/pcl-labs-logo.png",
+                    "url": f"{self.media}/assets/pcl-labs-logo.png",
                     "width": 200,
                     "height": 200
                 }
@@ -215,15 +218,10 @@ class FrontmatterGenerator:
                 if thumbnails.get("intro"):
                     intro_path = thumbnails["intro"]
                     if not intro_path.startswith("http"):
-                        # Convert from blogs/2025-08-27/story_... to stories/2025/08/27/story_...
-                        if intro_path.startswith("blogs/"):
-                            date_part = intro_path.split("/")[1]  # 2025-08-27
-                            year, month, day = date_part.split("-")
-                            filename = intro_path.split('/', 2)[2]  # story_story_20250827_pr34_01_intro.jpg
-                            new_path = f"stories/{year}/{month}/{day}/{filename}"
-                            thumbnail_url = f"{self.media}/{new_path}"
-                        else:
-                            thumbnail_url = f"{self.media}/{intro_path}"
+                        # Use DigestUtils to build absolute thumbnail URL
+                        from .digest_utils import DigestUtils
+                        utils = DigestUtils(self.media, f"{self.media}/assets/pcl-labs-logo.svg")
+                        thumbnail_url = utils.get_cloudflare_url(intro_path)
                     else:
                         thumbnail_url = intro_path
                 else:
@@ -232,14 +230,10 @@ class FrontmatterGenerator:
                         if thumbnails.get(thumb_type):
                             thumb_path = thumbnails[thumb_type]
                             if not thumb_path.startswith("http"):
-                                if thumb_path.startswith("blogs/"):
-                                    date_part = thumb_path.split("/")[1]
-                                    year, month, day = date_part.split("-")
-                                    filename = thumb_path.split('/', 2)[2]
-                                    new_path = f"stories/{year}/{month}/{day}/{filename}"
-                                    thumbnail_url = f"{self.media}/{new_path}"
-                                else:
-                                    thumbnail_url = f"{self.media}/{thumb_path}"
+                                # Use DigestUtils to build absolute thumbnail URL
+                                from .digest_utils import DigestUtils
+                                utils = DigestUtils(self.media, f"{self.media}/assets/pcl-labs-logo.svg")
+                                thumbnail_url = utils.get_cloudflare_url(thumb_path)
                             else:
                                 thumbnail_url = thumb_path
                             break

@@ -525,7 +525,7 @@ class BlogDigestBuilder:
             from tools.renderer_html import render_for_packet
             
             # Create output directory for videos
-            out_dir = Path("blogs") / target_date
+            out_dir = Path(self.blogs_dir) / target_date
             out_dir.mkdir(parents=True, exist_ok=True)
             
             # Convert packet to dict format for renderer
@@ -552,7 +552,7 @@ class BlogDigestBuilder:
     def _find_video_for_story(self, packet: StoryPacket, target_date: str) -> Optional[str]:
         """Find existing video file for a story packet."""
         # Check for video file in the expected location
-        video_dir = Path("blogs") / target_date
+        video_dir = Path(self.blogs_dir) / target_date
         if not video_dir.exists():
             return None
         
@@ -611,7 +611,7 @@ class BlogDigestBuilder:
             from tools.renderer_html import render_for_packet
             
             # Create output directory for videos
-            out_dir = Path("blogs") / target_date
+            out_dir = Path(self.blogs_dir) / target_date
             out_dir.mkdir(parents=True, exist_ok=True)
             
             # Render the video
@@ -776,6 +776,7 @@ class BlogDigestBuilder:
             schema = frontmatter["schema"]
             # Migrate to unified format if needed
             schema = migrate_legacy_schema_to_unified(schema)
+            frontmatter["schema"] = schema
             
             # Get and normalize image
             image = get_schema_property(schema, "image")

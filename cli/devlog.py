@@ -325,13 +325,13 @@ def blog_regenerate_api(target_date: str):
         api_data = builder.get_blog_api_data(target_date)
         
         # Save the API data to disk
-        builder.save_publish_package(api_data, target_date)
+        saved_path = builder.save_publish_package(api_data, target_date)
         
         click.echo(f"[OK] Regenerated API v3 content for {target_date}")
         click.echo(f"[INFO] Title: {api_data['frontmatter']['title']}")
         story_packets = api_data.get('story_packets', [])
         click.echo(f"[INFO] Stories: {len(story_packets)}")
-        click.echo(f"[INFO] API v3 file saved to blogs/{target_date}/{target_date}_page.publish.json")
+        click.echo(f"[INFO] API v3 file saved to {saved_path}")
         
     except Exception as e:
         click.echo(f"[ERR] Failed to regenerate API v3 content: {e}")

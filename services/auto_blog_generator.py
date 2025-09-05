@@ -55,8 +55,8 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
         # Check if publish package already exists
         data_dir = builder.data_dir / target_date
         if data_dir.exists() and (data_dir / f'{target_date}_page.publish.json').exists():
-            logger.info(f"Publish package already exists for {target_date}, skipping generation")
-            result["error"] = "Publish package already exists"
+            logger.info(f"Blog already exists for {target_date}, skipping generation")
+            result["error"] = "Blog already exists"
             return result
         
         # Orchestration: Clean stage-based pipeline

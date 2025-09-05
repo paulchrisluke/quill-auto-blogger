@@ -393,8 +393,8 @@ class R2Publisher:
     def _upload_blog_assets(self, blog_dir: Path) -> None:
         """Upload all assets (images, videos) for a blog post to R2."""
         try:
-            # Find all asset files (images, videos, etc.)
-            asset_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.mp4', '.webm', '.mov']
+            # Find all asset files (images, etc.) - videos handled separately by _upload_blog_videos
+            asset_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webm', '.mov']
             asset_files = []
             
             for ext in asset_extensions:
