@@ -60,9 +60,9 @@ class BlogDigestBuilder:
         # Blog metadata from environment
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
-        self.blog_default_image = "https://media.paulchrisluke.com/assets/pcl-labs-logo.svg"
+        self.media_domain = os.getenv("MEDIA_DOMAIN", "https://media.paulchrisluke.com").rstrip("/")
+        self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", f"{self.media_domain}/assets/pcl-labs-logo.svg")
         self.worker_domain = os.getenv("WORKER_DOMAIN", "https://quill-blog-api-prod.paulchrisluke.workers.dev")
-        self.media_domain = os.getenv("MEDIA_DOMAIN", "https://media.paulchrisluke.com")
         
         # Blog signature configuration
         self.signature_enabled = os.getenv("BLOG_SIGNATURE_ENABLED", "false").lower() == "true"
@@ -114,8 +114,14 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing FINAL digest for {target_date}")
                 
-                # Check if digest has enhanced schema.org
-                if "frontmatter" in digest and digest.get("frontmatter", {}).get("schema", {}).get("blogPosting"):
+                # Check if digest has enhanced schema.org (support both legacy and unified formats)
+                frontmatter = digest.get("frontmatter", {})
+                schema = frontmatter.get("schema", {})
+                has_enhanced_schema = (
+                    schema.get("@type") == "BlogPosting" or  # Unified format
+                    schema.get("blogPosting")  # Legacy format
+                )
+                if "frontmatter" in digest and has_enhanced_schema:
                     logger.info(f"Loaded existing FINAL digest with enhanced schema for {target_date}")
                     
                     # Enhance existing digest with thumbnail URLs
@@ -137,8 +143,14 @@ class BlogDigestBuilder:
                     digest = json.load(f)
                 logger.info(f"Loaded existing pre-cleaned digest for {target_date}")
                 
-                # Check if digest has enhanced schema.org
-                if "frontmatter" in digest and digest.get("frontmatter", {}).get("schema", {}).get("blogPosting"):
+                # Check if digest has enhanced schema.org (support both legacy and unified formats)
+                frontmatter = digest.get("frontmatter", {})
+                schema = frontmatter.get("schema", {})
+                has_enhanced_schema = (
+                    schema.get("@type") == "BlogPosting" or  # Unified format
+                    schema.get("blogPosting")  # Legacy format
+                )
+                if "frontmatter" in digest and has_enhanced_schema:
                     logger.info(f"Found existing digest with enhanced schema for {target_date}")
                     
                     # Enhance existing digest with thumbnail URLs
@@ -231,7 +243,7 @@ class BlogDigestBuilder:
         Returns:
             Enriched digest dictionary
         """
-        return self.io.enhance_with_ai(normalized_digest)
+        return self.io.enhanceDigestWithAI(normalized_digest)
 
     def save_publish_package(self, package: Dict[str, Any], target_date: str) -> Path:
         """
@@ -560,6 +572,74 @@ class BlogDigestBuilder:
         
         return None
     
+    def _ensure_videos_rendered(self, enriched_digest: Dict[str, Any], target_date: str) -> None:
+        """Ensure all story packets have rendered videos."""
+        story_packets = enriched_digest.get("story_packets", [])
+        
+        for packet_data in story_packets:
+            video_data = packet_data.get("video", {})
+            
+            # Check if video needs to be rendered
+            if (video_data.get("status") == "rendered" and 
+                video_data.get("path") and 
+                not self._video_file_exists(video_data["path"], target_date)):
+                
+                logger.info(f"Video file missing for {packet_data.get('id', 'unknown')}, rendering...")
+                self._render_video_for_packet_data(packet_data, target_date)
+    
+    def _video_file_exists(self, video_path: str, target_date: str) -> bool:
+        """Check if video file actually exists on disk."""
+        try:
+            # Convert path to actual file path
+            if video_path.startswith("blogs/"):
+                # blogs/2025-08-27/story_123.mp4 -> blogs/2025-08-27/story_123.mp4
+                file_path = Path(video_path)
+            elif video_path.startswith("out/videos/"):
+                # out/videos/2025-08-27/story_123.mp4 -> out/videos/2025-08-27/story_123.mp4
+                file_path = Path(video_path)
+            else:
+                # Assume it's a relative path
+                file_path = Path(video_path)
+            
+            return file_path.exists()
+        except Exception:
+            return False
+    
+    def _render_video_for_packet_data(self, packet_data: Dict[str, Any], target_date: str) -> None:
+        """Render video for a story packet data dict."""
+        try:
+            from tools.renderer_html import render_for_packet
+            
+            # Create output directory for videos
+            out_dir = Path("blogs") / target_date
+            out_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Render the video
+            video_path = render_for_packet(packet_data, out_dir)
+            
+            # Get video duration
+            from tools.renderer_html import get_video_duration
+            duration = get_video_duration(Path(video_path))
+            
+            # Update packet with video info
+            if "video" not in packet_data:
+                packet_data["video"] = {}
+            
+            packet_data["video"]["status"] = "rendered"
+            packet_data["video"]["path"] = video_path
+            packet_data["video"]["duration_s"] = duration if duration > 0 else None
+            packet_data["video"]["canvas"] = "1920x1080"
+            
+            logger.info(f"Rendered video for {packet_data.get('id', 'unknown')}: {video_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to render video for {packet_data.get('id', 'unknown')}: {e}")
+            # Mark as failed
+            if "video" not in packet_data:
+                packet_data["video"] = {}
+            packet_data["video"]["status"] = "failed"
+            packet_data["video"]["error"] = str(e)
+    
     def assemble_publish_package(self, target_date: str) -> Dict[str, Any]:
         """Assemble publish package from enriched digest using the new API v3 serializer."""
         try:
@@ -579,10 +659,13 @@ class BlogDigestBuilder:
             content_gen = ContentGenerator(enriched_digest, self.utils)
             consolidated_content = content_gen.generate(ai_enabled=True, related_enabled=True)
             
-            # Step 3: Normalize assets (convert local paths to Cloudflare URLs)
+            # Step 3: Render videos for story packets if they don't exist
+            self._ensure_videos_rendered(enriched_digest, target_date)
+            
+            # Step 4: Normalize assets (convert local paths to Cloudflare URLs)
             enriched_digest = content_gen.normalize_assets(enriched_digest)
             
-            # Step 3.5: Add the generated content to the digest
+            # Step 4.5: Add the generated content to the digest
             enriched_digest["content"] = {"body": consolidated_content}
             
             # Step 4: Use the new API v3 serializer to build publish package
@@ -688,17 +771,18 @@ class BlogDigestBuilder:
         
         # Normalize schema image
         if frontmatter.get("schema"):
+            from services.utils import get_schema_property, set_schema_property, migrate_legacy_schema_to_unified
+            
             schema = frontmatter["schema"]
-            if "blogPosting" in schema and schema["blogPosting"].get("image"):
-                image = schema["blogPosting"]["image"]
-                if not image.startswith('http'):
-                    clean_path = image.lstrip('/')
-                    schema["blogPosting"]["image"] = self.utils.get_cloudflare_url(clean_path)
-            elif schema.get("image"):
-                image = schema["image"]
-                if not image.startswith('http'):
-                    clean_path = image.lstrip('/')
-                    schema["image"] = self.utils.get_cloudflare_url(clean_path)
+            # Migrate to unified format if needed
+            schema = migrate_legacy_schema_to_unified(schema)
+            
+            # Get and normalize image
+            image = get_schema_property(schema, "image")
+            if image and not image.startswith('http'):
+                clean_path = image.lstrip('/')
+                normalized_image = self.utils.get_cloudflare_url(clean_path)
+                set_schema_property(schema, "image", normalized_image)
 
     def _clean_ai_placeholders(self, data: Dict[str, Any], content: str) -> None:
         """Remove any remaining AI placeholders from data and content."""
@@ -788,7 +872,7 @@ class BlogDigestBuilder:
         
         # If no draft exists, generate it
         try:
-            digest = self.build_digest(target_date)
+            digest = self.build_normalized_digest(target_date)
             markdown = self.generate_markdown(digest)
             return markdown
         except Exception as e:
@@ -805,7 +889,7 @@ class BlogDigestBuilder:
         
         try:
             # Get story assets from story_packets
-            digest = self.build_digest(target_date)
+            digest = self.build_normalized_digest(target_date)
             for story in digest.get("story_packets", []):
                 story_id = story.get("id")
                 if story_id:

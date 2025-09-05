@@ -54,7 +54,7 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
         
         # Check if publish package already exists
         data_dir = builder.data_dir / target_date
-        if data_dir.exists() and (data_dir / 'page.publish.json').exists():
+        if data_dir.exists() and (data_dir / f'{target_date}_page.publish.json').exists():
             logger.info(f"Publish package already exists for {target_date}, skipping generation")
             result["error"] = "Publish package already exists"
             return result
@@ -112,20 +112,30 @@ def generate_daily_blog(target_date: Optional[str] = None, upload_to_r2: bool = 
                 upload_results = publisher.publish_blogs(Path('data'))
                 
                 # Check if our publish package was uploaded
-                blog_key = f'{target_date}/page.publish.json'
+                blog_key = f'{target_date}/{target_date}_page.publish.json'
                 if blog_key in upload_results and upload_results[blog_key]:
                     logger.info(f"Successfully uploaded publish package for {target_date} to R2")
                     result["r2_uploaded"] = True
+                    result["success"] = True
                 else:
                     logger.error(f"Failed to upload publish package for {target_date} to R2")
+                    result["r2_uploaded"] = False
                     result["error"] = "R2 upload failed"
+                    result["success"] = False
                     
             except Exception as e:
                 logger.error(f"Error uploading to R2: {e}")
+                result["r2_uploaded"] = False
                 result["error"] = f"R2 upload error: {e}"
+                result["success"] = False
+        else:
+            # If no R2 upload requested, success is based on blog generation
+            result["success"] = True
         
-        result["success"] = True
-        logger.info(f"✅ Successfully generated blog for {target_date}")
+        if result["success"]:
+            logger.info(f"✅ Successfully generated blog for {target_date}")
+        else:
+            logger.error(f"❌ Failed to generate blog for {target_date}")
         
     except Exception as e:
         logger.error(f"❌ Error generating blog for {target_date}: {e}")

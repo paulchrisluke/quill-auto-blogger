@@ -57,7 +57,7 @@ class FrontmatterGenerator:
         
         return s or "post"
 
-    def generate_canonical_url(self, title: str, date_str: str, existing_slugs: List[str] = None) -> str:
+    def generate_canonical_url(self, title: str, date_str: str, existing_slugs: Optional[List[str]] = None) -> str:
         """Generate canonical URL with collision handling."""
         base_slug = self.slugify(title)
         yyyy, mm, dd = date_str.split("-")
@@ -75,7 +75,7 @@ class FrontmatterGenerator:
         else:
             slug = base_slug
             
-        return f"https://paulchrisluke.com/blog/{yyyy}/{mm}/{dd}/{slug}/"
+        return f"{self.frontend}/blog/{yyyy}/{mm}/{dd}/{slug}/"
 
     def generate(
         self,
@@ -93,7 +93,13 @@ class FrontmatterGenerator:
 
         # Best image from stories
         utils = DigestUtils(self.media, f"{self.media}/assets/pcl-labs-logo.svg")
-        best_image = utils.select_best_image(stories)
+        try:
+            best_image = utils.select_best_image(stories)
+            if not best_image:
+                best_image = f"{self.media}/assets/pcl-labs-logo.svg"
+        except Exception as e:
+            logger.warning(f"Failed to select best image from stories: {e}")
+            best_image = f"{self.media}/assets/pcl-labs-logo.svg"
 
         # Placeholders for AI
         seo_description = "[AI_GENERATE_SEO_DESCRIPTION]"

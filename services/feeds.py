@@ -173,9 +173,11 @@ class FeedGenerator:
             # Get last modified date from blog data
             lastmod_date = self._get_lastmod_date(blog, date_str)
             
+            # Escape XML special characters in canonical_url
+            escaped_url = html.escape(canonical_url, quote=True)
             sitemap_content += f"""
   <url>
-    <loc>{canonical_url}</loc>
+    <loc>{escaped_url}</loc>
     <lastmod>{lastmod_date}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -216,19 +218,20 @@ class FeedGenerator:
                     return date_published.split('T')[0]
                 return date_published
             
-            # Try legacy schema.blogPosting format
-            blog_posting = schema.get('blogPosting', {})
+            # Try legacy schema.blogPosting format (for backward compatibility)
+            from services.utils import get_schema_property
             
-            if blog_posting.get('dateModified'):
+            date_modified = get_schema_property(schema, 'dateModified')
+            if date_modified:
                 # Convert to YYYY-MM-DD format
-                date_modified = blog_posting['dateModified']
                 if 'T' in date_modified:
                     return date_modified.split('T')[0]
                 return date_modified
             
             # Try datePublished
-            if blog_posting.get('datePublished'):
-                date_published = blog_posting['datePublished']
+            date_published = get_schema_property(schema, 'datePublished')
+            if date_published:
+                # Convert to YYYY-MM-DD format
                 if 'T' in date_published:
                     return date_published.split('T')[0]
                 return date_published

@@ -78,7 +78,7 @@ def main(date, render, publish, notify_discord, write_blog, dry_run, verbose):
                     existing_video_paths[story_id] = video_path
         
         # Build new digest
-        digest = builder.build_digest(date)
+        digest = builder.build_normalized_digest(date)
         
         # Restore published video paths
         if existing_video_paths:

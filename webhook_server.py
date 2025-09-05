@@ -527,7 +527,7 @@ async def get_blog_digest(date: str):
         
         # Get digest
         builder = BlogDigestBuilder()
-        digest = builder.build_digest(date)
+        digest = builder.build_normalized_digest(date)
         
         return {"date": date, "digest": digest}
         

@@ -7,6 +7,7 @@ and provides a clean, stable API for Nuxt consumption.
 """
 
 import hashlib
+import json
 import re
 import unicodedata
 from datetime import datetime, timezone
@@ -266,16 +267,15 @@ class ApiV3Serializer:
     
     def _build_headers(self, canonical_url: str, word_count: int, body: str) -> Dict[str, str]:
         """Build HTTP headers with stable ETag."""
-        # Generate stable ETag from url + wordCount + body slice + dateModified
+        # Generate stable ETag from url + wordCount + body slice (no time-dependent fields)
         etag_data = {
             "url": canonical_url,
             "wc": word_count,
-            "body": body[:2048],
-            "updated": datetime.now(timezone.utc).isoformat()
+            "body": body[:2048]
         }
-        etag_hash = hashlib.sha256(
-            str(etag_data).encode('utf-8')
-        ).hexdigest()[:16]
+        # Use deterministic JSON serialization
+        etag_json = json.dumps(etag_data, sort_keys=True, separators=(',', ':'))
+        etag_hash = hashlib.sha256(etag_json.encode('utf-8')).hexdigest()[:16]
         
         return {
             "X-Robots-Tag": "index, follow",

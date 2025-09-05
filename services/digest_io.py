@@ -99,7 +99,7 @@ class DigestIO:
         """Save Publish Package as JSON."""
         date_dir = self.data_dir / target_date
         date_dir.mkdir(parents=True, exist_ok=True)
-        path = date_dir / "page.publish.json"
+        path = date_dir / f"{target_date}_page.publish.json"
         
         # Ensure proper meta structure (check for _meta for API v3 format)
         if "_meta" not in package and "meta" not in package:
@@ -125,7 +125,8 @@ class DigestIO:
 
     def _validate_meta_kind(self, data: Dict[str, Any], expected_kind: str) -> None:
         """Validate that data has the expected meta kind."""
-        meta = data.get("meta", {})
+        # Support both "meta" and "_meta" keys (prefer "meta" if present)
+        meta = data.get("meta") or data.get("_meta", {})
         actual_kind = meta.get("kind")
         if actual_kind != expected_kind:
             raise ValueError(f"Expected {expected_kind} but got {actual_kind}")
@@ -162,7 +163,7 @@ class DigestIO:
 
     def load_publish_package(self, target_date: str) -> Dict[str, Any]:
         """Load Publish Package for a date."""
-        path = self.data_dir / target_date / "page.publish.json"
+        path = self.data_dir / target_date / f"{target_date}_page.publish.json"
         if not path.exists():
             raise FileNotFoundError(f"Publish package not found: {path}")
         
@@ -209,7 +210,7 @@ class DigestIO:
             digest = self.load_normalized_digest(target_date)
             
             # Enhance with AI
-            enriched_digest = self.enhance_with_ai(digest)
+            enriched_digest = self.enhanceDigestWithAI(digest)
             
             # Save enriched digest
             self.save_enriched_digest(enriched_digest, target_date)
@@ -266,12 +267,8 @@ class DigestIO:
 
         # Update schema description if present
         if "schema" in front:
-            if "blogPosting" in front["schema"]:
-                # Old format: schema contains blogPosting dict
-                front["schema"]["blogPosting"]["description"] = front["description"]
-            else:
-                # New format: schema is the BlogPosting object directly
-                front["schema"]["description"] = front["description"]
+            from services.utils import set_schema_property
+            set_schema_property(front["schema"], "description", front["description"])
 
         # Add related posts (Python processing, no AI needed) - only if missing
         if not digest.get("related_posts"):
@@ -309,7 +306,7 @@ class DigestIO:
         builder.update_paths(self.data_dir, self.blogs_dir)
         
         # Build the digest
-        digest = builder.build_digest(target_date)
+        digest = builder.build_normalized_digest(target_date)
         
         # Save it with the specified kind
         path = self.save_digest(digest, target_date, kind)

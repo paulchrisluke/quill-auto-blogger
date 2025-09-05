@@ -200,7 +200,7 @@ def blog_generate(target_date: str, no_ai: bool, force_ai: bool, no_related: boo
             click.echo(f"[INFO] Using latest date: {target_date}")
         
         # Build digest and generate markdown
-        digest = builder.build_digest(target_date)
+        digest = builder.build_normalized_digest(target_date)
         
 
         
@@ -252,7 +252,7 @@ def blog_preview(target_date: str):
         builder = BlogDigestBuilder()
         
         # Build digest and generate markdown
-        digest = builder.build_digest(target_date)
+        digest = builder.build_normalized_digest(target_date)
         markdown = builder.generate_markdown(digest)
         
         # Extract title from frontmatter
@@ -323,6 +323,9 @@ def blog_regenerate_api(target_date: str):
         
         # Regenerate API v3 content
         api_data = builder.get_blog_api_data(target_date)
+        
+        # Save the API data to disk
+        builder.save_publish_package(api_data, target_date)
         
         click.echo(f"[OK] Regenerated API v3 content for {target_date}")
         click.echo(f"[INFO] Title: {api_data['frontmatter']['title']}")

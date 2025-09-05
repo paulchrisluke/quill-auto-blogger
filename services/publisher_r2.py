@@ -487,5 +487,5 @@ class R2Publisher:
                 except Exception as e:
                     logger.error(f"Failed to upload video {video_file}: {e}")
                     
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to upload blog videos from %s", blog_dir)

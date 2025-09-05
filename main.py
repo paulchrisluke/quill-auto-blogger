@@ -185,7 +185,7 @@ def clear_cache():
 @cli.command(name="build-digest")
 @click.option('--date', type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
               help='Date in YYYY-MM-DD (defaults to latest)')
-def build_digest(date):
+def build_normalized_digest(date):
     """Build a JSON digest for a specific date or the latest available date."""
     click.echo("Building digest...")
     
@@ -195,7 +195,7 @@ def build_digest(date):
         
         if date:
             date_str = date.strftime('%Y-%m-%d')
-            digest = builder.build_digest(date_str)
+            digest = builder.build_normalized_digest(date_str)
             click.echo(f"Building digest for {date_str}")
         else:
             digest = builder.build_latest_digest()

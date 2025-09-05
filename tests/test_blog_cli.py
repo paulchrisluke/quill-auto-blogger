@@ -68,7 +68,7 @@ class TestBlogCLI:
         """Test blog generate command with specific date."""
         # Mock the blog builder
         mock_builder = Mock()
-        mock_builder.build_digest.return_value = sample_digest
+        mock_builder.build_normalized_digest.return_value = sample_digest
         mock_builder.generate_markdown.return_value = "# Test Blog Post\n\nContent here."
         mock_builder.save_markdown.return_value = Path("drafts/2025-01-15.md")
         mock_builder_class.return_value = mock_builder
@@ -93,7 +93,7 @@ class TestBlogCLI:
         assert "Stories: 0" in result.output
         
         # Verify the builder was called correctly
-        mock_builder.build_digest.assert_called_once_with("2025-01-15")
+        mock_builder.build_normalized_digest.assert_called_once_with("2025-01-15")
         mock_builder.generate_markdown.assert_called_once_with(
             sample_digest,
             ai_enabled=True,
@@ -109,7 +109,7 @@ class TestBlogCLI:
         # Mock the blog builder
         mock_builder = Mock()
         mock_builder.build_latest_digest.return_value = sample_digest
-        mock_builder.build_digest.return_value = sample_digest
+        mock_builder.build_normalized_digest.return_value = sample_digest
         mock_builder.generate_markdown.return_value = "# Test Blog Post\n\nContent here."
         mock_builder.save_markdown.return_value = Path("drafts/2025-01-15.md")
         mock_builder_class.return_value = mock_builder
@@ -134,7 +134,7 @@ class TestBlogCLI:
         
         # Verify the builder was called correctly
         mock_builder.build_latest_digest.assert_called_once()
-        mock_builder.build_digest.assert_called_once_with("2025-01-15")
+        mock_builder.build_normalized_digest.assert_called_once_with("2025-01-15")
     
     def test_blog_generate_invalid_date(self, runner):
         """Test blog generate command with invalid date format."""
@@ -162,7 +162,7 @@ class TestBlogCLI:
         """Test blog preview command."""
         # Mock the blog builder
         mock_builder = Mock()
-        mock_builder.build_digest.return_value = sample_digest
+        mock_builder.build_normalized_digest.return_value = sample_digest
         mock_builder.generate_markdown.return_value = """---
 title: PCL-Labs — Jan 15, 2025
 date: 2025-01-15

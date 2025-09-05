@@ -209,10 +209,12 @@ class ContentGenerator:
                 self.frontmatter["og"]["og:image"] = best_image
             # Update schema image (support both article and blogPosting schemas)
             if "schema" in self.frontmatter:
+                from services.utils import set_schema_property
                 if "article" in self.frontmatter["schema"]:
                     self.frontmatter["schema"]["article"]["image"] = best_image
-                elif "blogPosting" in self.frontmatter["schema"]:
-                    self.frontmatter["schema"]["blogPosting"]["image"] = best_image
+                else:
+                    # Use unified schema format for BlogPosting
+                    set_schema_property(self.frontmatter["schema"], "image", best_image)
             
             # 2. Title punch-up (optional)
             current_title = self.frontmatter.get("title", "")
@@ -226,10 +228,12 @@ class ContentGenerator:
                     self.frontmatter["og"]["og:title"] = improved_title
                 # Update schema headline (support both article and blogPosting schemas)
                 if "schema" in self.frontmatter:
+                    from services.utils import set_schema_property
                     if "article" in self.frontmatter["schema"]:
                         self.frontmatter["schema"]["article"]["headline"] = improved_title
-                    elif "blogPosting" in self.frontmatter["schema"]:
-                        self.frontmatter["schema"]["blogPosting"]["headline"] = improved_title
+                    else:
+                        # Use unified schema format for BlogPosting
+                        set_schema_property(self.frontmatter["schema"], "headline", improved_title)
                 markdown = self._update_title_in_markdown(markdown, improved_title)
             
             # 3. Generate holistic intro and wrap-up
@@ -409,11 +413,17 @@ class ContentGenerator:
                     return f'<video controls src="{escaped_video_path}"></video>'
             else:
                 # For non-secure paths, just show the link
-                return f"**Video:** [Watch Story]({video_path})"
+                if self._is_safe_url(video_path):
+                    return f"**Video:** [Watch Story]({video_path})"
+                else:
+                    return "**Video:** [Watch Story]"
                 
         except Exception as e:
             logger.warning(f"Failed to generate video description: {e}")
-            return f"**Video:** [Watch Story]({video_path})"
+            if self._is_safe_url(video_path):
+                return f"**Video:** [Watch Story]({video_path})"
+            else:
+                return "**Video:** [Watch Story]"
     
     def _generate_pr_description(self, pr_url: str, ai_service, force_ai: bool = False) -> str:
         """Generate AI description for a PR."""
@@ -422,11 +432,11 @@ class ContentGenerator:
             if self._is_safe_url(pr_url):
                 return f"**PR:** [{pr_url}]({pr_url})"
             else:
-                logger.warning(f"Skipping unsafe PR URL: {pr_url}")
-                return f"**PR:** {pr_url}"
+                logger.warning("Skipping unsafe PR URL")
+                return "**PR:** [redacted]"
         except Exception as e:
             logger.warning(f"Failed to generate PR description: {e}")
-            return f"**PR:** {pr_url}"
+            return "**PR:** [redacted]"
     
     def _generate_clip_description(self, clip_url: str, ai_service, force_ai: bool = False) -> str:
         """Generate AI description for a Twitch clip."""
@@ -442,7 +452,7 @@ class ContentGenerator:
                 if self._is_safe_url(clip_url):
                     description = f"**Clip:** [Watch]({clip_url})"
                 else:
-                    description = f"**Clip:** Watch"
+                    description = "**Clip:** Watch"
                 if clip_data.get('duration') is not None:
                     description += f" ({clip_data['duration']}s)"
                 if clip_data.get('view_count'):
@@ -452,13 +462,13 @@ class ContentGenerator:
                 if self._is_safe_url(clip_url):
                     return f"**Clip:** [Watch]({clip_url})"
                 else:
-                    return f"**Clip:** Watch"
+                    return "**Clip:** Watch"
         except Exception as e:
             logger.warning(f"Failed to generate clip description: {e}")
             if self._is_safe_url(clip_url):
                 return f"**Clip:** [Watch]({clip_url})"
             else:
-                return f"**Clip:** Watch"
+                return "**Clip:** Watch"
     
     def _generate_event_description(self, event_url: str, ai_service, force_ai: bool = False) -> str:
         """Generate AI description for a GitHub event."""
@@ -553,14 +563,15 @@ class ContentGenerator:
         if frontmatter.get("schema"):
             schema = frontmatter["schema"]
             # Handle both old and new schema formats
-            if "blogPosting" in schema:
-                # Old format: schema contains blogPosting dict
-                blog_posting = schema["blogPosting"]
-                if "video" in blog_posting:
-                    self._attach_thumbnails_to_video_objects(blog_posting["video"], story_packets)
-            elif "video" in schema:
-                # New format: schema is the BlogPosting object directly
-                self._attach_thumbnails_to_video_objects(schema["video"], story_packets)
+            from services.utils import get_schema_property, migrate_legacy_schema_to_unified
+            
+            # Migrate to unified format if needed
+            schema = migrate_legacy_schema_to_unified(schema)
+            
+            # Attach thumbnails to video objects
+            video_objects = get_schema_property(schema, "video")
+            if video_objects:
+                self._attach_thumbnails_to_video_objects(video_objects, story_packets)
         
         # Ensure all images are absolute URLs
         self._normalize_image_urls(normalized_data)
@@ -601,16 +612,15 @@ class ContentGenerator:
         
         # Normalize schema image
         if frontmatter.get("schema"):
+            from services.utils import get_schema_property, set_schema_property, migrate_legacy_schema_to_unified
+            
             schema = frontmatter["schema"]
-            if "blogPosting" in schema and schema["blogPosting"].get("image"):
-                # Old format
-                image = schema["blogPosting"]["image"]
-                if not image.startswith('http'):
-                    clean_path = image.lstrip('/')
-                    schema["blogPosting"]["image"] = self.utils.get_cloudflare_url(clean_path)
-            elif schema.get("image"):
-                # New format
-                image = schema["image"]
-                if not image.startswith('http'):
-                    clean_path = image.lstrip('/')
-                    schema["image"] = self.utils.get_cloudflare_url(clean_path)
+            # Migrate to unified format if needed
+            schema = migrate_legacy_schema_to_unified(schema)
+            
+            # Get and normalize image
+            image = get_schema_property(schema, "image")
+            if image and not image.startswith('http'):
+                clean_path = image.lstrip('/')
+                normalized_image = self.utils.get_cloudflare_url(clean_path)
+                set_schema_property(schema, "image", normalized_image)

@@ -408,3 +408,118 @@ def validate_story_id(story_id: str) -> bool:
         return False
     
     return True
+
+
+def migrate_legacy_schema_to_unified(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Migrate legacy schema.blogPosting format to unified schema format.
+    
+    Legacy format:
+    {
+        "schema": {
+            "blogPosting": {
+                "@type": "BlogPosting",
+                "headline": "...",
+                "image": "...",
+                "description": "..."
+            }
+        }
+    }
+    
+    Unified format:
+    {
+        "schema": {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": "...",
+            "image": "...",
+            "description": "..."
+        }
+    }
+    
+    Args:
+        schema: Schema dictionary that may contain legacy blogPosting format
+        
+    Returns:
+        Migrated schema in unified format
+    """
+    if not isinstance(schema, dict):
+        return schema
+    
+    # Check if this is legacy format (has blogPosting key)
+    if "blogPosting" in schema:
+        logger.info("Migrating legacy schema.blogPosting format to unified format")
+        
+        # Extract the blogPosting content
+        blog_posting = schema["blogPosting"]
+        
+        # Create new unified schema
+        unified_schema = {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting"
+        }
+        
+        # Copy all properties from blogPosting to root level
+        for key, value in blog_posting.items():
+            if key not in ["@context", "@type"]:  # Skip these as we set them explicitly
+                unified_schema[key] = value
+        
+        # Preserve any other keys that might exist at the root level
+        for key, value in schema.items():
+            if key != "blogPosting":
+                unified_schema[key] = value
+        
+        return unified_schema
+    
+    # If no blogPosting key, assume it's already in unified format
+    # Return a copy to avoid modifying the original
+    return schema.copy()
+
+
+def get_schema_property(schema: Dict[str, Any], property_name: str, default: Any = None) -> Any:
+    """
+    Get a property from schema, supporting both legacy and unified formats.
+    
+    Args:
+        schema: Schema dictionary
+        property_name: Name of the property to retrieve
+        default: Default value if property not found
+        
+    Returns:
+        Property value or default
+    """
+    if not isinstance(schema, dict):
+        return default
+    
+    # Try unified format first (direct property access)
+    if property_name in schema:
+        return schema[property_name]
+    
+    # Try legacy format (nested in blogPosting)
+    if "blogPosting" in schema and isinstance(schema["blogPosting"], dict):
+        return schema["blogPosting"].get(property_name, default)
+    
+    return default
+
+
+def set_schema_property(schema: Dict[str, Any], property_name: str, value: Any) -> None:
+    """
+    Set a property in schema, ensuring it's in unified format.
+    
+    Args:
+        schema: Schema dictionary (will be migrated if needed)
+        property_name: Name of the property to set
+        value: Value to set
+    """
+    if not isinstance(schema, dict):
+        return
+    
+    # Migrate to unified format if needed
+    unified_schema = migrate_legacy_schema_to_unified(schema)
+    
+    # Set the property
+    unified_schema[property_name] = value
+    
+    # Update the original schema in place
+    schema.clear()
+    schema.update(unified_schema)

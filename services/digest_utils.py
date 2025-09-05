@@ -215,7 +215,7 @@ class DigestUtils:
                         worker_path = f"/stories/{year}/{month}/{day}/{filename}"
                     else:
                         worker_path = f"/{asset_path}"
-                except Exception as e:
+                except (ValueError, IndexError) as e:
                     logger.warning(f"Failed to convert blogs path {asset_path}: {e}")
                     worker_path = f"/{asset_path}"
             elif asset_path.startswith("assets/"):
