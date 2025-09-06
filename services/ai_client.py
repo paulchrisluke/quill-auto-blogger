@@ -3,6 +3,7 @@ Thin Cloudflare Workers AI client for M5 surgical AI inserts.
 """
 
 import os
+import re
 import requests
 import logging
 import time
@@ -326,8 +327,40 @@ class CloudflareAIClient:
         
         # Remove potential API keys, tokens, or other sensitive patterns
         import re
-        # Remove potential API keys (common patterns)
-        text = re.sub(r'[A-Za-z0-9]{20,}', '[REDACTED]', text)
+        
+        # Define targeted patterns for sensitive data redaction
+        sensitive_patterns = [
+            # API key prefixes (sk-, rk-, pk_, etc.)
+            (r'\b(sk|rk|pk|ak|tk|ck|dk|ek|fk|gk|hk|ik|jk|lk|mk|nk|ok|qk|uk|vk|wk|xk|yk|zk)[-_][A-Za-z0-9]{20,}', '[API_KEY_REDACTED]'),
+            
+            # Contextual API keys (with labels)
+            (r'(?i)(?<=api[_-]?key[:=\s])\s*[A-Za-z0-9\-_]{20,}', '[API_KEY_REDACTED]'),
+            (r'(?i)(?<=token[:=\s])\s*[A-Za-z0-9\-_]{20,}', '[TOKEN_REDACTED]'),
+            (r'(?i)(?<=secret[:=\s])\s*[A-Za-z0-9\-_]{20,}', '[SECRET_REDACTED]'),
+            (r'(?i)(?<=password[:=\s])\s*[A-Za-z0-9\-_]{20,}', '[PASSWORD_REDACTED]'),
+            
+            # Base64-like patterns with punctuation (common in JWT tokens, etc.)
+            (r'\b[A-Za-z0-9+/]{20,}={0,2}\b', '[BASE64_REDACTED]'),
+            
+            # Bearer tokens
+            (r'(?i)bearer\s+[A-Za-z0-9\-_\.]{20,}', '[BEARER_TOKEN_REDACTED]'),
+            
+            # OAuth tokens
+            (r'(?i)oauth[_-]?token[:=\s]+[A-Za-z0-9\-_]{20,}', '[OAUTH_TOKEN_REDACTED]'),
+            
+            # AWS-style access keys
+            (r'\bAKIA[0-9A-Z]{16}\b', '[AWS_ACCESS_KEY_REDACTED]'),
+            
+            # GitHub tokens
+            (r'\bgh[ops]_[A-Za-z0-9]{36}\b', '[GITHUB_TOKEN_REDACTED]'),
+            
+            # Stripe keys
+            (r'\b(sk|pk)_(test_|live_)?[A-Za-z0-9]{24}\b', '[STRIPE_KEY_REDACTED]'),
+        ]
+        
+        # Apply each pattern in order
+        for pattern, replacement in sensitive_patterns:
+            text = re.sub(pattern, replacement, text)
         # Remove potential email addresses
         text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL_REDACTED]', text)
         # Remove potential URLs with sensitive paths

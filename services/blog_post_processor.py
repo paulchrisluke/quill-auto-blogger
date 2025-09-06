@@ -50,9 +50,9 @@ class BlogPostProcessor:
         
         # Domain validation regex: alphanumerics, dots, hyphens, and optional port
         # Must start and end with alphanumeric, can have dots and hyphens in between
-        # Port must be 1-4 digits (1-65535)
+        # Port allows 1-5 digits (will be validated separately for range 1-65535)
         # More strict: no consecutive dots, no leading/trailing hyphens
-        domain_pattern = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*(:[0-9]{1,4})?$')
+        domain_pattern = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*(:[0-9]{1,5})?$')
         
         for domain in domains:
             if not domain:
@@ -66,8 +66,20 @@ class BlogPostProcessor:
             if domain.replace('.', '').replace('-', '').replace(':', '') == '':
                 raise ValueError(f"Invalid domain: '{domain}' contains only special characters")
             
+            # Validate port range if present
+            if ':' in domain:
+                try:
+                    port_str = domain.split(':')[-1]
+                    port = int(port_str)
+                    if not (1 <= port <= 65535):
+                        raise ValueError(f"Invalid port range: '{port}'. Port must be between 1 and 65535.")
+                except ValueError as e:
+                    if "Invalid port range" in str(e):
+                        raise
+                    raise ValueError(f"Invalid port format: '{port_str}'. Port must be a valid integer.")
+            
             # URL-encode the domain for safe use in URL parameters
-            encoded_domain = quote(domain, safe='')
+            encoded_domain = quote(domain, safe='.')
             validated_domains.append(encoded_domain)
         
         if not validated_domains:

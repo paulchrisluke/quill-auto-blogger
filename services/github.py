@@ -197,10 +197,10 @@ class GitHubService:
             payload = event_data.get("payload", {})
             commits = payload.get("commits", [])
             
-            # Extract commit SHA - try head first, then first commit
+            # Extract commit SHA - try head first, then last commit
             commit_sha = payload.get("head")
             if not commit_sha and commits:
-                commit_sha = commits[0].get("id") or commits[0].get("sha")
+                commit_sha = commits[-1].get("id") or commits[-1].get("sha")
             
             details = {
                 "commits": len(commits),
