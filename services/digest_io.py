@@ -206,7 +206,19 @@ class DigestIO:
             
             # Merge AI content with original digest data
             enriched_digest = digest.copy()
-            enriched_digest.update(ai_content)
+            # Guard against None ai_content to prevent update() failure
+            if ai_content is not None:
+                enriched_digest.update(ai_content)
+            else:
+                # Set default empty dict structure if ai_content is None
+                enriched_digest.update({
+                    "content": "",
+                    "markdown_body": "",
+                    "title": "",
+                    "excerpt": "",
+                    "tags": [],
+                    "word_count": 0
+                })
             
             # Update with filtered data that was actually used for AI generation
             prepared_data = generator._prepare_ai_data(target_date, digest.get('twitch_clips', []), digest.get('github_events', []))

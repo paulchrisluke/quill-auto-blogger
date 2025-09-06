@@ -173,6 +173,18 @@ class CloudflareAIClient:
         
         logger.info(f"Token validation passed - Input: {input_tokens:,}, Max output: {max_tokens:,}, Total: {total_tokens:,}")
 
+    def get_effective_max_tokens(self, requested_tokens: int) -> int:
+        """
+        Get the effective max tokens, clamped to model limits.
+        
+        Args:
+            requested_tokens: The desired number of output tokens
+            
+        Returns:
+            The effective max tokens, clamped to model's max_output_tokens
+        """
+        return min(requested_tokens, self.model_config["max_output_tokens"])
+
     def generate(self, prompt: str, system: str, max_tokens: Optional[int] = None) -> str:
         """Generate text using Cloudflare Workers AI with comprehensive logging."""
         max_tokens = max_tokens or self.default_max_tokens

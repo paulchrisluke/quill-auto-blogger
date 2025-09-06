@@ -60,7 +60,7 @@ class BlogPostProcessor:
                 
             # Check if domain matches safe pattern
             if not domain_pattern.match(domain):
-                raise ValueError(f"Invalid domain format: '{domain}'. Only alphanumerics, dots, hyphens, and optional ports are allowed.")
+                raise ValueError("Invalid domain format")
             
             # Additional validation: ensure it's not just dots or hyphens
             if domain.replace('.', '').replace('-', '').replace(':', '') == '':
@@ -86,6 +86,28 @@ class BlogPostProcessor:
             raise ValueError("No valid domains found after validation")
         
         return ','.join(validated_domains)
+    
+    def _build_twitch_parent_params(self, safe_domains: str) -> str:
+        """
+        Build Twitch embed parent parameters from comma-separated domains.
+        
+        Twitch requires repeated &parent= entries, not comma-separated values.
+        
+        Args:
+            safe_domains: Comma-separated list of validated domains
+            
+        Returns:
+            Query string with repeated parent parameters
+        """
+        if not safe_domains:
+            return ""
+        
+        domains = [domain.strip() for domain in safe_domains.split(',') if domain.strip()]
+        parent_params = []
+        for domain in domains:
+            parent_params.append(f"&parent={domain}")
+        
+        return ''.join(parent_params)
     
     def process_blog_content(self, ai_content: str, digest: Dict[str, Any]) -> str:
         """
@@ -171,9 +193,11 @@ class BlogPostProcessor:
                     try:
                         # Validate and escape domains for security
                         safe_domains = self._validate_and_escape_domains(self.twitch_embed_domains)
+                        # Build parent parameters for Twitch embed (requires repeated &parent= entries)
+                        parent_params = self._build_twitch_parent_params(safe_domains)
                         video_embed = (
                             f'<iframe '
-                            f'src="https://clips.twitch.tv/embed?clip={embed_clip_id}&parent={safe_domains}" '
+                            f'src="https://clips.twitch.tv/embed?clip={embed_clip_id}{parent_params}" '
                             f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
                             f'</iframe>'
                         )
@@ -275,9 +299,11 @@ class BlogPostProcessor:
                 try:
                     # Validate and escape domains for security
                     safe_domains = self._validate_and_escape_domains(self.twitch_embed_domains)
+                    # Build parent parameters for Twitch embed (requires repeated &parent= entries)
+                    parent_params = self._build_twitch_parent_params(safe_domains)
                     video_embed = (
                         f'<iframe '
-                        f'src="https://clips.twitch.tv/embed?clip={clip_id}&parent={safe_domains}" '
+                        f'src="https://clips.twitch.tv/embed?clip={clip_id}{parent_params}" '
                         f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
                         f'</iframe>'
                     )

@@ -1252,7 +1252,8 @@ RULES:
 - Focus on creating a coherent narrative flow
 - Example: if you have [EVENT:54113400422] and [CLIP:abc123], use them like ["[EVENT:54113400422]", "[CLIP:abc123]"]
 """
-        raw = self.ai_client.generate(user, system, max_tokens=700)
+        effective_tokens = self.ai_client.get_effective_max_tokens(700)
+        raw = self.ai_client.generate(user, system, max_tokens=effective_tokens)
         
         # First, check if the response contains sentinel tags
         extracted_json, has_sentinel_tags = self._extract_result_json_with_validation(raw)
@@ -1313,19 +1314,19 @@ RULES:
         if group_name == "hook_ctx":
             target_words = "850-1000 words combined"
             per_section_min, per_section_max = 425, 500
-            max_tokens = 2400
+            max_tokens = self.ai_client.get_effective_max_tokens(2400)
         elif group_name == "shipped_clips":
             target_words = "1100-1250 words combined"
             per_section_min, per_section_max = 550, 625
-            max_tokens = 2600
+            max_tokens = self.ai_client.get_effective_max_tokens(2600)
         elif group_name == "why_human_wrap":
             target_words = "1200-1400 words combined"
             per_section_min, per_section_max = 400, 467
-            max_tokens = 2800
+            max_tokens = self.ai_client.get_effective_max_tokens(2800)
         else:
             target_words = "500-600 words per section"
             per_section_min, per_section_max = 500, 600
-            max_tokens = 2000
+            max_tokens = self.ai_client.get_effective_max_tokens(2000)
 
         # Get voice prompt for consistency
         voice_prompt = self._load_voice_prompt()
@@ -1720,9 +1721,11 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
         content = re.sub(r'\[HUMOR-DRY\]', '', content)
         content = re.sub(r'\[DEV-JARGON\]', '', content)
         
-        # Clean up any extra spaces left by removed tags
-        content = re.sub(r'\s+', ' ', content)
-        content = re.sub(r'\n\s*\n', '\n\n', content)
+        # Clean up any extra spaces left by removed tags while preserving paragraph breaks
+        # Normalize spaces and tabs but preserve newlines
+        content = re.sub(r'[ \t]+', ' ', content)
+        # Limit multiple consecutive newlines to maximum of two (preserve paragraph breaks)
+        content = re.sub(r'\n{3,}', '\n\n', content)
         
         return content
 
@@ -1885,7 +1888,8 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
 }}
 """
         
-        raw = self.ai_client.generate(user, system, max_tokens=1000)
+        effective_tokens = self.ai_client.get_effective_max_tokens(1000)
+        raw = self.ai_client.generate(user, system, max_tokens=effective_tokens)
         try:
             js = json.loads(self._extract_result_json(raw))
         except json.JSONDecodeError as e:
