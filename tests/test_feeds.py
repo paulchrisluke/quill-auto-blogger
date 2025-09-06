@@ -109,7 +109,7 @@ class TestFeedGenerator:
         
         # Check first blog entry
         first_blog = blogs_index['blogs'][0]
-        assert first_blog['date'] == '2025-08-27'
+        assert first_blog['datePublished'] == '2025-08-27'
         assert first_blog['title'] == 'Test Blog Post 1'
         assert first_blog['canonical_url'] == 'https://testblog.com/blog/2025-08-27'
         assert first_blog['tags'] == ['feat', 'automation']

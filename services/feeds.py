@@ -40,7 +40,7 @@ class FeedGenerator:
             RSS XML string
         """
         # Sort by date descending (newest first)
-        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('date', ''), reverse=True)
+        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('datePublished', x.get('date', '')), reverse=True)
         
         rss_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/">
@@ -69,13 +69,15 @@ class FeedGenerator:
 """
         
         for blog in sorted_blogs:
-            frontmatter = blog.get('frontmatter', {})
-            date_str = blog.get('date', '')
-            
-            if not date_str or not frontmatter:
-                continue
-            
-            try:
+            # Handle both frontmatter and published formats
+            if 'frontmatter' in blog:
+                # Legacy format with frontmatter
+                frontmatter = blog.get('frontmatter', {})
+                date_str = blog.get('date', '')
+                
+                if not date_str or not frontmatter:
+                    continue
+                
                 # Parse date for RSS format
                 date_obj = datetime.strptime(date_str, '%Y-%m-%d')
                 rss_date = date_obj.strftime('%a, %d %b %Y %H:%M:%S GMT')
@@ -86,19 +88,62 @@ class FeedGenerator:
                 # Get description from lead or content
                 description = frontmatter.get('lead', '')
                 if not description and 'content' in blog:
-                    content = blog['content'].get('body', '')
+                    content = blog['content'] if isinstance(blog['content'], str) else blog['content'].get('body', '')
                     description = content[:200] + '...' if len(content) > 200 else content
                 
                 # Get image
                 image_url = frontmatter.get('og', {}).get('og:image', '')
                 
                 # Get full content for content:encoded
-                full_content = blog.get('content', {}).get('body', description)
+                content_field = blog.get('content', '')
+                full_content = content_field if isinstance(content_field, str) else content_field.get('body', description)
                 
                 # Escape values for XML
                 title = html.escape(frontmatter.get('title', f'PCL Labs Devlog — {date_str}'))
                 link = html.escape(canonical_url)
                 creator = html.escape(frontmatter.get('author', 'Paul Chris Luke'))
+            else:
+                # Published format (top-level fields)
+                date_str = blog.get('datePublished', '')
+                
+                if not date_str:
+                    continue
+                
+                # Parse date for RSS format
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                rss_date = date_obj.strftime('%a, %d %b %Y %H:%M:%S GMT')
+                
+                # Get canonical URL
+                canonical_url = blog.get('url', f"{self.frontend_domain}/blog/{date_str}")
+                
+                # Get description - prefer summary when available
+                description = blog.get('summary', '')
+                if not description and 'content' in blog:
+                    content = blog['content'] if isinstance(blog['content'], str) else blog['content'].get('body', '')
+                    description = content[:200] + '...' if len(content) > 200 else content
+                
+                # Get image from media field
+                media = blog.get('media', {})
+                if isinstance(media, dict):
+                    # Check for hero image first, then direct image
+                    hero = media.get('hero', {})
+                    if isinstance(hero, dict) and hero.get('image'):
+                        image_url = hero['image']
+                    else:
+                        image_url = media.get('image', '')
+                else:
+                    image_url = ''
+                
+                # Get full content for content:encoded
+                content_field = blog.get('content', '')
+                full_content = content_field if isinstance(content_field, str) else content_field.get('body', description)
+                
+                # Escape values for XML
+                title = html.escape(blog.get('title', f'PCL Labs Devlog — {date_str}'))
+                link = html.escape(canonical_url)
+                creator = html.escape('Paul Chris Luke')
+            
+            try:
                 
                 # Make content safe for CDATA
                 safe_description = _safe_cdata(description)
@@ -115,15 +160,26 @@ class FeedGenerator:
       <dc:date>{date_str}T00:00:00Z</dc:date>"""
                 
                 # Add categories from tags
-                tags = frontmatter.get('tags', [])
+                tags = frontmatter.get('tags', []) if 'frontmatter' in blog else blog.get('tags', [])
                 for tag in tags[:5]:  # Limit to 5 categories
                     escaped_tag = html.escape(tag)
                     rss_content += f"""
       <category>{escaped_tag}</category>"""
                 
                 if image_url:
+                    # Infer MIME type from file extension
+                    mime_type = "image/jpeg"  # default
+                    if image_url.lower().endswith('.png'):
+                        mime_type = "image/png"
+                    elif image_url.lower().endswith('.gif'):
+                        mime_type = "image/gif"
+                    elif image_url.lower().endswith('.webp'):
+                        mime_type = "image/webp"
+                    elif image_url.lower().endswith('.svg'):
+                        mime_type = "image/svg+xml"
+                    
                     rss_content += f"""
-      <enclosure url="{image_url}" type="image/jpeg" length="0" />"""
+      <enclosure url="{image_url}" type="{mime_type}" length="0" />"""
                 
                 rss_content += """
     </item>
@@ -149,7 +205,7 @@ class FeedGenerator:
             Sitemap XML string
         """
         # Sort by date descending (newest first)
-        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('date', ''), reverse=True)
+        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('datePublished', x.get('date', '')), reverse=True)
         
         sitemap_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -260,7 +316,7 @@ class FeedGenerator:
             Blogs index dictionary with schema.org Blog structure
         """
         # Sort by date descending (newest first)
-        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('date', ''), reverse=True)
+        sorted_blogs = sorted(blogs_data, key=lambda x: x.get('datePublished', x.get('date', '')), reverse=True)
         
         # Generate BlogPosting entries for schema.org
         blog_posts = []
@@ -279,11 +335,10 @@ class FeedGenerator:
             else:
                 # Published format
                 date_str = blog.get('datePublished', '')
-                content = blog.get('content', {})
-                title = content.get('title', f'PCL Labs Devlog — {date_str}')
-                description = content.get('summary', '')
+                title = blog.get('title', f'PCL Labs Devlog — {date_str}')
+                description = blog.get('summary', '')
                 author = 'Paul Chris Luke'  # Default author
-                tags = content.get('tags', [])
+                tags = blog.get('tags', [])
                 canonical_url = blog.get('url', f"{self.frontend_domain}/blog/{date_str}")
             
             if not date_str or not title:
@@ -320,7 +375,7 @@ class FeedGenerator:
             
             # Create API-friendly blog entry
             blog_entry = {
-                "date": date_str,
+                "datePublished": date_str,
                 "title": title,
                 "author": author,
                 "canonical_url": canonical_url,

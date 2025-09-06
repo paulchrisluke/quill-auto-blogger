@@ -64,7 +64,16 @@ class BlogDigestBuilder:
         self.blog_author = os.getenv("BLOG_AUTHOR", "Unknown Author")
         self.blog_base_url = os.getenv("BLOG_BASE_URL", "https://example.com").rstrip("/")
         self.media_domain = os.getenv("MEDIA_DOMAIN", "https://media.paulchrisluke.com").rstrip("/")
-        self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", f"{self.media_domain}/assets/pcl-labs-logo.svg")
+        # Use a random stock image as default, but allow override via env var
+        default_stock_images = [
+            "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1200&h=630&fit=crop",  # Code on screen
+            "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=1200&h=630&fit=crop",  # Developer workspace
+            "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=1200&h=630&fit=crop",  # Programming setup
+            "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1200&h=630&fit=crop",  # Data visualization
+            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1200&h=630&fit=crop",  # Tech workspace
+        ]
+        import random
+        self.blog_default_image = os.getenv("BLOG_DEFAULT_IMAGE", random.choice(default_stock_images))
         self.worker_domain = os.getenv("WORKER_DOMAIN", "https://quill-blog-api-prod.paulchrisluke.workers.dev")
         
         # Blog signature configuration
@@ -333,9 +342,12 @@ class BlogDigestBuilder:
         content_gen = ContentGenerator(digest, self.utils)
         
         # Check if we have AI-generated content and use it
-        if ai_enabled and digest.get("ai_generated_content"):
-            ai_content = digest["ai_generated_content"]
+        # For enriched digests, the AI content is directly in the digest fields
+        if ai_enabled and (digest.get("ai_generated_content") or digest.get("content")):
             logger.info("Using AI-generated content for blog post")
+            
+            # Use AI content from enriched digest directly
+            ai_content = digest.get("ai_generated_content", digest)
             
             # Update frontmatter with AI-generated title, description, and tags
             if "title" in ai_content:
@@ -698,7 +710,15 @@ class BlogDigestBuilder:
                 logger.info("Using AI-generated content from enriched digest for publish package")
                 
                 # The enriched digest already has the AI content in the main fields
-                # No need to extract from a nested ai_generated_content field
+                # Update the enriched digest with AI-generated title and description
+                if "title" in enriched_digest:
+                    enriched_digest["title"] = enriched_digest["title"]
+                if "description" in enriched_digest:
+                    enriched_digest["description"] = enriched_digest["description"]
+                if "tags" in enriched_digest:
+                    enriched_digest["tags"] = enriched_digest["tags"]
+                
+                # Get the AI content
                 consolidated_content = enriched_digest.get("markdown_body", enriched_digest.get("content", ""))
                 
                 # Post-process the AI content with technical precision
@@ -746,8 +766,8 @@ class BlogDigestBuilder:
             content_gen = ContentGenerator(enriched_digest, self.utils)
             enriched_digest = content_gen.normalize_assets(enriched_digest)
             
-            # Step 4.5: Add the generated content to the digest
-            enriched_digest["content"] = {"body": consolidated_content}
+            # Step 4.5: Don't overwrite the AI-generated content - it's already in the correct format
+            # enriched_digest["content"] = {"body": consolidated_content}
             
             # Step 4: Use the new API v3 serializer to build publish package
             from .serializers.api_v3 import build as build_api_v3
@@ -996,20 +1016,21 @@ def _validate_api_data(data: dict) -> None:
     
     # Validate required fields exist
     required_fields = ["url", "datePublished", "dateModified", "wordCount", "timeRequired", 
-                      "content", "media", "stories", "related", "schema", "headers"]
+                      "title", "summary", "content", "media", "stories", "related", "schema", "headers"]
     for field in required_fields:
         if field not in data:
             logger.warning(f"Required field '{field}' missing from API v3 data")
     
-    # Validate content structure
-    content = data.get("content", {})
-    if not isinstance(content, dict):
-        logger.warning("Content field should be a dictionary")
-    else:
-        required_content_fields = ["title", "summary", "body", "tags"]
-        for field in required_content_fields:
-            if field not in content:
-                logger.warning(f"Required content field '{field}' missing")
+    # Validate content structure - now content is a string, title/summary are top-level
+    content = data.get("content", "")
+    if not isinstance(content, str):
+        logger.warning("Content field should be a string")
+    
+    # Check for required top-level fields
+    required_top_level_fields = ["title", "summary"]
+    for field in required_top_level_fields:
+        if field not in data:
+            logger.warning(f"Required top-level field '{field}' missing")
     
     # Validate media structure
     media = data.get("media", {})
@@ -1046,7 +1067,7 @@ def _validate_api_data(data: dict) -> None:
         logger.warning(f"timeRequired not in ISO8601 format: {time_required}")
     
     # Check for AI placeholders
-    body = content.get("body", "")
+    body = content if isinstance(content, str) else ""
     if "[AI_" in str(body):
         logger.warning("AI placeholders found in body content")
     

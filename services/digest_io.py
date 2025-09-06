@@ -179,11 +179,27 @@ class DigestIO:
             
             # Enhance with AI using ComprehensiveBlogGenerator
             generator = ComprehensiveBlogGenerator()
-            enriched_digest = generator.generate_blog_content(
+            ai_content = generator.generate_blog_content(
                 target_date, 
                 digest.get('twitch_clips', []), 
                 digest.get('github_events', [])
             )
+            
+            # Merge AI content with original digest data
+            enriched_digest = digest.copy()
+            enriched_digest.update(ai_content)
+            
+            # Update with filtered data that was actually used for AI generation
+            prepared_data = generator._prepare_ai_data(target_date, digest.get('twitch_clips', []), digest.get('github_events', []))
+            enriched_digest['twitch_clips'] = prepared_data['twitch_clips']
+            enriched_digest['github_events'] = prepared_data['github_events']
+            
+            # Ensure the meta kind is correct for enriched digest
+            enriched_digest["meta"] = {
+                "kind": "EnrichedDigest",
+                "version": 1,
+                "generated_at": ai_content.get("meta", {}).get("generated_at", "")
+            }
             
             # Save enriched digest
             self.save_enriched_digest(enriched_digest, target_date)

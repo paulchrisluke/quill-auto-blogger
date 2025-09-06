@@ -22,7 +22,16 @@ class ApiV3Serializer:
         self.blog_author = blog_author
         self.blog_base_url = blog_base_url.rstrip("/")
         self.media_domain = media_domain
-        self.default_image = f"{media_domain}/assets/pcl-labs-logo.svg"
+        # Use a random stock image as default
+        import random
+        default_stock_images = [
+            "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1200&h=630&fit=crop",  # Code on screen
+            "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=1200&h=630&fit=crop",  # Developer workspace
+            "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=1200&h=630&fit=crop",  # Programming setup
+            "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1200&h=630&fit=crop",  # Data visualization
+            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1200&h=630&fit=crop",  # Tech workspace
+        ]
+        self.default_image = random.choice(default_stock_images)
     
     def build(self, normalized_digest: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -83,7 +92,10 @@ class ApiV3Serializer:
             "dateModified": datetime.now(timezone.utc).isoformat(),
             "wordCount": word_count,
             "timeRequired": time_required,
-            "content": content,
+            "title": content["title"],
+            "summary": content["summary"],
+            "content": content["body"],
+            "tags": content["tags"],
             "media": media,
             "stories": stories,
             "related": related,
@@ -127,18 +139,23 @@ class ApiV3Serializer:
     
     def _extract_content(self, normalized_digest: Dict[str, Any]) -> Dict[str, Any]:
         """Extract content fields from normalized digest."""
-        # Handle both legacy frontmatter format and enriched digest format
-        if "frontmatter" in normalized_digest:
+        # Prioritize direct fields over frontmatter for enriched digests
+        if normalized_digest.get("title") or normalized_digest.get("description"):
+            # Enriched digest format (direct fields) - prioritize these
+            title = normalized_digest.get("title", "")
+            summary = normalized_digest.get("description", "")
+            tags = normalized_digest.get("tags", [])
+        elif "frontmatter" in normalized_digest:
             # Legacy format with frontmatter
             frontmatter = normalized_digest.get("frontmatter", {})
             title = frontmatter.get("title", "")
             summary = frontmatter.get("description", "")
             tags = frontmatter.get("tags", [])
         else:
-            # Enriched digest format (direct fields)
-            title = normalized_digest.get("title", "")
-            summary = normalized_digest.get("description", "")
-            tags = normalized_digest.get("tags", [])
+            # Fallback to empty values
+            title = ""
+            summary = ""
+            tags = []
         
         # Get body content - try multiple sources
         body = ""
