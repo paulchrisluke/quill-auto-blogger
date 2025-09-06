@@ -374,7 +374,7 @@ class FeedGenerator:
                     "name": "PCL Labs",
                     "logo": {
                         "@type": "ImageObject",
-                        "url": f"{self.frontend_domain}/pcl-labs-logo.svg"
+                        "url": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1200&h=630&fit=crop"
                     }
                 }
             }
