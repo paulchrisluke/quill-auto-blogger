@@ -159,12 +159,14 @@ class ApiV3Serializer:
         
         # Get body content - try multiple sources
         body = ""
-        if "content" in normalized_digest and "body" in normalized_digest["content"]:
+        if "content" in normalized_digest and isinstance(normalized_digest["content"], str):
+            # Content is a string (enriched digest format)
+            body = normalized_digest["content"]
+        elif "content" in normalized_digest and isinstance(normalized_digest["content"], dict) and "body" in normalized_digest["content"]:
+            # Content is a dict with body field
             body = normalized_digest["content"]["body"]
         elif "markdown_body" in normalized_digest:
             body = normalized_digest["markdown_body"]
-        elif "content" in normalized_digest and isinstance(normalized_digest["content"], str):
-            body = normalized_digest["content"]
         elif "articleBody" in normalized_digest:
             body = normalized_digest["articleBody"]
         
