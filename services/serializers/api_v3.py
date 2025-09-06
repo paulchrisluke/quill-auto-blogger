@@ -95,6 +95,7 @@ class ApiV3Serializer:
             "title": content["title"],
             "summary": content["summary"],
             "content": content["body"],
+            "tags": content["tags"],
             "media": media,
             "stories": stories,
             "related": related,

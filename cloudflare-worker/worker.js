@@ -87,15 +87,20 @@ async function handleApiDomain(request, env, path) {
     // Handle both formats: /blogs/2025-08-29.json and /blogs/2025-08-29/2025-08-29_page.publish.json
     const blogPath = path.substring(1); // Remove leading slash
     console.log('Blog request - path:', path, 'blogPath:', blogPath);
-    if (blogPath.endsWith('.json') && blogPath.startsWith('blogs/') && blogPath.split('/').length === 2) {
+    
+    // Use regex to validate date format and extract date
+    const blogRegex = /^blogs\/(\d{4}-\d{2}-\d{2})\.json$/;
+    const match = blogPath.match(blogRegex);
+    
+    if (match) {
       // Format: blogs/2025-08-29.json -> blogs/2025-08-29/2025-08-29_page.publish.json
-      const date = blogPath.replace('blogs/', '').replace('.json', '');
+      const date = match[1];
       const r2Key = `blogs/${date}/${date}_page.publish.json`;
-      console.log('Transforming blog path - date:', date, 'r2Key:', r2Key);
+      console.log('Regex matched - captured date:', date, 'r2Key:', r2Key);
       return await serveR2Asset(env, r2Key, request);
     } else {
-      // Direct path format
-      console.log('Using direct blog path:', blogPath);
+      // Direct path format or regex failed
+      console.log('Regex failed for blog path, using direct path:', blogPath);
       return await serveR2Asset(env, blogPath, request);
     }
   } else if (path.startsWith('/stories/')) {

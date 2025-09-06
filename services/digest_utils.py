@@ -47,8 +47,14 @@ class DigestUtils:
             URL string for the best image
         """
         if not story_packets:
-            logger.warning("No story packets provided for image selection, using random stock fallback image")
-            return self.get_random_stock_image()
+            # Check for configured default image first
+            default_image = getattr(self, 'default_image', None) or getattr(self, 'config', {}).get('blog_default_image')
+            if default_image:
+                logger.info("No story packets provided, using configured default image")
+                return default_image
+            else:
+                logger.warning("No story packets provided for image selection, using random stock fallback image")
+                return self.get_random_stock_image()
         
         # Priority order for story types (lower number = higher priority)
         type_priority = {
@@ -97,8 +103,14 @@ class DigestUtils:
                 raise
         
         # No suitable video thumbnail found
-        logger.warning("No suitable video thumbnail found in any story packets, using random stock fallback image")
-        return self.get_random_stock_image()
+        # Check for configured default image first
+        default_image = getattr(self, 'default_image', None) or getattr(self, 'config', {}).get('blog_default_image')
+        if default_image:
+            logger.warning("No suitable video thumbnail found, using configured default image")
+            return default_image
+        else:
+            logger.warning("No suitable video thumbnail found in any story packets, using random stock fallback image")
+            return self.get_random_stock_image()
     
     def get_video_thumbnail_url(self, video_path: str, story_id: str) -> str:
         """

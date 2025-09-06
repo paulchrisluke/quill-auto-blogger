@@ -69,13 +69,15 @@ class FeedGenerator:
 """
         
         for blog in sorted_blogs:
-            frontmatter = blog.get('frontmatter', {})
-            date_str = blog.get('date', '')
-            
-            if not date_str or not frontmatter:
-                continue
-            
-            try:
+            # Handle both frontmatter and published formats
+            if 'frontmatter' in blog:
+                # Legacy format with frontmatter
+                frontmatter = blog.get('frontmatter', {})
+                date_str = blog.get('date', '')
+                
+                if not date_str or not frontmatter:
+                    continue
+                
                 # Parse date for RSS format
                 date_obj = datetime.strptime(date_str, '%Y-%m-%d')
                 rss_date = date_obj.strftime('%a, %d %b %Y %H:%M:%S GMT')
@@ -100,6 +102,48 @@ class FeedGenerator:
                 title = html.escape(frontmatter.get('title', f'PCL Labs Devlog — {date_str}'))
                 link = html.escape(canonical_url)
                 creator = html.escape(frontmatter.get('author', 'Paul Chris Luke'))
+            else:
+                # Published format (top-level fields)
+                date_str = blog.get('datePublished', '')
+                
+                if not date_str:
+                    continue
+                
+                # Parse date for RSS format
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                rss_date = date_obj.strftime('%a, %d %b %Y %H:%M:%S GMT')
+                
+                # Get canonical URL
+                canonical_url = blog.get('url', f"{self.frontend_domain}/blog/{date_str}")
+                
+                # Get description - prefer summary when available
+                description = blog.get('summary', '')
+                if not description and 'content' in blog:
+                    content = blog['content'] if isinstance(blog['content'], str) else blog['content'].get('body', '')
+                    description = content[:200] + '...' if len(content) > 200 else content
+                
+                # Get image from media field
+                media = blog.get('media', {})
+                if isinstance(media, dict):
+                    # Check for hero image first, then direct image
+                    hero = media.get('hero', {})
+                    if isinstance(hero, dict) and hero.get('image'):
+                        image_url = hero['image']
+                    else:
+                        image_url = media.get('image', '')
+                else:
+                    image_url = ''
+                
+                # Get full content for content:encoded
+                content_field = blog.get('content', '')
+                full_content = content_field if isinstance(content_field, str) else content_field.get('body', description)
+                
+                # Escape values for XML
+                title = html.escape(blog.get('title', f'PCL Labs Devlog — {date_str}'))
+                link = html.escape(canonical_url)
+                creator = html.escape('Paul Chris Luke')
+            
+            try:
                 
                 # Make content safe for CDATA
                 safe_description = _safe_cdata(description)
@@ -116,15 +160,26 @@ class FeedGenerator:
       <dc:date>{date_str}T00:00:00Z</dc:date>"""
                 
                 # Add categories from tags
-                tags = frontmatter.get('tags', [])
+                tags = frontmatter.get('tags', []) if 'frontmatter' in blog else blog.get('tags', [])
                 for tag in tags[:5]:  # Limit to 5 categories
                     escaped_tag = html.escape(tag)
                     rss_content += f"""
       <category>{escaped_tag}</category>"""
                 
                 if image_url:
+                    # Infer MIME type from file extension
+                    mime_type = "image/jpeg"  # default
+                    if image_url.lower().endswith('.png'):
+                        mime_type = "image/png"
+                    elif image_url.lower().endswith('.gif'):
+                        mime_type = "image/gif"
+                    elif image_url.lower().endswith('.webp'):
+                        mime_type = "image/webp"
+                    elif image_url.lower().endswith('.svg'):
+                        mime_type = "image/svg+xml"
+                    
                     rss_content += f"""
-      <enclosure url="{image_url}" type="image/jpeg" length="0" />"""
+      <enclosure url="{image_url}" type="{mime_type}" length="0" />"""
                 
                 rss_content += """
     </item>

@@ -84,7 +84,7 @@ class TestApiV3Serializer:
         # Check top-level structure
         expected_keys = {
             '_meta', 'url', 'datePublished', 'dateModified', 'wordCount', 
-            'timeRequired', 'content', 'media', 'stories', 'related', 
+            'timeRequired', 'title', 'summary', 'content', 'tags', 'media', 'stories', 'related', 
             'schema', 'headers'
         }
         assert set(result.keys()) == expected_keys
@@ -94,13 +94,12 @@ class TestApiV3Serializer:
         assert result['_meta']['version'] == 1
         assert 'generated_at' in result['_meta']
         
-        # Check content structure
-        content = result['content']
-        assert 'title' in content
-        assert 'summary' in content
-        assert 'body' in content
-        assert 'tags' in content
-        assert isinstance(content['tags'], list)
+        # Check content structure - now title/summary are top-level, content is a string
+        assert 'title' in result
+        assert 'summary' in result
+        assert isinstance(result['content'], str)
+        assert 'tags' in result
+        assert isinstance(result['tags'], list)
         
         # Check media structure
         media = result['media']
@@ -248,8 +247,8 @@ class TestApiV3Serializer:
         )
         
         # Check that placeholders are removed
-        assert '[AI_GENERATE_LEAD]' not in result['content']['body']
-        assert '[AI_GENERATE_SEO_DESCRIPTION]' not in result['content']['summary']
+        assert '[AI_GENERATE_LEAD]' not in result['content']
+        assert '[AI_GENERATE_SEO_DESCRIPTION]' not in result['summary']
     
     def test_etag_generation(self, mock_normalized_digest):
         """Test that ETag is generated correctly."""
