@@ -333,12 +333,23 @@ class FeedGenerator:
                 tags = frontmatter.get('tags', [])
                 canonical_url = frontmatter.get('canonical', f"{self.frontend_domain}/blog/{date_str}")
             else:
-                # Published format
+                # Published format (publish package)
                 date_str = blog.get('datePublished', '')
-                title = blog.get('title', f'PCL Labs Devlog — {date_str}')
-                description = blog.get('summary', '')
+                # Handle two different publish package formats:
+                # 1. Dict content format: content.title, content.summary
+                # 2. String content format: title, summary (top-level)
+                content = blog.get('content', {})
+                if isinstance(content, dict):
+                    # Dict content format
+                    title = content.get('title', blog.get('title', f'PCL Labs Devlog — {date_str}'))
+                    description = content.get('summary', blog.get('summary', ''))
+                    tags = content.get('tags', blog.get('tags', []))
+                else:
+                    # String content format (content is the body text)
+                    title = blog.get('title', f'PCL Labs Devlog — {date_str}')
+                    description = blog.get('summary', '')
+                    tags = blog.get('tags', [])
                 author = 'Paul Chris Luke'  # Default author
-                tags = blog.get('tags', [])
                 canonical_url = blog.get('url', f"{self.frontend_domain}/blog/{date_str}")
             
             if not date_str or not title:
