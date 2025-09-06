@@ -48,7 +48,7 @@ class DigestUtils:
         """
         if not story_packets:
             # Check for configured default image first
-            default_image = getattr(self, 'default_image', None) or getattr(self, 'config', {}).get('blog_default_image')
+            default_image = getattr(self, 'default_image', None) or getattr(self, 'blog_default_image', None)
             if default_image:
                 logger.info("No story packets provided, using configured default image")
                 return default_image
@@ -104,7 +104,7 @@ class DigestUtils:
         
         # No suitable video thumbnail found
         # Check for configured default image first
-        default_image = getattr(self, 'default_image', None) or getattr(self, 'config', {}).get('blog_default_image')
+        default_image = getattr(self, 'default_image', getattr(self, '_default_image', None)) or getattr(self, 'blog_default_image', getattr(self, '_default_image', None))
         if default_image:
             logger.warning("No suitable video thumbnail found, using configured default image")
             return default_image
