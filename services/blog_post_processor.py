@@ -7,12 +7,17 @@ import re
 import logging
 import os
 from typing import Dict, List, Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 logger = logging.getLogger(__name__)
 
 class BlogPostProcessor:
     """Post-processes AI-generated blog content with technical precision."""
+    
+    # Precompiled domain pattern for validation
+    DOMAIN_PATTERN = re.compile(
+        r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*(:[0-9]{1,5})?$'
+    )
     
     def __init__(self):
         self.logger = logger
@@ -28,6 +33,83 @@ class BlogPostProcessor:
             return "paulchrisluke.com,www.paulchrisluke.com"
         return domains
     
+    def _validate_and_escape_domains(self, domains_str: str) -> str:
+        """
+        Validate and escape domains for safe use in Twitch embed iframe src.
+        
+        Args:
+            domains_str: Comma-separated list of domains
+            
+        Returns:
+            URL-encoded, comma-separated list of validated domains
+            
+        Raises:
+            ValueError: If any domain fails validation
+        """
+        if not domains_str:
+            raise ValueError("Empty domains string provided")
+        
+        # Split by comma and strip whitespace
+        domains = [domain.strip() for domain in domains_str.split(',')]
+        validated_domains = []
+        
+        for domain in domains:
+            if not domain:
+                continue
+                
+            # Check if domain matches safe pattern
+            if not self.DOMAIN_PATTERN.match(domain):
+                raise ValueError("Invalid domain format")
+            
+            # Additional validation: ensure it's not just dots or hyphens
+            if domain.replace('.', '').replace('-', '').replace(':', '') == '':
+                raise ValueError(f"Invalid domain: '{domain}' contains only special characters")
+            
+            # Validate port range if present
+            if ':' in domain:
+                port_str = domain.split(':')[-1]
+                try:
+                    port = int(port_str)
+                except ValueError:
+                    raise ValueError("Invalid domain format") from None
+                
+                if not (1 <= port <= 65535):
+                    raise ValueError("Invalid domain format")
+            
+            # URL-encode the domain for safe use in URL parameters
+            encoded_domain = quote(domain, safe='.')
+            validated_domains.append(encoded_domain)
+        
+        if not validated_domains:
+            raise ValueError("No valid domains found after validation")
+        
+        return ','.join(validated_domains)
+    
+    def _build_twitch_parent_params(self, safe_domains: str) -> str:
+        """
+        Build Twitch embed parent parameters from comma-separated domains.
+        
+        Twitch requires repeated &parent= entries, not comma-separated values.
+        
+        Args:
+            safe_domains: Comma-separated list of validated domains
+            
+        Returns:
+            Query string with repeated parent parameters
+        """
+        if not safe_domains:
+            return ""
+        
+        domains = [domain.strip() for domain in safe_domains.split(',') if domain.strip()]
+        parent_params = []
+        for domain in domains:
+            # Drop port if present; Twitch `parent` expects host only
+            raw = domain.replace('%3A', ':')
+            host = raw.split(':', 1)[0]
+            parent_params.append(f"&parent={host}")
+        
+        return ''.join(parent_params)
+    
     def process_blog_content(self, ai_content: str, digest: Dict[str, Any]) -> str:
         """
         Post-process AI-generated content with specific links, data, and formatting.
@@ -41,7 +123,10 @@ class BlogPostProcessor:
         """
         processed_content = ai_content
         
-        # Add specific PR links
+        # First, handle anchor format from comprehensive blog generator
+        processed_content = self._process_anchor_links(processed_content, digest)
+        
+        # Then handle legacy format for backward compatibility
         processed_content = self._add_pr_links(processed_content, digest)
         
         # Add video embeds with proper URLs and track processed clips
@@ -55,6 +140,123 @@ class BlogPostProcessor:
         processed_content = self._add_signature(processed_content)
         
         return processed_content
+    
+    def _process_anchor_links(self, content: str, digest: Dict[str, Any]) -> str:
+        """Process anchor format links from comprehensive blog generator."""
+        # Process PR anchors [PR:1234]
+        content = self._process_pr_anchors(content, digest)
+        
+        # Process clip anchors [CLIP:abc123]
+        content = self._process_clip_anchors(content, digest)
+        
+        # Process event anchors [EVENT:567890]
+        content = self._process_event_anchors(content, digest)
+        
+        return content
+    
+    def _process_pr_anchors(self, content: str, digest: Dict[str, Any]) -> str:
+        """Process PR anchor format [PR:1234] to proper links."""
+        github_events = digest.get('github_events', [])
+        
+        for event in github_events:
+            if event.get('type') == 'PullRequestEvent' and event.get('details', {}).get('merged', False):
+                pr_number = event.get('details', {}).get('number')
+                pr_title = event.get('details', {}).get('title', '')
+                
+                if pr_number:
+                    # Look for PR anchor format [PR:1234]
+                    pr_anchor_pattern = rf'\[PR:{pr_number}\]'
+                    pr_link = f'[PR #{pr_number}](https://github.com/paulchrisluke/pcl-labs/pull/{pr_number})'
+                    
+                    if re.search(pr_anchor_pattern, content):
+                        content = re.sub(pr_anchor_pattern, pr_link, content)
+                        self.logger.info(f"Processed PR anchor [PR:{pr_number}] to link: {pr_title}")
+        
+        return content
+    
+    def _process_clip_anchors(self, content: str, digest: Dict[str, Any]) -> str:
+        """Process clip anchor format [CLIP:abc123] to video embeds."""
+        twitch_clips = digest.get('twitch_clips', [])
+        
+        for clip in twitch_clips:
+            clip_id = clip.get('id', '')
+            clip_title = clip.get('title', '')
+            clip_url = clip.get('url', '')
+            
+            if clip_id and clip_url:
+                # Look for clip anchor format [CLIP:abc123]
+                clip_anchor_pattern = rf'\[CLIP:{re.escape(clip_id)}\]'
+                
+                # Extract clip ID from URL for proper embed
+                embed_clip_id = self._extract_clip_id_from_url(clip_url)
+                
+                if embed_clip_id:
+                    try:
+                        # Validate and escape domains for security
+                        safe_domains = self._validate_and_escape_domains(self.twitch_embed_domains)
+                        # Build parent parameters for Twitch embed (requires repeated &parent= entries)
+                        parent_params = self._build_twitch_parent_params(safe_domains)
+                        video_embed = (
+                            f'<iframe '
+                            f'src="https://clips.twitch.tv/embed?clip={embed_clip_id}{parent_params}" '
+                            f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
+                            f'</iframe>'
+                        )
+                    except ValueError:
+                        self.logger.exception("Invalid Twitch embed domains")
+                        # Fallback to simple link if domain validation fails
+                        clip_link = f'[Clip: {clip_title}]({clip_url})'
+                        content = re.sub(clip_anchor_pattern, clip_link, content)
+                        self.logger.info(f"Processed clip anchor [CLIP:{clip_id}] to link (domain validation failed): {clip_title}")
+                        continue
+                    
+                    if re.search(clip_anchor_pattern, content):
+                        # Replace anchor with video embed
+                        content = re.sub(clip_anchor_pattern, video_embed, content)
+                        self.logger.info(f"Processed clip anchor [CLIP:{clip_id}] to video embed: {clip_title}")
+                else:
+                    # Fallback to simple link if embed fails
+                    clip_link = f'[Clip: {clip_title}]({clip_url})'
+                    content = re.sub(clip_anchor_pattern, clip_link, content)
+                    self.logger.info(f"Processed clip anchor [CLIP:{clip_id}] to link: {clip_title}")
+        
+        return content
+    
+    def _process_event_anchors(self, content: str, digest: Dict[str, Any]) -> str:
+        """Process event anchor format [EVENT:567890] to proper links."""
+        github_events = digest.get('github_events', [])
+        
+        for event in github_events:
+            event_id = event.get('id', '')
+            event_type = event.get('type', '')
+            
+            if event_id:
+                # Look for event anchor format [EVENT:567890]
+                event_anchor_pattern = rf'\[EVENT:{event_id}\]'
+                
+                # Create appropriate link based on event type
+                if event_type == 'PullRequestEvent':
+                    pr_number = event.get('details', {}).get('number')
+                    if pr_number:
+                        event_link = f'[PR #{pr_number}](https://github.com/paulchrisluke/pcl-labs/pull/{pr_number})'
+                    else:
+                        event_link = f'[Event {event_id}](https://github.com/paulchrisluke/pcl-labs/events/{event_id})'
+                elif event_type == 'PushEvent':
+                    # Extract commit SHA from event details, with fallback to event_id
+                    commit_sha = event.get('details', {}).get('commit_sha')
+                    if commit_sha:
+                        event_link = f'[Push Event {event_id}](https://github.com/paulchrisluke/pcl-labs/commit/{commit_sha})'
+                    else:
+                        # Fallback to event_id if commit_sha is not available
+                        event_link = f'[Push Event {event_id}](https://github.com/paulchrisluke/pcl-labs/events/{event_id})'
+                else:
+                    event_link = f'[Event {event_id}](https://github.com/paulchrisluke/pcl-labs/events/{event_id})'
+                
+                if re.search(event_anchor_pattern, content):
+                    content = re.sub(event_anchor_pattern, event_link, content)
+                    self.logger.info(f"Processed event anchor [EVENT:{event_id}] to link: {event_type}")
+        
+        return content
     
     def _add_pr_links(self, content: str, digest: Dict[str, Any]) -> str:
         """Add specific PR links to the content."""
@@ -95,12 +297,21 @@ class BlogPostProcessor:
                     self.logger.warning(f"Skipping video embed for invalid clip URL: {clip_url}")
                     continue
                 
-                video_embed = (
-                    f'<iframe '
-                    f'src="https://clips.twitch.tv/embed?clip={clip_id}&parent={self.twitch_embed_domains}" '
-                    f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
-                    f'</iframe>'
-                )
+                try:
+                    # Validate and escape domains for security
+                    safe_domains = self._validate_and_escape_domains(self.twitch_embed_domains)
+                    # Build parent parameters for Twitch embed (requires repeated &parent= entries)
+                    parent_params = self._build_twitch_parent_params(safe_domains)
+                    video_embed = (
+                        f'<iframe '
+                        f'src="https://clips.twitch.tv/embed?clip={clip_id}{parent_params}" '
+                        f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
+                        f'</iframe>'
+                    )
+                except ValueError:
+                    self.logger.exception("Invalid Twitch embed domains")
+                    # Skip this clip if domain validation fails
+                    continue
                 
                 if re.search(title_pattern, content):
                     # Add video embed after the title reference

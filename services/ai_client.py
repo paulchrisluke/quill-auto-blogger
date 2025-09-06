@@ -3,13 +3,18 @@ Thin Cloudflare Workers AI client for M5 surgical AI inserts.
 """
 
 import os
+import re
 import requests
 import logging
 import time
 from datetime import datetime
+from typing import Dict, Any, Optional, Union
 from dotenv import load_dotenv
 
-import tiktoken
+try:
+    import tiktoken
+except ImportError:
+    tiktoken = None
 
 # Load environment variables
 load_dotenv()
@@ -41,6 +46,30 @@ MODEL_LIMITS = {
         "parameters": "8B",
         "cost_per_million_tokens": 0.15,
         "display_name": "Llama 3.1 8B Instruct"
+    },
+    "@cf/meta/llama-3.3-70b-instruct-fp8-fast": {
+        "context_window": 24000,  # 24k tokens
+        "max_output_tokens": 256,  # 256 tokens
+        "tiktoken_model": "cl100k_base",
+        "parameters": "70B",
+        "cost_per_million_tokens": 0.60,  # Higher cost for 70B model
+        "display_name": "Llama 3.3 70B Instruct (Fast)"
+    },
+    "@cf/meta/llama-3.1-70b-instruct": {
+        "context_window": 24000,  # 24k tokens
+        "max_output_tokens": 256,  # 256 tokens
+        "tiktoken_model": "cl100k_base",
+        "parameters": "70B",
+        "cost_per_million_tokens": 0.60,  # Higher cost for 70B model
+        "display_name": "Llama 3.1 70B Instruct"
+    },
+    "@cf/meta/llama-4-scout-17b-16e-instruct": {
+        "context_window": 131000,  # 131k tokens - larger context window
+        "max_output_tokens": 256,  # 256 tokens
+        "tiktoken_model": "cl100k_base",
+        "parameters": "17B",
+        "cost_per_million_tokens": 0.27,  # Lower cost than 70B model
+        "display_name": "Llama 4 Scout 17B Instruct"
     }
 }
 
@@ -55,34 +84,50 @@ class TokenLimitExceededError(AIClientError):
     pass
 
 
+class AIResponseError(AIClientError):
+    """Raised when AI response is invalid or malformed."""
+    pass
+
+
 class CloudflareAIClient:
     """Minimal client for Cloudflare Workers AI."""
 
-    def __init__(self):
-        self.account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-        self.api_token = os.getenv("CLOUDFLARE_API_TOKEN")
-        self.model = os.getenv("CLOUDFLARE_AI_MODEL", "openai/llama-3.1-8b-instruct")
-        self.timeout = int(os.getenv("AI_TIMEOUT_MS", "60000")) / 1000.0  # 60 seconds for longer content
-        self.seed = int(os.getenv("AI_SEED", "42"))
-        self.default_max_tokens = int(os.getenv("AI_MAX_TOKENS", "800"))
+    def __init__(self) -> None:
+        self.account_id: Optional[str] = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+        self.api_token: Optional[str] = os.getenv("CLOUDFLARE_API_TOKEN")
+        self.model: str = os.getenv("CLOUDFLARE_AI_MODEL", "openai/llama-3.1-8b-instruct")
+        self.timeout: float = int(os.getenv("AI_TIMEOUT_MS", "120000")) / 1000.0  # 120 seconds for 70B model
+        self.seed: int = int(os.getenv("AI_SEED", "42"))
+        self.default_max_tokens: int = int(os.getenv("AI_MAX_TOKENS", "800"))
         
         # Token validation settings
-        self.validate_tokens = os.getenv("AI_VALIDATE_TOKENS", "true").lower() == "true"
-        self.max_input_tokens = int(os.getenv("AI_MAX_INPUT_TOKENS", "0"))  # 0 = use model default
+        self.validate_tokens: bool = os.getenv("AI_VALIDATE_TOKENS", "true").lower() == "true"
+        self.max_input_tokens: int = int(os.getenv("AI_MAX_INPUT_TOKENS", "0"))  # 0 = use model default
 
         if not self.account_id or not self.api_token:
             raise AIClientError("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required")
 
-        self.base_url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.model}"
+        self.base_url: str = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.model}"
         
         # Initialize tokenizer for the model
         self._init_tokenizer()
 
-    def _init_tokenizer(self):
+    def _init_tokenizer(self) -> None:
         """Initialize the appropriate tokenizer for the model."""
         model_config = MODEL_LIMITS.get(self.model, MODEL_LIMITS["openai/llama-3.1-8b-instruct"])
-        self.tokenizer = tiktoken.get_encoding(model_config["tiktoken_model"])
-        self.model_config = model_config
+        self.model_config: Dict[str, Any] = model_config
+        
+        # Check if tiktoken is available
+        if tiktoken is None:
+            logger.warning("tiktoken module not available. Token counting will use fallback method.")
+            self.tokenizer = None
+            return
+        
+        try:
+            self.tokenizer = tiktoken.get_encoding(model_config["tiktoken_model"])
+        except Exception as e:
+            logger.warning(f"Failed to initialize tokenizer: {e}. Token counting will use fallback method.")
+            self.tokenizer = None
         
         # Calculate model limit and clamp max_input_tokens
         model_limit = max(0, model_config["context_window"] - model_config["max_output_tokens"])
@@ -137,7 +182,19 @@ class CloudflareAIClient:
         
         logger.info(f"Token validation passed - Input: {input_tokens:,}, Max output: {max_tokens:,}, Total: {total_tokens:,}")
 
-    def generate(self, prompt: str, system: str, max_tokens: int = None) -> str:
+    def get_effective_max_tokens(self, requested_tokens: int) -> int:
+        """
+        Get the effective max tokens, clamped to model limits.
+        
+        Args:
+            requested_tokens: The desired number of output tokens
+            
+        Returns:
+            The effective max tokens, clamped to model's max_output_tokens
+        """
+        return min(requested_tokens, self.model_config["max_output_tokens"])
+
+    def generate(self, prompt: str, system: str, max_tokens: Optional[int] = None) -> str:
         """Generate text using Cloudflare Workers AI with comprehensive logging."""
         max_tokens = max_tokens or self.default_max_tokens
         
@@ -160,7 +217,7 @@ class CloudflareAIClient:
             ],
             "stream": False,
             "max_tokens": max_tokens,
-            "temperature": 0.3,
+            "temperature": 0.15,  # Llama 4 Scout default
             "top_p": 0.9,
             "seed": self.seed,
         }
@@ -176,7 +233,18 @@ class CloudflareAIClient:
             # Extract token usage and log comprehensive details
             self._log_token_usage(data, system, prompt, response_time, request_timestamp)
             
-            return data["result"]["response"]
+            # Handle different response formats
+            if "result" in data and "response" in data["result"]:
+                # Old format
+                return data["result"]["response"]
+            elif "response" in data:
+                # New format with JSON schema
+                return data["response"]
+            else:
+                # Sanitize response data for logging (avoid leaking model output)
+                sanitized_data = self._sanitize_response_for_logging(data)
+                logger.error("Unexpected response format from AI service: %s", sanitized_data)
+                raise AIResponseError("Unexpected response format from AI service")
         except requests.exceptions.Timeout:
             response_time = time.time() - start_time
             logger.error(f"AI request timed out after {self.timeout}s (actual: {response_time:.2f}s)")
@@ -194,8 +262,11 @@ class CloudflareAIClient:
                 safe = {k: err.get(k) for k in ("errors", "error", "message", "code") if k in err}
                 logger.error("AI error (sanitized): %s", safe)
             except ValueError:
-                logger.debug("AI error body (non-JSON, truncated): %s", getattr(resp, "text", "")[:256])
-            raise AIClientError(str(e)) from e
+                # Truncate error body to avoid leaking sensitive data
+                error_text = getattr(resp, "text", "")
+                sanitized_text = self._sanitize_error_text(error_text)
+                logger.debug("AI error body (non-JSON, sanitized): %s", sanitized_text)
+            raise AIClientError(f"HTTP {status}: {reason}") from e
         except Exception as e:
             response_time = time.time() - start_time
             logger.error("Unexpected error in AI request: %s (response_time=%.2fs)", e, response_time)
@@ -206,14 +277,16 @@ class CloudflareAIClient:
         """Log comprehensive AI usage details including model, tokens, response time, and cost."""
         try:
             # Extract token usage from response (Cloudflare doesn't provide this)
-            usage = response_data.get("result", {}).get("usage", {})
+            usage = response_data.get("result", {}).get("usage", {}) or response_data.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
             
             # Cloudflare Workers AI doesn't return token usage, so we calculate it
             if input_tokens == 0 and output_tokens == 0:
                 input_tokens = self._count_tokens(system + "\n\n" + prompt)
-                response_text = response_data.get("result", {}).get("response", "")
+                # Handle both old and new response formats
+                response_text = (response_data.get("result", {}).get("response", "") or 
+                               response_data.get("response", ""))
                 output_tokens = self._count_tokens(response_text)
             
             # Get model information and pricing
@@ -246,4 +319,77 @@ class CloudflareAIClient:
             
         except Exception as e:
             logger.warning(f"Failed to log token usage: {e}")
+
+    def _sanitize_response_for_logging(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize response data for logging to avoid leaking model output or PII."""
+        sanitized = {}
+        for key, value in data.items():
+            if key in ["response", "result", "content", "text", "output"]:
+                # Truncate and mask actual content
+                if isinstance(value, str):
+                    sanitized[key] = f"[TRUNCATED: {len(value)} chars]"
+                elif isinstance(value, dict) and "response" in value:
+                    sanitized[key] = {"response": f"[TRUNCATED: {len(str(value['response']))} chars]"}
+                else:
+                    sanitized[key] = f"[TRUNCATED: {len(str(value))} chars]"
+            elif key in ["errors", "error", "message", "code", "status"]:
+                # Keep error information but sanitize content
+                if isinstance(value, str):
+                    sanitized[key] = self._sanitize_error_text(value)
+                else:
+                    sanitized[key] = value
+            else:
+                sanitized[key] = value
+        return sanitized
+
+    def _sanitize_error_text(self, text: str) -> str:
+        """Sanitize error text to remove potential PII or sensitive data."""
+        if not text:
+            return ""
+        
+        # Truncate to reasonable length
+        if len(text) > 256:
+            text = text[:256] + "..."
+        
+        # Remove potential API keys, tokens, or other sensitive patterns
+        
+        # Define targeted patterns for sensitive data redaction
+        sensitive_patterns = [
+            # API key prefixes (sk-, rk-, pk_, etc.)
+            (r'\b(sk|rk|pk|ak|tk|ck|dk|ek|fk|gk|hk|ik|jk|lk|mk|nk|ok|qk|uk|vk|wk|xk|yk|zk)[-_][A-Za-z0-9]{20,}', '[API_KEY_REDACTED]'),
+            
+            # Contextual API keys (with labels)
+            (r'(?i)(?<=api[_-]?key[:=\s])\s*[A-Za-z0-9\-_]{20,}', '[API_KEY_REDACTED]'),
+            (r'(?i)(?<=token[:=\s])\s*[A-Za-z0-9\-_]{20,}', '[TOKEN_REDACTED]'),
+            (r'(?i)(?<=secret[:=\s])\s*[A-Za-z0-9\-_]{20,}', '[SECRET_REDACTED]'),
+            (r'(?i)(?<=password[:=\s])\s*[A-Za-z0-9\-_]{20,}', '[PASSWORD_REDACTED]'),
+            
+            # Base64-like patterns with punctuation (common in JWT tokens, etc.)
+            (r'\b[A-Za-z0-9+/]{20,}={0,2}\b', '[BASE64_REDACTED]'),
+            
+            # Bearer tokens
+            (r'(?i)bearer\s+[A-Za-z0-9\-_\.]{20,}', '[BEARER_TOKEN_REDACTED]'),
+            
+            # OAuth tokens
+            (r'(?i)oauth[_-]?token[:=\s]+[A-Za-z0-9\-_]{20,}', '[OAUTH_TOKEN_REDACTED]'),
+            
+            # AWS-style access keys
+            (r'\bAKIA[0-9A-Z]{16}\b', '[AWS_ACCESS_KEY_REDACTED]'),
+            
+            # GitHub tokens
+            (r'\bgh[ops]_[A-Za-z0-9]{36}\b', '[GITHUB_TOKEN_REDACTED]'),
+            
+            # Stripe keys
+            (r'\b(sk|pk)_(test_|live_)?[A-Za-z0-9]{24}\b', '[STRIPE_KEY_REDACTED]'),
+        ]
+        
+        # Apply each pattern in order
+        for pattern, replacement in sensitive_patterns:
+            text = re.sub(pattern, replacement, text)
+        # Remove potential email addresses
+        text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL_REDACTED]', text)
+        # Remove potential URLs with sensitive paths
+        text = re.sub(r'https?://[^\s]+', '[URL_REDACTED]', text)
+        
+        return text
 

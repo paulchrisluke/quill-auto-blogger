@@ -11,7 +11,7 @@ import json
 import re
 import unicodedata
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 from html import unescape
 
 
@@ -179,6 +179,9 @@ class ApiV3Serializer:
         
         # Clean up any AI placeholders
         body = self._clean_placeholders(body)
+        
+        # Process markdown content for better formatting and linking
+        body = self._process_markdown_content(body, normalized_digest)
         
         return {
             "title": self._clean_placeholders(title),
@@ -349,6 +352,376 @@ class ApiV3Serializer:
         text = text.replace("[AI_GENERATE_LEAD]", "")
         text = text.replace("[AI_GENERATE", "")
         return text.strip()
+    
+    def _mask_code_and_links(self, content: str) -> tuple[str, Callable]:
+        """
+        Mask fenced code blocks, inline code, and markdown links with stable placeholders.
+        
+        Args:
+            content: The content to mask
+            
+        Returns:
+            Tuple of (masked_content, unmask_function)
+        """
+        replacements: list[tuple[str, str]] = []
+        
+        # Pattern 1: Fenced code blocks (```code``` or ~~~code~~~) - non-greedy DOTALL
+        fenced_pattern = re.compile(r'(```[\s\S]*?```|~~~[\s\S]*?~~~)')
+        
+        def replace_fenced(match):
+            placeholder = f"__FENCED_CODE_BLOCK_{len(replacements)}__"
+            replacements.append((placeholder, match.group(1)))
+            return placeholder
+        
+        masked_content = fenced_pattern.sub(replace_fenced, content)
+        
+        # Pattern 2: Inline code (`code`)
+        inline_pattern = re.compile(r'`([^`]+)`')
+        
+        def replace_inline(match):
+            placeholder = f"__INLINE_CODE_{len(replacements)}__"
+            replacements.append((placeholder, match.group(0)))
+            return placeholder
+        
+        masked_content = inline_pattern.sub(replace_inline, masked_content)
+        
+        # Pattern 3: Markdown links [text](url)
+        link_pattern = re.compile(r'\[([^\]]*)\]\([^)]+\)')
+        
+        def replace_link(match):
+            placeholder = f"__MARKDOWN_LINK_{len(replacements)}__"
+            replacements.append((placeholder, match.group(0)))
+            return placeholder
+        
+        masked_content = link_pattern.sub(replace_link, masked_content)
+        
+        def unmask_function(masked_text: str) -> str:
+            """Restore original code blocks and links from placeholders."""
+            result = masked_text
+            for placeholder, original in replacements:
+                result = result.replace(placeholder, original)
+            return result
+        
+        return masked_content, unmask_function
+    
+    def _process_markdown_content(self, content: str, normalized_digest: Dict[str, Any]) -> str:
+        """
+        Process AI-generated content to add proper markdown formatting, links, and structure.
+        
+        Args:
+            content: Raw AI-generated content
+            normalized_digest: The normalized digest containing resource data
+            
+        Returns:
+            Enhanced markdown content with proper formatting and links
+        """
+        if not content:
+            return content
+        
+        # Mask code blocks and links to protect them from regex transforms
+        content, unmask_function = self._mask_code_and_links(content)
+        
+        # 1. Fix escaped newlines
+        content = self._fix_escaped_newlines(content)
+        
+        # 2. Add proper headers based on content structure
+        content = self._add_markdown_headers(content)
+        
+        # 3. Add links to Twitch clips and GitHub PRs
+        content = self._add_resource_links(content, normalized_digest)
+        
+        # 4. Format code mentions as code blocks
+        content = self._format_code_mentions(content)
+        
+        # 5. Add emphasis to technical terms
+        content = self._add_emphasis(content)
+        
+        # 6. Convert lists to proper markdown lists
+        content = self._format_lists(content)
+        
+        # 7. Add blockquotes for meta-commentary
+        content = self._add_blockquotes(content)
+        
+        # 8. Add signature with proper links
+        content = self._add_signature(content)
+        
+        # Restore original code blocks and links
+        content = unmask_function(content)
+        
+        return content
+    
+    def _fix_escaped_newlines(self, content: str) -> str:
+        """Fix escaped newlines in AI-generated content."""
+        # Replace escaped newlines with actual newlines
+        content = content.replace('\\n', '\n')
+        
+        # Clean up multiple consecutive newlines
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        
+        return content.strip()
+    
+    def _add_markdown_headers(self, content: str) -> str:
+        """Add proper markdown headers to break up content sections."""
+        lines = content.split('\n')
+        processed_lines = []
+        
+        # Common section patterns to detect
+        section_patterns = [
+            (r'^(As I start my day|The first major milestone|But development doesn\'t happen)', '## What Shipped'),
+            (r'^(While the code merged|Twitch captured|In one clip)', '## The Human Side'),
+            (r'^(As the day goes on|I start to reflect|I think about)', '## Reflections'),
+            (r'^(In the end|As I wrap up|And with that)', '## Wrap-Up'),
+            (r'^(Finally|After hours of|I was able to)', '## The Solution'),
+            (r'^(As I delved deeper|I realized that|The problem was)', '## The Challenge'),
+        ]
+        
+        for line in lines:
+            # Check if this line should start a new section
+            header_added = False
+            for pattern, header in section_patterns:
+                if re.match(pattern, line, re.IGNORECASE):
+                    # Check if current line is already a markdown header
+                    if re.match(r'^\s*#{1,6}\s', line):
+                        # Line is already a header, just add it
+                        processed_lines.append(line)
+                        header_added = True
+                        break
+                    
+                    # Check if line already starts with the target header text
+                    if line.strip().startswith(header):
+                        # Line already has the header, just add it
+                        processed_lines.append(line)
+                        header_added = True
+                        break
+                    
+                    # Find the last non-empty line to check for duplicates
+                    last_non_empty = None
+                    for i in range(len(processed_lines) - 1, -1, -1):
+                        if processed_lines[i].strip():
+                            last_non_empty = processed_lines[i]
+                            break
+                    
+                    # Only add header if it's not already the last non-empty line
+                    if last_non_empty != header:
+                        processed_lines.append('')
+                        processed_lines.append(header)
+                        processed_lines.append('')
+                        processed_lines.append(line)
+                        header_added = True
+                        break
+            
+            if not header_added:
+                processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
+    
+    def _escape_markdown_text(self, text: str) -> str:
+        """Escape markdown special characters in text to be used as link text."""
+        # Escape characters that have special meaning in markdown
+        return text.replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
+    
+    def _add_resource_links(self, content: str, normalized_digest: Dict[str, Any]) -> str:
+        """Add links to Twitch clips and GitHub PRs mentioned in content."""
+        # Get available resources
+        twitch_clips = normalized_digest.get('twitch_clips', [])
+        github_events = normalized_digest.get('github_events', [])
+        
+        # Create lookup dictionaries with original casing preserved
+        clip_lookup = {}
+        for clip in twitch_clips:
+            title = clip.get('title', '')
+            # Prefer html_url, fall back to url
+            url = clip.get('html_url') or clip.get('url', '')
+            if title and url:
+                # Use lowercased title as key for case-insensitive matching
+                clip_lookup[title.lower()] = {'original_title': title, 'url': url}
+        
+        pr_lookup = {}
+        for event in github_events:
+            if event.get('type') == 'PullRequestEvent':
+                pr_num = event.get('details', {}).get('number')
+                title = event.get('title', '')
+                # Prefer html_url, fall back to url
+                url = event.get('html_url') or event.get('url', '')
+                if pr_num and url:
+                    pr_ref = f"pr #{pr_num}"
+                    pr_lookup[pr_ref.lower()] = {'original_text': pr_ref, 'url': url}
+                    if title:
+                        pr_lookup[title.lower()] = {'original_text': title, 'url': url}
+        
+        # Add links to Twitch clips
+        for clip_key, clip_data in clip_lookup.items():
+            clip_url = clip_data['url']
+            
+            def replace_clip(match, url=clip_url):
+                matched_text = match.group(0)
+                escaped_text = self._escape_markdown_text(matched_text)
+                return f'[{escaped_text}]({url})'
+            
+            # Look for mentions of the clip title (case-insensitive)
+            pattern = rf'\b{re.escape(clip_key)}\b'
+            content = re.sub(pattern, replace_clip, content, flags=re.IGNORECASE)
+        
+        # Add links to PRs
+        for pr_key, pr_data in pr_lookup.items():
+            pr_url = pr_data['url']
+            
+            def replace_pr(match, url=pr_url):
+                matched_text = match.group(0)
+                escaped_text = self._escape_markdown_text(matched_text)
+                return f'[{escaped_text}]({url})'
+            
+            pattern = rf'\b{re.escape(pr_key)}\b'
+            content = re.sub(pattern, replace_pr, content, flags=re.IGNORECASE)
+        
+        return content
+    
+    def _format_code_mentions(self, content: str) -> str:
+        """Format technical code mentions as proper code blocks or inline code."""
+        # Common technical terms that should be formatted as inline code
+        tech_terms = [
+            'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'R2_ACCOUNT_ID', 'R2_API_TOKEN',
+            'Bearer token', 'API endpoints', 'R2 storage', 'environment variables',
+            'deployment URL', 'test script', 'authentication', 'REST API'
+        ]
+        
+        for term in tech_terms:
+            # Format as inline code if not already formatted
+            pattern = rf'\b{re.escape(term)}\b'
+            if re.search(pattern, content, re.IGNORECASE):
+                content = re.sub(
+                    pattern,
+                    f'`{term}`',
+                    content,
+                    flags=re.IGNORECASE
+                )
+        
+        # Look for configuration changes and format as code blocks
+        config_pattern = r'(changing|updating|fixing)\s+(CLOUDFLARE_ACCOUNT_ID|R2_ACCOUNT_ID|CLOUDFLARE_API_TOKEN|R2_API_TOKEN)\s+to\s+(R2_ACCOUNT_ID|CLOUDFLARE_ACCOUNT_ID|R2_API_TOKEN|CLOUDFLARE_API_TOKEN)'
+        config_matches = re.finditer(config_pattern, content, re.IGNORECASE)
+        
+        for match in config_matches:
+            original = match.group(0)
+            # Extract the key parts
+            start_var = match.group(2)
+            end_var = match.group(3)
+            
+            # Create a code block for the configuration change
+            code_block = f"""```bash
+{start_var} → {end_var}
+```"""
+            
+            content = content.replace(original, f"{original}\n\n{code_block}")
+        
+        return content
+    
+    def _add_emphasis(self, content: str) -> str:
+        """Add emphasis to technical terms and important concepts."""
+        # Terms that should be bold
+        bold_terms = [
+            'R2 storage configuration', 'audio processor', 'debugging', 'optimization',
+            'automation tools', 'live-streaming', 'AI generation', 'pipeline',
+            'caching', 'deduplication', 'workflow', 'API', 'authentication'
+        ]
+        
+        for term in bold_terms:
+            pattern = rf'\b{re.escape(term)}\b'
+            if re.search(pattern, content, re.IGNORECASE):
+                content = re.sub(
+                    pattern,
+                    f'**{term}**',
+                    content,
+                    flags=re.IGNORECASE
+                )
+        
+        # Terms that should be italic
+        italic_terms = [
+            'Clanker', 'meta-commentary', 'human story', 'community feedback',
+            'personal insights', 'irony', 'absurdity', 'automation paradox'
+        ]
+        
+        for term in italic_terms:
+            pattern = rf'\b{re.escape(term)}\b'
+            if re.search(pattern, content, re.IGNORECASE):
+                content = re.sub(
+                    pattern,
+                    f'*{term}*',
+                    content,
+                    flags=re.IGNORECASE
+                )
+        
+        return content
+    
+    def _format_lists(self, content: str) -> str:
+        """Convert paragraph lists to proper markdown lists."""
+        # Combined pattern with alternation for all list patterns
+        combined_pattern = r'(I started by|I began by|The steps included|The process involved|This involved|This included|The changes were).*?([^.]+\.)'
+        
+        def format_list_callback(match):
+            """Callback function to format list matches."""
+            lead = match.group(1)
+            items_text = match.group(2)
+            
+            # Split on common separators
+            items = re.split(r'[,;]\s*(?=\w)', items_text)
+            if len(items) < 2:
+                return match.group(0)  # Return original if fewer than 2 items
+            
+            # Create markdown list
+            list_items = []
+            for item in items:
+                item = item.strip().rstrip('.')
+                if item:
+                    list_items.append(f"- {item}")
+            
+            if list_items:
+                joined_list = '\n'.join(list_items)
+                return f"{lead}:\n\n{joined_list}"
+            
+            return match.group(0)  # Return original if no valid items
+        
+        # Single re.sub call with callback for atomic replacement
+        content = re.sub(combined_pattern, format_list_callback, content, flags=re.IGNORECASE | re.DOTALL)
+        
+        return content
+    
+    def _add_blockquotes(self, content: str) -> str:
+        """Add blockquotes for meta-commentary sections."""
+        # Look for meta-commentary patterns
+        meta_patterns = [
+            r'(It\'s a bit like building a machine that builds machines[^.]*\.)',
+            r'(The irony is that[^.]*\.)',
+            r'(I\'m a developer who\'s building tools that build tools[^.]*\.)',
+            r'(building automation tools while live-streaming the process[^.]*\.)',
+        ]
+        
+        for pattern in meta_patterns:
+            matches = re.finditer(pattern, content, re.IGNORECASE | re.DOTALL)
+            for match in matches:
+                original = match.group(1)
+                blockquote = f"> {original}"
+                content = content.replace(original, blockquote)
+        
+        return content
+    
+    def _add_signature(self, content: str) -> str:
+        """Add proper signature with working links."""
+        signature = """
+
+---
+
+**Hi. I'm Chris.** I'm a morally ambiguous technology marketer and builder at PCL Labs. I turn raw events into stories with wit, irreverence, and emotional honesty. I help solve complex technical challenges through AI blog automation, schema-driven SEO, and developer workflow optimization.
+
+Book me on [Upwork](https://upwork.com/freelancers/paulchrisluke) or find someone who knows how to get ahold of me.
+
+[Follow me on Twitch](https://twitch.tv/paulchrisluke) for live coding sessions and developer insights.
+"""
+        
+        # Only add signature if neither sentinel is present
+        if "Hi. I'm Chris." not in content and "morally ambiguous technology marketer" not in content:
+            content += signature
+        
+        return content
 
 
 def build(normalized_digest: Dict[str, Any], blog_author: str, 

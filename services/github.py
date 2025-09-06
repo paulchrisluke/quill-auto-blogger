@@ -194,12 +194,21 @@ class GitHubService:
         body = None
         
         if event_type == "PushEvent":
+            payload = event_data.get("payload", {})
+            commits = payload.get("commits", [])
+            
+            # Extract commit SHA - try head first, then last commit
+            commit_sha = payload.get("head")
+            if not commit_sha and commits:
+                commit_sha = commits[-1].get("id") or commits[-1].get("sha")
+            
             details = {
-                "commits": len(event_data.get("payload", {}).get("commits", [])),
-                "branch": event_data.get("payload", {}).get("ref", "").replace("refs/heads/", ""),
+                "commits": len(commits),
+                "branch": payload.get("ref", "").replace("refs/heads/", ""),
+                "commit_sha": commit_sha,
                 "commit_messages": [
                     commit.get("message", "") 
-                    for commit in event_data.get("payload", {}).get("commits", [])
+                    for commit in commits
                 ]
             }
         
