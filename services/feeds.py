@@ -356,7 +356,15 @@ class FeedGenerator:
                 continue
             
             # Get the best image for this blog post
-            best_image = blog.get('image')  # Use the image field directly from the blog data
+            best_image = blog.get('image')
+            if not best_image:
+                media = blog.get('media', {})
+                if isinstance(media, dict):
+                    hero = media.get('hero', {})
+                    if isinstance(hero, dict) and hero.get('image'):
+                        best_image = hero['image']
+                    elif media.get('image'):
+                        best_image = media.get('image')
             
             # Create BlogPosting schema entry
             blog_posting = {
@@ -393,10 +401,11 @@ class FeedGenerator:
                 "api_url": f"{self.api_domain}/blogs/{date_str}/{date_str}_page.publish.json",
                 "tags": tags,
                 "description": description,
-                "story_count": len(blog.get('story_packets', [])),
+                "story_count": len((blog.get('stories') or blog.get('story_packets', []))),
                 "has_video": any(
-                    story.get('videoId') is not None 
-                    for story in blog.get('story_packets', [])
+                    (s.get('videoId') is not None)
+                    or (isinstance(s.get('video'), dict) and s["video"].get('status') == 'rendered' and s["video"].get('path'))
+                    for s in (blog.get('stories') or blog.get('story_packets', []))
                 )
             }
             blogs_list.append(blog_entry)
