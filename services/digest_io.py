@@ -186,15 +186,23 @@ class DigestIO:
             )
             
             # Post-process the AI content with BlogPostProcessor to add links and embeds
-            from .blog_post_processor import BlogPostProcessor
-            processor = BlogPostProcessor()
-            # Use original events for BlogPostProcessor to have access to all events for anchor conversion
-            processor_digest = digest.copy()
-            processed_content = processor.process_blog_content(ai_content.get("content", ""), processor_digest)
-            
-            # Update AI content with processed content
-            ai_content["content"] = processed_content
-            ai_content["markdown_body"] = processed_content
+            if ai_content and isinstance(ai_content, dict) and ai_content.get("content") is not None:
+                from .blog_post_processor import BlogPostProcessor
+                processor = BlogPostProcessor()
+                # Use original events for BlogPostProcessor to have access to all events for anchor conversion
+                processor_digest = digest.copy()
+                processed_content = processor.process_blog_content(ai_content.get("content", ""), processor_digest)
+                
+                # Update AI content with processed content
+                ai_content["content"] = processed_content
+                ai_content["markdown_body"] = processed_content
+            else:
+                # Log warning and set empty markdown_body if ai_content is invalid
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning("Skipping BlogPostProcessor: ai_content is None or missing 'content' key")
+                if ai_content and isinstance(ai_content, dict):
+                    ai_content["markdown_body"] = ""
             
             # Merge AI content with original digest data
             enriched_digest = digest.copy()

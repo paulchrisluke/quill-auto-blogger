@@ -1,15 +1,21 @@
 """
 Tests for comprehensive blog generator markdown processing.
 """
+import os
 import pytest
 import re
+from unittest.mock import patch, MagicMock
+
+# Disable AI client before importing the service
+os.environ['AI_COMPREHENSIVE_ENABLED'] = 'false'
 from services.comprehensive_blog_generator import ComprehensiveBlogGenerator
 
 
 class TestMarkdownProcessing:
     """Test markdown processing to ensure code blocks, inline code, and URLs remain unchanged."""
     
-    def test_bullet_fixing_preserves_code_blocks(self):
+    @patch('services.comprehensive_blog_generator.CloudflareAIClient')
+    def test_bullet_fixing_preserves_code_blocks(self, mock_ai_client):
         """Test that bullet fixing doesn't alter content inside code blocks."""
         # Test with fenced code blocks
         content_with_fenced_code = """
@@ -57,7 +63,8 @@ And more content: - this should be fixed
         assert "value: - another" in result_indented_new  # Should remain unchanged
         assert ": - this should be fixed" not in result_indented_new  # Should be changed
     
-    def test_bullet_fixing_preserves_inline_code(self):
+    @patch('services.comprehensive_blog_generator.CloudflareAIClient')
+    def test_bullet_fixing_preserves_inline_code(self, mock_ai_client):
         """Test that bullet fixing doesn't alter content inside inline code."""
         content_with_inline_code = """
 The command is `echo "value: - test"` and the result: - should be fixed
@@ -81,7 +88,8 @@ Another example: `config: - setting` and more: - content
         assert ": - should be fixed" not in result_new  # Should be changed
         assert ": - content" not in result_new  # Should be changed
     
-    def test_bullet_fixing_preserves_urls(self):
+    @patch('services.comprehensive_blog_generator.CloudflareAIClient')
+    def test_bullet_fixing_preserves_urls(self, mock_ai_client):
         """Test that bullet fixing doesn't alter URLs."""
         content_with_urls = """
 Check out https://example.com: - path and http://test.com: - another
@@ -106,7 +114,8 @@ Also visit https://api.example.com: - endpoint for more info: - details
         assert "https://api.example.com: - endpoint" in result_new  # Should remain unchanged
         assert ": - details" not in result_new  # Should be changed
     
-    def test_bullet_fixing_preserves_markdown_links(self):
+    @patch('services.comprehensive_blog_generator.CloudflareAIClient')
+    def test_bullet_fixing_preserves_markdown_links(self, mock_ai_client):
         """Test that bullet fixing doesn't alter markdown links."""
         content_with_links = """
 Check out [this link](https://example.com: - path) and more: - content
@@ -130,7 +139,8 @@ Also see [another link](http://test.com: - another) and info: - details
         assert ": - content" not in result_new  # Should be changed
         assert ": - details" not in result_new  # Should be changed
     
-    def test_safe_bullet_fixing_with_new_method(self):
+    @patch('services.comprehensive_blog_generator.CloudflareAIClient')
+    def test_safe_bullet_fixing_with_new_method(self, mock_ai_client):
         """Test the improved bullet fixing using our new safe method."""
         content = """
 Here are the features: - first item

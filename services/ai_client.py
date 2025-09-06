@@ -45,16 +45,16 @@ MODEL_LIMITS = {
         "display_name": "Llama 3.1 8B Instruct"
     },
     "@cf/meta/llama-3.3-70b-instruct-fp8-fast": {
-        "context_window": 128000,  # 128k tokens
-        "max_output_tokens": 8192,  # 8k tokens - 2x the output limit!
+        "context_window": 24000,  # 24k tokens
+        "max_output_tokens": 256,  # 256 tokens
         "tiktoken_model": "cl100k_base",
         "parameters": "70B",
         "cost_per_million_tokens": 0.60,  # Higher cost for 70B model
         "display_name": "Llama 3.3 70B Instruct (Fast)"
     },
     "@cf/meta/llama-3.1-70b-instruct": {
-        "context_window": 128000,  # 128k tokens
-        "max_output_tokens": 4096,  # 4k tokens - same as 8B but better quality
+        "context_window": 24000,  # 24k tokens
+        "max_output_tokens": 256,  # 256 tokens
         "tiktoken_model": "cl100k_base",
         "parameters": "70B",
         "cost_per_million_tokens": 0.60,  # Higher cost for 70B model
@@ -62,7 +62,7 @@ MODEL_LIMITS = {
     },
     "@cf/meta/llama-4-scout-17b-16e-instruct": {
         "context_window": 131000,  # 131k tokens - larger context window
-        "max_output_tokens": 4096,  # 4k tokens - same limit but better quality
+        "max_output_tokens": 256,  # 256 tokens
         "tiktoken_model": "cl100k_base",
         "parameters": "17B",
         "cost_per_million_tokens": 0.27,  # Lower cost than 70B model
@@ -112,8 +112,13 @@ class CloudflareAIClient:
     def _init_tokenizer(self) -> None:
         """Initialize the appropriate tokenizer for the model."""
         model_config = MODEL_LIMITS.get(self.model, MODEL_LIMITS["openai/llama-3.1-8b-instruct"])
-        self.tokenizer = tiktoken.get_encoding(model_config["tiktoken_model"])
         self.model_config: Dict[str, Any] = model_config
+        
+        try:
+            self.tokenizer = tiktoken.get_encoding(model_config["tiktoken_model"])
+        except (ImportError, Exception) as e:
+            logger.warning(f"Failed to initialize tokenizer: {e}. Token counting will use fallback method.")
+            self.tokenizer = None
         
         # Calculate model limit and clamp max_input_tokens
         model_limit = max(0, model_config["context_window"] - model_config["max_output_tokens"])

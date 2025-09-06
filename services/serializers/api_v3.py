@@ -11,7 +11,7 @@ import json
 import re
 import unicodedata
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 from html import unescape
 
 
@@ -353,7 +353,7 @@ class ApiV3Serializer:
         text = text.replace("[AI_GENERATE", "")
         return text.strip()
     
-    def _mask_code_and_links(self, content: str) -> tuple[str, callable]:
+    def _mask_code_and_links(self, content: str) -> tuple[str, Callable]:
         """
         Mask fenced code blocks, inline code, and markdown links with stable placeholders.
         
@@ -363,32 +363,37 @@ class ApiV3Serializer:
         Returns:
             Tuple of (masked_content, unmask_function)
         """
-        masked_content = content
-        replacements = []
+        replacements: list[tuple[str, str]] = []
         
-        # Pattern 1: Fenced code blocks (```code``` or ~~~code~~~)
-        fenced_pattern = r'(```[^`]*```|~~~[^~]*~~~)'
-        fenced_matches = list(re.finditer(fenced_pattern, masked_content, re.DOTALL))
-        for i, match in enumerate(fenced_matches):
-            placeholder = f"__FENCED_CODE_BLOCK_{i}__"
+        # Pattern 1: Fenced code blocks (```code``` or ~~~code~~~) - non-greedy DOTALL
+        fenced_pattern = re.compile(r'(```[\s\S]*?```|~~~[\s\S]*?~~~)')
+        
+        def replace_fenced(match):
+            placeholder = f"__FENCED_CODE_BLOCK_{len(replacements)}__"
             replacements.append((placeholder, match.group(1)))
-            masked_content = masked_content.replace(match.group(1), placeholder, 1)
+            return placeholder
+        
+        masked_content = fenced_pattern.sub(replace_fenced, content)
         
         # Pattern 2: Inline code (`code`)
-        inline_pattern = r'`([^`]+)`'
-        inline_matches = list(re.finditer(inline_pattern, masked_content))
-        for i, match in enumerate(inline_matches):
-            placeholder = f"__INLINE_CODE_{i}__"
+        inline_pattern = re.compile(r'`([^`]+)`')
+        
+        def replace_inline(match):
+            placeholder = f"__INLINE_CODE_{len(replacements)}__"
             replacements.append((placeholder, match.group(0)))
-            masked_content = masked_content.replace(match.group(0), placeholder, 1)
+            return placeholder
+        
+        masked_content = inline_pattern.sub(replace_inline, masked_content)
         
         # Pattern 3: Markdown links [text](url)
-        link_pattern = r'\[([^\]]*)\]\([^)]+\)'
-        link_matches = list(re.finditer(link_pattern, masked_content))
-        for i, match in enumerate(link_matches):
-            placeholder = f"__MARKDOWN_LINK_{i}__"
+        link_pattern = re.compile(r'\[([^\]]*)\]\([^)]+\)')
+        
+        def replace_link(match):
+            placeholder = f"__MARKDOWN_LINK_{len(replacements)}__"
             replacements.append((placeholder, match.group(0)))
-            masked_content = masked_content.replace(match.group(0), placeholder, 1)
+            return placeholder
+        
+        masked_content = link_pattern.sub(replace_link, masked_content)
         
         def unmask_function(masked_text: str) -> str:
             """Restore original code blocks and links from placeholders."""
@@ -546,13 +551,12 @@ class ApiV3Serializer:
         
         # Add links to Twitch clips
         for clip_key, clip_data in clip_lookup.items():
-            original_title = clip_data['original_title']
             clip_url = clip_data['url']
             
-            def replace_clip(match):
+            def replace_clip(match, url=clip_url):
                 matched_text = match.group(0)
                 escaped_text = self._escape_markdown_text(matched_text)
-                return f'[{escaped_text}]({clip_url})'
+                return f'[{escaped_text}]({url})'
             
             # Look for mentions of the clip title (case-insensitive)
             pattern = rf'\b{re.escape(clip_key)}\b'
@@ -560,13 +564,12 @@ class ApiV3Serializer:
         
         # Add links to PRs
         for pr_key, pr_data in pr_lookup.items():
-            original_text = pr_data['original_text']
             pr_url = pr_data['url']
             
-            def replace_pr(match):
+            def replace_pr(match, url=pr_url):
                 matched_text = match.group(0)
                 escaped_text = self._escape_markdown_text(matched_text)
-                return f'[{escaped_text}]({pr_url})'
+                return f'[{escaped_text}]({url})'
             
             pattern = rf'\b{re.escape(pr_key)}\b'
             content = re.sub(pattern, replace_pr, content, flags=re.IGNORECASE)
@@ -714,8 +717,8 @@ Book me on [Upwork](https://upwork.com/freelancers/paulchrisluke) or find someon
 [Follow me on Twitch](https://twitch.tv/paulchrisluke) for live coding sessions and developer insights.
 """
         
-        # Only add signature if it's not already there
-        if "Hi. I'm Chris." not in content:
+        # Only add signature if neither sentinel is present
+        if "Hi. I'm Chris." not in content and "morally ambiguous technology marketer" not in content:
             content += signature
         
         return content

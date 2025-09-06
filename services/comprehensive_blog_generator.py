@@ -61,8 +61,8 @@ class ComprehensiveBlogGenerator:
                 self.ai_client = CloudflareAIClient()
                 logger.info("Comprehensive blog generator initialized successfully")
             except AIClientError as e:
-                logger.error(f"Failed to initialize comprehensive blog generator: {e}")
-                raise
+                logger.warning(f"Failed to initialize AI client during init: {e}. Will retry during generation.")
+                self.ai_client = None
     
     def _load_voice_prompt(self) -> str:
         """Load the voice prompt from the configured path."""
@@ -96,8 +96,18 @@ class ComprehensiveBlogGenerator:
         Raises:
             AIClientError: If AI generation fails
         """
-        if not self.ai_enabled or not self.ai_client:
+        if not self.ai_enabled:
             raise AIClientError("Comprehensive AI generation not available")
+        
+        # Retry AI client initialization if it failed during init
+        if not self.ai_client:
+            try:
+                logger.info("Retrying AI client initialization...")
+                self.ai_client = CloudflareAIClient()
+                logger.info("AI client initialized successfully")
+            except AIClientError as e:
+                logger.error(f"Failed to initialize AI client: {e}")
+                raise AIClientError("Comprehensive AI generation not available")
         
         try:
             # Prepare data for AI
@@ -868,11 +878,15 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
             fixed = re.sub(r'[\x00-\x1f\x7f-\x9f]', lambda m: f'\\u{ord(m.group(0)):04x}', fixed)
             return f'"{fixed}"'
         
-        # Use a more sophisticated regex that handles escaped quotes
-        # Remove stray characters and symbols that break JSON
-        # Remove only truly problematic characters while preserving JSON structure
-        # Keep JSON structural characters: {} [] , : "
-        json_text = re.sub(r'[!@#$%^&*()_+=|;<>?`~]', '', json_text)
+        # Remove markdown/code-fence wrappers if present
+        json_text = json_text.strip()
+        if json_text.startswith('```json'):
+            json_text = json_text[7:]  # Remove ```json
+        elif json_text.startswith('```'):
+            json_text = json_text[3:]   # Remove ```
+        if json_text.endswith('```'):
+            json_text = json_text[:-3]  # Remove trailing ```
+        json_text = json_text.strip()
         
         return json_text
     
@@ -1948,8 +1962,8 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
         current_pos = 0
         
         # Find all fenced code blocks (```...```)
-        fenced_pattern = r'```[^`]*```'
-        for match in re.finditer(fenced_pattern, content, re.DOTALL):
+        fenced_pattern = r'```[\s\S]*?```'
+        for match in re.finditer(fenced_pattern, content):
             # Add text before the code block
             if match.start() > current_pos:
                 sections.append(('text', content[current_pos:match.start()]))

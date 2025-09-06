@@ -72,11 +72,11 @@ class BlogPostProcessor:
                     port_str = domain.split(':')[-1]
                     port = int(port_str)
                     if not (1 <= port <= 65535):
-                        raise ValueError(f"Invalid port range: '{port}'. Port must be between 1 and 65535.")
+                        raise ValueError("Invalid domain format")
                 except ValueError as e:
-                    if "Invalid port range" in str(e):
+                    if "Invalid domain format" in str(e):
                         raise
-                    raise ValueError(f"Invalid port format: '{port_str}'. Port must be a valid integer.")
+                    raise ValueError("Invalid domain format")
             
             # URL-encode the domain for safe use in URL parameters
             encoded_domain = quote(domain, safe='.')
