@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 class BlogPostProcessor:
     """Post-processes AI-generated blog content with technical precision."""
     
+    # Precompiled domain pattern for validation
+    DOMAIN_PATTERN = re.compile(
+        r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*(:[0-9]{1,5})?$'
+    )
+    
     def __init__(self):
         self.logger = logger
         # Get allowed domains for Twitch embeds from environment
@@ -48,18 +53,12 @@ class BlogPostProcessor:
         domains = [domain.strip() for domain in domains_str.split(',')]
         validated_domains = []
         
-        # Domain validation regex: alphanumerics, dots, hyphens, and optional port
-        # Must start and end with alphanumeric, can have dots and hyphens in between
-        # Port allows 1-5 digits (will be validated separately for range 1-65535)
-        # More strict: no consecutive dots, no leading/trailing hyphens
-        domain_pattern = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*(:[0-9]{1,5})?$')
-        
         for domain in domains:
             if not domain:
                 continue
                 
             # Check if domain matches safe pattern
-            if not domain_pattern.match(domain):
+            if not self.DOMAIN_PATTERN.match(domain):
                 raise ValueError("Invalid domain format")
             
             # Additional validation: ensure it's not just dots or hyphens
@@ -68,14 +67,13 @@ class BlogPostProcessor:
             
             # Validate port range if present
             if ':' in domain:
+                port_str = domain.split(':')[-1]
                 try:
-                    port_str = domain.split(':')[-1]
                     port = int(port_str)
-                    if not (1 <= port <= 65535):
-                        raise ValueError("Invalid domain format")
-                except ValueError as e:
-                    if "Invalid domain format" in str(e):
-                        raise
+                except ValueError:
+                    raise ValueError("Invalid domain format") from None
+                
+                if not (1 <= port <= 65535):
                     raise ValueError("Invalid domain format")
             
             # URL-encode the domain for safe use in URL parameters
@@ -105,7 +103,10 @@ class BlogPostProcessor:
         domains = [domain.strip() for domain in safe_domains.split(',') if domain.strip()]
         parent_params = []
         for domain in domains:
-            parent_params.append(f"&parent={domain}")
+            # Drop port if present; Twitch `parent` expects host only
+            raw = domain.replace('%3A', ':')
+            host = raw.split(':', 1)[0]
+            parent_params.append(f"&parent={host}")
         
         return ''.join(parent_params)
     
@@ -201,8 +202,8 @@ class BlogPostProcessor:
                             f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
                             f'</iframe>'
                         )
-                    except ValueError as e:
-                        self.logger.error(f"Invalid Twitch embed domains: {e}")
+                    except ValueError:
+                        self.logger.exception("Invalid Twitch embed domains")
                         # Fallback to simple link if domain validation fails
                         clip_link = f'[Clip: {clip_title}]({clip_url})'
                         content = re.sub(clip_anchor_pattern, clip_link, content)
@@ -307,8 +308,8 @@ class BlogPostProcessor:
                         f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
                         f'</iframe>'
                     )
-                except ValueError as e:
-                    self.logger.error(f"Invalid Twitch embed domains: {e}")
+                except ValueError:
+                    self.logger.exception("Invalid Twitch embed domains")
                     # Skip this clip if domain validation fails
                     continue
                 

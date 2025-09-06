@@ -11,7 +11,10 @@ from datetime import datetime
 from typing import Dict, Any, Optional, Union
 from dotenv import load_dotenv
 
-import tiktoken
+try:
+    import tiktoken
+except ImportError:
+    tiktoken = None
 
 # Load environment variables
 load_dotenv()
@@ -114,9 +117,15 @@ class CloudflareAIClient:
         model_config = MODEL_LIMITS.get(self.model, MODEL_LIMITS["openai/llama-3.1-8b-instruct"])
         self.model_config: Dict[str, Any] = model_config
         
+        # Check if tiktoken is available
+        if tiktoken is None:
+            logger.warning("tiktoken module not available. Token counting will use fallback method.")
+            self.tokenizer = None
+            return
+        
         try:
             self.tokenizer = tiktoken.get_encoding(model_config["tiktoken_model"])
-        except (ImportError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Failed to initialize tokenizer: {e}. Token counting will use fallback method.")
             self.tokenizer = None
         
@@ -343,7 +352,6 @@ class CloudflareAIClient:
             text = text[:256] + "..."
         
         # Remove potential API keys, tokens, or other sensitive patterns
-        import re
         
         # Define targeted patterns for sensitive data redaction
         sensitive_patterns = [

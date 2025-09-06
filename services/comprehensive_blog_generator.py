@@ -221,12 +221,13 @@ class ComprehensiveBlogGenerator:
             # Prepare reduced data for AI
             ai_data = self._prepare_ai_data(date, reduced_clips, reduced_events)
             
-            # Generate comprehensive prompt with reduced data
-            system_prompt, user_prompt = self._create_comprehensive_prompt(ai_data)
-            
             # Use lower max tokens for output
             configured_tokens = max(int(os.getenv("AI_COMPREHENSIVE_MAX_TOKENS", "4000")), 1)
-            max_tokens = max(min(configured_tokens, 4096) // 2, 1)  # Reduce by half, ensure at least 1
+            effective_max = self.ai_client.get_effective_max_tokens(configured_tokens)
+            max_tokens = max(effective_max // 2, 1)  # Reduce by half, ensure at least 1
+            
+            # Generate comprehensive prompt with reduced data
+            system_prompt, user_prompt = self._create_comprehensive_prompt(ai_data, max_tokens)
             
             logger.info(f"Retrying with reduced prompt size - Max tokens: {max_tokens}")
             result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=max_tokens)
@@ -528,8 +529,16 @@ class ComprehensiveBlogGenerator:
             "notable_clips": [c.get('title', '') for c in high_view_clips[:3]]  # Top 3 clips by views
         }
     
-    def _create_comprehensive_prompt(self, ai_data: Dict[str, Any]) -> tuple[str, str]:
+    def _create_comprehensive_prompt(self, ai_data: Dict[str, Any], max_tokens: int = None) -> tuple[str, str]:
         """Create comprehensive system and user prompts."""
+        
+        # Get effective max tokens if not provided
+        if max_tokens is None:
+            effective_max_output = (
+                self.ai_client.model_config.get("max_output_tokens", 256)
+                if self.ai_client else 256
+            )
+            max_tokens = self.ai_client.get_effective_max_tokens(4000)  # Default to 4000, clamped to model limit
         
         system_prompt = f"""You are Paul Chris Luke, a developer who live-streams his coding sessions and writes engaging technical blog posts. Your voice is witty, self-aware, technically accurate but accessible, and you're not afraid to be meta about the development process.
 
@@ -682,7 +691,7 @@ HUMAN STORY EXPANSION:
 - Connect to broader themes about automation and human creativity
 
 LENGTH AND DETAIL REQUIREMENTS (CRITICAL):
-- Target 2500-3500 words total (you have 4096 tokens available - use them!)
+- Target 2500-3500 words total (you have {max_tokens} tokens available - use them!)
 - Each section should be substantial and detailed (4-6 paragraphs each)
 - Include specific examples, quotes, and anecdotes from commit messages
 - Expand on the human story and meta-commentary extensively
@@ -704,7 +713,7 @@ IMPORTANT:
 - BE EXTENSIVE - this should be a substantial, detailed blog post
 
 CRITICAL LENGTH REQUIREMENT:
-- You have 4096 tokens available for output - USE ALL OF THEM
+- You have {max_tokens} tokens available for output - USE ALL OF THEM
 - This should be a comprehensive, detailed blog post of 2500+ words
 - Don't be concise - be thorough and detailed
 - Expand on every section with rich detail and storytelling
@@ -722,11 +731,11 @@ CRITICAL JSON FORMATTING REQUIREMENTS:
 
 Return only the JSON response as specified in the system prompt.
 
-IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, detailed blog post possible. Don't stop early - continue writing until you've exhausted the token limit with rich, detailed content."""
+IMPORTANT: Use ALL available tokens ({max_tokens}) to create the most comprehensive, detailed blog post possible. Don't stop early - continue writing until you've exhausted the token limit with rich, detailed content."""
 
         return system_prompt, user_prompt
     
-    def _parse_ai_response(self, ai_response: Union[Dict[str, Any], str], date: str = None) -> Dict[str, Any]:
+    def _parse_ai_response(self, ai_response: Union[Dict[str, Any], str], date: Optional[str] = None) -> Dict[str, Any]:
         """Parse AI response into structured format."""
         try:
             # Handle dict response (from JSON schema)
@@ -801,10 +810,10 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
             return parsed
             
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse AI response as JSON: {e}")
+            logger.exception(f"Failed to parse AI response as JSON: {e}")
             # Sanitize AI response for logging to avoid leaking model output
             sanitized_response = self._sanitize_ai_response_for_logging(ai_response)
-            logger.error(f"AI Response (sanitized): {sanitized_response}")
+            logger.exception(f"AI Response (sanitized): {sanitized_response}")
             
             # Try to extract content using regex as fallback
             try:
@@ -856,10 +865,10 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
                 raise AIResponseError(f"Invalid JSON response from AI: {e}")
                 
         except Exception as e:
-            logger.error(f"Failed to parse AI response: {e}")
+            logger.exception(f"Failed to parse AI response: {e}")
             # Sanitize AI response for logging to avoid leaking model output
             sanitized_response = self._sanitize_ai_response_for_logging(ai_response)
-            logger.error(f"AI Response (sanitized): {sanitized_response}")
+            logger.exception(f"AI Response (sanitized): {sanitized_response}")
             raise AIResponseError(f"Failed to parse AI response: {e}")
     
     def _fix_common_json_issues(self, json_text: str) -> str:
@@ -1469,7 +1478,7 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
         try:
             js = json.loads(self._extract_result_json(raw))
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing error in section group {group_name}: {e}")
+            logger.exception(f"JSON parsing error in section group {group_name}: {e}")
             # Sanitize raw response for logging
             sanitized_raw = self._sanitize_ai_response_for_logging(raw)
             logger.error(f"Raw response (sanitized): {sanitized_raw}")
@@ -1551,7 +1560,7 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
                 
             section_data = js["sections"][section]
             content = section_data.get("content", "")
-            anchors_used = section_data.get("anchors_used", [])
+            _ = section_data.get("anchors_used", [])
             
             # Word count check
             word_count = len(content.split())
@@ -1593,7 +1602,7 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
                 
             section_data = js["sections"][section]
             content = section_data.get("content", "")
-            anchors_used = section_data.get("anchors_used", [])
+            _ = section_data.get("anchors_used", [])
             
             # Word count check
             word_count = len(content.split())
@@ -1620,7 +1629,7 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
                 try:
                     js = json.loads(self._extract_result_json(raw))
                 except json.JSONDecodeError as e:
-                    logger.error(f"JSON parsing error in retry for {group_name}: {e}")
+                    logger.exception(f"JSON parsing error in retry for {group_name}: {e}")
                     # Try to extract and clean the JSON more aggressively
                     json_text = self._extract_result_json(raw)
                     json_text = self._clean_json_text(json_text)
@@ -1893,7 +1902,7 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
         try:
             js = json.loads(self._extract_result_json(raw))
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing error in expansion: {e}")
+            logger.exception(f"JSON parsing error in expansion: {e}")
             json_text = self._extract_result_json(raw)
             json_text = self._clean_json_text(json_text)
             try:
