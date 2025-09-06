@@ -22,8 +22,8 @@ class ApiV3Serializer:
         self.blog_author = blog_author
         self.blog_base_url = blog_base_url.rstrip("/")
         self.media_domain = media_domain
-        # Use a random stock image as default
-        import random
+        # Use a fixed default stock image for deterministic builds
+        import os
         default_stock_images = [
             "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1200&h=630&fit=crop",  # Code on screen
             "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=1200&h=630&fit=crop",  # Developer workspace
@@ -31,7 +31,7 @@ class ApiV3Serializer:
             "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1200&h=630&fit=crop",  # Data visualization
             "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1200&h=630&fit=crop",  # Tech workspace
         ]
-        self.default_image = random.choice(default_stock_images)
+        self.default_image = os.getenv("BLOG_DEFAULT_IMAGE", default_stock_images[0])
     
     def build(self, normalized_digest: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -159,14 +159,23 @@ class ApiV3Serializer:
         
         # Get body content - try multiple sources
         body = ""
-        if "content" in normalized_digest and "body" in normalized_digest["content"]:
+        if "content" in normalized_digest and isinstance(normalized_digest["content"], str):
+            # Content is a string (enriched digest format)
+            body = normalized_digest["content"]
+        elif "content" in normalized_digest and isinstance(normalized_digest["content"], dict) and "body" in normalized_digest["content"]:
+            # Content is a dict with body field
             body = normalized_digest["content"]["body"]
         elif "markdown_body" in normalized_digest:
             body = normalized_digest["markdown_body"]
-        elif "content" in normalized_digest and isinstance(normalized_digest["content"], str):
-            body = normalized_digest["content"]
         elif "articleBody" in normalized_digest:
             body = normalized_digest["articleBody"]
+
+        # If content carries tags, prefer/merge them
+        if isinstance(normalized_digest.get("content"), dict) and normalized_digest["content"].get("tags"):
+            if not tags:
+                tags = normalized_digest["content"]["tags"]
+            else:
+                tags = list(dict.fromkeys([*tags, *normalized_digest["content"]["tags"]]))
         
         # Clean up any AI placeholders
         body = self._clean_placeholders(body)

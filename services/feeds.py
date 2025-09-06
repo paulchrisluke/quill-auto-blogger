@@ -333,19 +333,38 @@ class FeedGenerator:
                 tags = frontmatter.get('tags', [])
                 canonical_url = frontmatter.get('canonical', f"{self.frontend_domain}/blog/{date_str}")
             else:
-                # Published format
+                # Published format (publish package)
                 date_str = blog.get('datePublished', '')
-                title = blog.get('title', f'PCL Labs Devlog — {date_str}')
-                description = blog.get('summary', '')
+                # Handle two different publish package formats:
+                # 1. Dict content format: content.title, content.summary
+                # 2. String content format: title, summary (top-level)
+                content = blog.get('content', {})
+                if isinstance(content, dict):
+                    # Dict content format
+                    title = content.get('title', blog.get('title', f'PCL Labs Devlog — {date_str}'))
+                    description = content.get('summary', blog.get('summary', ''))
+                    tags = content.get('tags', blog.get('tags', []))
+                else:
+                    # String content format (content is the body text)
+                    title = blog.get('title', f'PCL Labs Devlog — {date_str}')
+                    description = blog.get('summary', '')
+                    tags = blog.get('tags', [])
                 author = 'Paul Chris Luke'  # Default author
-                tags = blog.get('tags', [])
                 canonical_url = blog.get('url', f"{self.frontend_domain}/blog/{date_str}")
             
             if not date_str or not title:
                 continue
             
             # Get the best image for this blog post
-            best_image = blog.get('image')  # Use the image field directly from the blog data
+            best_image = blog.get('image')
+            if not best_image:
+                media = blog.get('media', {})
+                if isinstance(media, dict):
+                    hero = media.get('hero', {})
+                    if isinstance(hero, dict) and hero.get('image'):
+                        best_image = hero['image']
+                    elif media.get('image'):
+                        best_image = media.get('image')
             
             # Create BlogPosting schema entry
             blog_posting = {
@@ -363,7 +382,7 @@ class FeedGenerator:
                     "name": "PCL Labs",
                     "logo": {
                         "@type": "ImageObject",
-                        "url": f"{self.frontend_domain}/pcl-labs-logo.svg"
+                        "url": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1200&h=630&fit=crop"
                     }
                 }
             }
@@ -382,10 +401,11 @@ class FeedGenerator:
                 "api_url": f"{self.api_domain}/blogs/{date_str}/{date_str}_page.publish.json",
                 "tags": tags,
                 "description": description,
-                "story_count": len(blog.get('story_packets', [])),
+                "story_count": len((blog.get('stories') or blog.get('story_packets', []))),
                 "has_video": any(
-                    story.get('videoId') is not None 
-                    for story in blog.get('story_packets', [])
+                    (s.get('videoId') is not None)
+                    or (isinstance(s.get('video'), dict) and s["video"].get('status') == 'rendered' and s["video"].get('path'))
+                    for s in (blog.get('stories') or blog.get('story_packets', []))
                 )
             }
             blogs_list.append(blog_entry)
@@ -407,7 +427,7 @@ class FeedGenerator:
                 "name": "PCL Labs",
                 "logo": {
                     "@type": "ImageObject",
-                    "url": f"{self.frontend_domain}/pcl-labs-logo.svg"
+                    "url": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1200&h=630&fit=crop"
                 }
             },
             "blogPost": blog_posts,
