@@ -353,6 +353,52 @@ class ApiV3Serializer:
         text = text.replace("[AI_GENERATE", "")
         return text.strip()
     
+    def _mask_code_and_links(self, content: str) -> tuple[str, callable]:
+        """
+        Mask fenced code blocks, inline code, and markdown links with stable placeholders.
+        
+        Args:
+            content: The content to mask
+            
+        Returns:
+            Tuple of (masked_content, unmask_function)
+        """
+        masked_content = content
+        replacements = []
+        
+        # Pattern 1: Fenced code blocks (```code``` or ~~~code~~~)
+        fenced_pattern = r'(```[^`]*```|~~~[^~]*~~~)'
+        fenced_matches = list(re.finditer(fenced_pattern, masked_content, re.DOTALL))
+        for i, match in enumerate(fenced_matches):
+            placeholder = f"__FENCED_CODE_BLOCK_{i}__"
+            replacements.append((placeholder, match.group(1)))
+            masked_content = masked_content.replace(match.group(1), placeholder, 1)
+        
+        # Pattern 2: Inline code (`code`)
+        inline_pattern = r'`([^`]+)`'
+        inline_matches = list(re.finditer(inline_pattern, masked_content))
+        for i, match in enumerate(inline_matches):
+            placeholder = f"__INLINE_CODE_{i}__"
+            replacements.append((placeholder, match.group(0)))
+            masked_content = masked_content.replace(match.group(0), placeholder, 1)
+        
+        # Pattern 3: Markdown links [text](url)
+        link_pattern = r'\[([^\]]*)\]\([^)]+\)'
+        link_matches = list(re.finditer(link_pattern, masked_content))
+        for i, match in enumerate(link_matches):
+            placeholder = f"__MARKDOWN_LINK_{i}__"
+            replacements.append((placeholder, match.group(0)))
+            masked_content = masked_content.replace(match.group(0), placeholder, 1)
+        
+        def unmask_function(masked_text: str) -> str:
+            """Restore original code blocks and links from placeholders."""
+            result = masked_text
+            for placeholder, original in replacements:
+                result = result.replace(placeholder, original)
+            return result
+        
+        return masked_content, unmask_function
+    
     def _process_markdown_content(self, content: str, normalized_digest: Dict[str, Any]) -> str:
         """
         Process AI-generated content to add proper markdown formatting, links, and structure.
@@ -366,6 +412,9 @@ class ApiV3Serializer:
         """
         if not content:
             return content
+        
+        # Mask code blocks and links to protect them from regex transforms
+        content, unmask_function = self._mask_code_and_links(content)
         
         # 1. Fix escaped newlines
         content = self._fix_escaped_newlines(content)
@@ -390,6 +439,9 @@ class ApiV3Serializer:
         
         # 8. Add signature with proper links
         content = self._add_signature(content)
+        
+        # Restore original code blocks and links
+        content = unmask_function(content)
         
         return content
     
@@ -423,17 +475,45 @@ class ApiV3Serializer:
             header_added = False
             for pattern, header in section_patterns:
                 if re.match(pattern, line, re.IGNORECASE):
-                    processed_lines.append('')
-                    processed_lines.append(header)
-                    processed_lines.append('')
-                    processed_lines.append(line)
-                    header_added = True
-                    break
+                    # Check if current line is already a markdown header
+                    if re.match(r'^\s*#{1,6}\s', line):
+                        # Line is already a header, just add it
+                        processed_lines.append(line)
+                        header_added = True
+                        break
+                    
+                    # Check if line already starts with the target header text
+                    if line.strip().startswith(header):
+                        # Line already has the header, just add it
+                        processed_lines.append(line)
+                        header_added = True
+                        break
+                    
+                    # Find the last non-empty line to check for duplicates
+                    last_non_empty = None
+                    for i in range(len(processed_lines) - 1, -1, -1):
+                        if processed_lines[i].strip():
+                            last_non_empty = processed_lines[i]
+                            break
+                    
+                    # Only add header if it's not already the last non-empty line
+                    if last_non_empty != header:
+                        processed_lines.append('')
+                        processed_lines.append(header)
+                        processed_lines.append('')
+                        processed_lines.append(line)
+                        header_added = True
+                        break
             
             if not header_added:
                 processed_lines.append(line)
         
         return '\n'.join(processed_lines)
+    
+    def _escape_markdown_text(self, text: str) -> str:
+        """Escape markdown special characters in text to be used as link text."""
+        # Escape characters that have special meaning in markdown
+        return text.replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
     
     def _add_resource_links(self, content: str, normalized_digest: Dict[str, Any]) -> str:
         """Add links to Twitch clips and GitHub PRs mentioned in content."""
@@ -441,47 +521,55 @@ class ApiV3Serializer:
         twitch_clips = normalized_digest.get('twitch_clips', [])
         github_events = normalized_digest.get('github_events', [])
         
-        # Create lookup dictionaries
+        # Create lookup dictionaries with original casing preserved
         clip_lookup = {}
         for clip in twitch_clips:
-            title = clip.get('title', '').lower()
-            url = clip.get('url', '')
+            title = clip.get('title', '')
+            # Prefer html_url, fall back to url
+            url = clip.get('html_url') or clip.get('url', '')
             if title and url:
-                clip_lookup[title] = url
+                # Use lowercased title as key for case-insensitive matching
+                clip_lookup[title.lower()] = {'original_title': title, 'url': url}
         
         pr_lookup = {}
         for event in github_events:
-            if event.get('type') == 'PullRequestEvent' and event.get('url'):
+            if event.get('type') == 'PullRequestEvent':
                 pr_num = event.get('details', {}).get('number')
-                title = event.get('title', '').lower()
-                url = event.get('url', '')
+                title = event.get('title', '')
+                # Prefer html_url, fall back to url
+                url = event.get('html_url') or event.get('url', '')
                 if pr_num and url:
-                    pr_lookup[f"pr #{pr_num}"] = url
+                    pr_ref = f"pr #{pr_num}"
+                    pr_lookup[pr_ref.lower()] = {'original_text': pr_ref, 'url': url}
                     if title:
-                        pr_lookup[title] = url
+                        pr_lookup[title.lower()] = {'original_text': title, 'url': url}
         
         # Add links to Twitch clips
-        for clip_title, clip_url in clip_lookup.items():
-            # Look for mentions of the clip title
-            pattern = rf'\b{re.escape(clip_title)}\b'
-            if re.search(pattern, content, re.IGNORECASE):
-                content = re.sub(
-                    pattern,
-                    f'[{clip_title}]({clip_url})',
-                    content,
-                    flags=re.IGNORECASE
-                )
+        for clip_key, clip_data in clip_lookup.items():
+            original_title = clip_data['original_title']
+            clip_url = clip_data['url']
+            
+            def replace_clip(match):
+                matched_text = match.group(0)
+                escaped_text = self._escape_markdown_text(matched_text)
+                return f'[{escaped_text}]({clip_url})'
+            
+            # Look for mentions of the clip title (case-insensitive)
+            pattern = rf'\b{re.escape(clip_key)}\b'
+            content = re.sub(pattern, replace_clip, content, flags=re.IGNORECASE)
         
         # Add links to PRs
-        for pr_ref, pr_url in pr_lookup.items():
-            pattern = rf'\b{re.escape(pr_ref)}\b'
-            if re.search(pattern, content, re.IGNORECASE):
-                content = re.sub(
-                    pattern,
-                    f'[{pr_ref}]({pr_url})',
-                    content,
-                    flags=re.IGNORECASE
-                )
+        for pr_key, pr_data in pr_lookup.items():
+            original_text = pr_data['original_text']
+            pr_url = pr_data['url']
+            
+            def replace_pr(match):
+                matched_text = match.group(0)
+                escaped_text = self._escape_markdown_text(matched_text)
+                return f'[{escaped_text}]({pr_url})'
+            
+            pattern = rf'\b{re.escape(pr_key)}\b'
+            content = re.sub(pattern, replace_pr, content, flags=re.IGNORECASE)
         
         return content
     
@@ -563,32 +651,34 @@ class ApiV3Serializer:
     
     def _format_lists(self, content: str) -> str:
         """Convert paragraph lists to proper markdown lists."""
-        # Look for sentences that start with action words and contain multiple items
-        list_patterns = [
-            r'(I started by|I began by|The steps included|The process involved).*?([^.]+\.)',
-            r'(This involved|This included|The changes were).*?([^.]+\.)',
-        ]
+        # Combined pattern with alternation for all list patterns
+        combined_pattern = r'(I started by|I began by|The steps included|The process involved|This involved|This included|The changes were).*?([^.]+\.)'
         
-        for pattern in list_patterns:
-            matches = re.finditer(pattern, content, re.IGNORECASE | re.DOTALL)
-            for match in matches:
-                original = match.group(0)
-                items_text = match.group(2)
-                
-                # Split on common separators
-                items = re.split(r'[,;]\s*(?=\w)', items_text)
-                if len(items) > 1:
-                    # Create markdown list
-                    list_items = []
-                    for item in items:
-                        item = item.strip().rstrip('.')
-                        if item:
-                            list_items.append(f"- {item}")
-                    
-                    if list_items:
-                        markdown_list = '\n'.join(list_items)
-                        replacement = f"{match.group(1)}:\n\n{markdown_list}"
-                        content = content.replace(original, replacement)
+        def format_list_callback(match):
+            """Callback function to format list matches."""
+            lead = match.group(1)
+            items_text = match.group(2)
+            
+            # Split on common separators
+            items = re.split(r'[,;]\s*(?=\w)', items_text)
+            if len(items) < 2:
+                return match.group(0)  # Return original if fewer than 2 items
+            
+            # Create markdown list
+            list_items = []
+            for item in items:
+                item = item.strip().rstrip('.')
+                if item:
+                    list_items.append(f"- {item}")
+            
+            if list_items:
+                joined_list = '\n'.join(list_items)
+                return f"{lead}:\n\n{joined_list}"
+            
+            return match.group(0)  # Return original if no valid items
+        
+        # Single re.sub call with callback for atomic replacement
+        content = re.sub(combined_pattern, format_list_callback, content, flags=re.IGNORECASE | re.DOTALL)
         
         return content
     

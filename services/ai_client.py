@@ -7,6 +7,7 @@ import requests
 import logging
 import time
 from datetime import datetime
+from typing import Dict, Any, Optional, Union
 from dotenv import load_dotenv
 
 import tiktoken
@@ -79,34 +80,39 @@ class TokenLimitExceededError(AIClientError):
     pass
 
 
+class AIResponseError(AIClientError):
+    """Raised when AI response is invalid or malformed."""
+    pass
+
+
 class CloudflareAIClient:
     """Minimal client for Cloudflare Workers AI."""
 
-    def __init__(self):
-        self.account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-        self.api_token = os.getenv("CLOUDFLARE_API_TOKEN")
-        self.model = os.getenv("CLOUDFLARE_AI_MODEL", "openai/llama-3.1-8b-instruct")
-        self.timeout = int(os.getenv("AI_TIMEOUT_MS", "120000")) / 1000.0  # 120 seconds for 70B model
-        self.seed = int(os.getenv("AI_SEED", "42"))
-        self.default_max_tokens = int(os.getenv("AI_MAX_TOKENS", "800"))
+    def __init__(self) -> None:
+        self.account_id: Optional[str] = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+        self.api_token: Optional[str] = os.getenv("CLOUDFLARE_API_TOKEN")
+        self.model: str = os.getenv("CLOUDFLARE_AI_MODEL", "openai/llama-3.1-8b-instruct")
+        self.timeout: float = int(os.getenv("AI_TIMEOUT_MS", "120000")) / 1000.0  # 120 seconds for 70B model
+        self.seed: int = int(os.getenv("AI_SEED", "42"))
+        self.default_max_tokens: int = int(os.getenv("AI_MAX_TOKENS", "800"))
         
         # Token validation settings
-        self.validate_tokens = os.getenv("AI_VALIDATE_TOKENS", "true").lower() == "true"
-        self.max_input_tokens = int(os.getenv("AI_MAX_INPUT_TOKENS", "0"))  # 0 = use model default
+        self.validate_tokens: bool = os.getenv("AI_VALIDATE_TOKENS", "true").lower() == "true"
+        self.max_input_tokens: int = int(os.getenv("AI_MAX_INPUT_TOKENS", "0"))  # 0 = use model default
 
         if not self.account_id or not self.api_token:
             raise AIClientError("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required")
 
-        self.base_url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.model}"
+        self.base_url: str = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.model}"
         
         # Initialize tokenizer for the model
         self._init_tokenizer()
 
-    def _init_tokenizer(self):
+    def _init_tokenizer(self) -> None:
         """Initialize the appropriate tokenizer for the model."""
         model_config = MODEL_LIMITS.get(self.model, MODEL_LIMITS["openai/llama-3.1-8b-instruct"])
         self.tokenizer = tiktoken.get_encoding(model_config["tiktoken_model"])
-        self.model_config = model_config
+        self.model_config: Dict[str, Any] = model_config
         
         # Calculate model limit and clamp max_input_tokens
         model_limit = max(0, model_config["context_window"] - model_config["max_output_tokens"])
@@ -161,7 +167,7 @@ class CloudflareAIClient:
         
         logger.info(f"Token validation passed - Input: {input_tokens:,}, Max output: {max_tokens:,}, Total: {total_tokens:,}")
 
-    def generate(self, prompt: str, system: str, max_tokens: int = None) -> str:
+    def generate(self, prompt: str, system: str, max_tokens: Optional[int] = None) -> str:
         """Generate text using Cloudflare Workers AI with comprehensive logging."""
         max_tokens = max_tokens or self.default_max_tokens
         
@@ -208,8 +214,10 @@ class CloudflareAIClient:
                 # New format with JSON schema
                 return data["response"]
             else:
-                logger.error(f"Unexpected response format: {data}")
-                raise AIClientError("Unexpected response format from AI service")
+                # Sanitize response data for logging (avoid leaking model output)
+                sanitized_data = self._sanitize_response_for_logging(data)
+                logger.error("Unexpected response format from AI service: %s", sanitized_data)
+                raise AIResponseError("Unexpected response format from AI service")
         except requests.exceptions.Timeout:
             response_time = time.time() - start_time
             logger.error(f"AI request timed out after {self.timeout}s (actual: {response_time:.2f}s)")
@@ -227,8 +235,11 @@ class CloudflareAIClient:
                 safe = {k: err.get(k) for k in ("errors", "error", "message", "code") if k in err}
                 logger.error("AI error (sanitized): %s", safe)
             except ValueError:
-                logger.debug("AI error body (non-JSON, truncated): %s", getattr(resp, "text", "")[:256])
-            raise AIClientError(str(e)) from e
+                # Truncate error body to avoid leaking sensitive data
+                error_text = getattr(resp, "text", "")
+                sanitized_text = self._sanitize_error_text(error_text)
+                logger.debug("AI error body (non-JSON, sanitized): %s", sanitized_text)
+            raise AIClientError(f"HTTP {status}: {reason}") from e
         except Exception as e:
             response_time = time.time() - start_time
             logger.error("Unexpected error in AI request: %s (response_time=%.2fs)", e, response_time)
@@ -281,4 +292,46 @@ class CloudflareAIClient:
             
         except Exception as e:
             logger.warning(f"Failed to log token usage: {e}")
+
+    def _sanitize_response_for_logging(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize response data for logging to avoid leaking model output or PII."""
+        sanitized = {}
+        for key, value in data.items():
+            if key in ["response", "result", "content", "text", "output"]:
+                # Truncate and mask actual content
+                if isinstance(value, str):
+                    sanitized[key] = f"[TRUNCATED: {len(value)} chars]"
+                elif isinstance(value, dict) and "response" in value:
+                    sanitized[key] = {"response": f"[TRUNCATED: {len(str(value['response']))} chars]"}
+                else:
+                    sanitized[key] = f"[TRUNCATED: {len(str(value))} chars]"
+            elif key in ["errors", "error", "message", "code", "status"]:
+                # Keep error information but sanitize content
+                if isinstance(value, str):
+                    sanitized[key] = self._sanitize_error_text(value)
+                else:
+                    sanitized[key] = value
+            else:
+                sanitized[key] = value
+        return sanitized
+
+    def _sanitize_error_text(self, text: str) -> str:
+        """Sanitize error text to remove potential PII or sensitive data."""
+        if not text:
+            return ""
+        
+        # Truncate to reasonable length
+        if len(text) > 256:
+            text = text[:256] + "..."
+        
+        # Remove potential API keys, tokens, or other sensitive patterns
+        import re
+        # Remove potential API keys (common patterns)
+        text = re.sub(r'[A-Za-z0-9]{20,}', '[REDACTED]', text)
+        # Remove potential email addresses
+        text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL_REDACTED]', text)
+        # Remove potential URLs with sensitive paths
+        text = re.sub(r'https?://[^\s]+', '[URL_REDACTED]', text)
+        
+        return text
 

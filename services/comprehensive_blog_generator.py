@@ -8,10 +8,10 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from dotenv import load_dotenv
 
-from .ai_client import CloudflareAIClient, AIClientError, TokenLimitExceededError
+from .ai_client import CloudflareAIClient, AIClientError, TokenLimitExceededError, AIResponseError
 
 # Load environment variables
 load_dotenv()
@@ -215,7 +215,8 @@ class ComprehensiveBlogGenerator:
             system_prompt, user_prompt = self._create_comprehensive_prompt(ai_data)
             
             # Use lower max tokens for output
-            max_tokens = min(int(os.getenv("AI_COMPREHENSIVE_MAX_TOKENS", "4000")), 4096) // 2  # Reduce by half
+            configured_tokens = max(int(os.getenv("AI_COMPREHENSIVE_MAX_TOKENS", "4000")), 1)
+            max_tokens = max(min(configured_tokens, 4096) // 2, 1)  # Reduce by half, ensure at least 1
             
             logger.info(f"Retrying with reduced prompt size - Max tokens: {max_tokens}")
             result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=max_tokens)
@@ -715,7 +716,7 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
 
         return system_prompt, user_prompt
     
-    def _parse_ai_response(self, ai_response, date: str = None) -> Dict[str, Any]:
+    def _parse_ai_response(self, ai_response: Union[Dict[str, Any], str], date: str = None) -> Dict[str, Any]:
         """Parse AI response into structured format."""
         try:
             # Handle dict response (from JSON schema)
@@ -791,7 +792,9 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse AI response as JSON: {e}")
-            logger.error(f"AI Response: {ai_response}")
+            # Sanitize AI response for logging to avoid leaking model output
+            sanitized_response = self._sanitize_ai_response_for_logging(ai_response)
+            logger.error(f"AI Response (sanitized): {sanitized_response}")
             
             # Try to extract content using regex as fallback
             try:
@@ -840,12 +843,14 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
                 
             except Exception as fallback_error:
                 logger.error(f"Regex fallback also failed: {fallback_error}")
-                raise ValueError(f"Invalid JSON response from AI: {e}")
+                raise AIResponseError(f"Invalid JSON response from AI: {e}")
                 
         except Exception as e:
             logger.error(f"Failed to parse AI response: {e}")
-            logger.error(f"AI Response: {ai_response}")
-            raise ValueError(f"Failed to parse AI response: {e}")
+            # Sanitize AI response for logging to avoid leaking model output
+            sanitized_response = self._sanitize_ai_response_for_logging(ai_response)
+            logger.error(f"AI Response (sanitized): {sanitized_response}")
+            raise AIResponseError(f"Failed to parse AI response: {e}")
     
     def _fix_common_json_issues(self, json_text: str) -> str:
         """Fix common JSON issues without corrupting valid content."""
@@ -864,59 +869,10 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
             return f'"{fixed}"'
         
         # Use a more sophisticated regex that handles escaped quotes
-        # This pattern matches strings but respects escaped quotes
-        fixed_text = re.sub(r'"((?:[^"\\]|\\.)*)"', fix_newlines_in_strings, json_text)
-        
-        return fixed_text
-    
-    def _fix_70b_model_json_issues(self, json_text: str) -> str:
-        """Fix specific JSON issues from the 70B model."""
-        import re
-        
-        # Remove malformed string concatenations like "text" + "more text"
-        json_text = re.sub(r'"\s*\+\s*"', '', json_text)
-        
-        # Fix broken string concatenations with variables
-        json_text = re.sub(r'"\s*\+\s*[^"]*\+\s*"', '', json_text)
-        
         # Remove stray characters and symbols that break JSON
-        json_text = re.sub(r'[!@#$%^&*()_+=\[\]{}|;:,.<>?`~]', '', json_text)
-        
-        # Fix broken quotes and escape sequences
-        json_text = re.sub(r'\\[^"\\/bfnrt]', '', json_text)
-        
-        # Remove incomplete string concatenations
-        json_text = re.sub(r'"\s*\+\s*$', '"', json_text, flags=re.MULTILINE)
-        json_text = re.sub(r'^\s*\+\s*"', '"', json_text, flags=re.MULTILINE)
-        
-        # More aggressive cleanup for fast model
-        # Remove all string concatenation operators
-        json_text = re.sub(r'\s*\+\s*', '', json_text)
-        
-        # Remove malformed quotes and concatenations
-        json_text = re.sub(r'""\s*\+\s*""', '""', json_text)
-        json_text = re.sub(r'"\s*\+\s*""', '"', json_text)
-        json_text = re.sub(r'""\s*\+\s*"', '"', json_text)
-        
-        # Clean up content field specifically
-        if '"content":' in json_text:
-            # Find the content field and clean it up
-            content_start = json_text.find('"content":')
-            if content_start != -1:
-                # Find the end of the content field (next } or end of string)
-                content_end = json_text.find('}', content_start)
-                if content_end != -1:
-                    content_section = json_text[content_start:content_end]
-                    # Extract just the content value and clean it
-                    content_match = re.search(r'"content":\s*"([^"]*(?:\\.[^"]*)*)"', content_section)
-                    if content_match:
-                        clean_content = content_match.group(1)
-                        # Clean up the content string
-                        clean_content = re.sub(r'\s*\+\s*', '', clean_content)
-                        clean_content = re.sub(r'""', '"', clean_content)
-                        clean_content = re.sub(r'\\n', '\\n', clean_content)
-                        # Replace the entire content section with clean version
-                        json_text = json_text[:content_start] + f'"content": "{clean_content}"' + json_text[content_end:]
+        # Remove only truly problematic characters while preserving JSON structure
+        # Keep JSON structural characters: {} [] , : "
+        json_text = re.sub(r'[!@#$%^&*()_+=|;<>?`~]', '', json_text)
         
         return json_text
     
@@ -996,8 +952,13 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
                 numbers = re.findall(r'\b\d{1,5}\b', body_text)[:5]  # Extract numbers
                 files_hint = ", ".join(d.get("files", [])[:5])[:160] if d.get("files") else ""
                 
-                # Create GitHub URL for PushEvent
-                github_url = f"https://github.com/{e.get('repo', 'paulchrisluke/pcl-labs')}/commit/{event_id}"
+                # Create GitHub URL for PushEvent using commit SHA
+                commit_sha = d.get('commit_sha')
+                if commit_sha:
+                    github_url = f"https://github.com/{e.get('repo', 'paulchrisluke/pcl-labs')}/commit/{commit_sha}"
+                else:
+                    # Fallback to event page if commit SHA is not available
+                    github_url = f"https://github.com/{e.get('repo', 'paulchrisluke/pcl-labs')}/events/{event_id}"
             elif e.get("type") == "PullRequestEvent":
                 # PullRequestEvent
                 event_id = d.get("number")
@@ -1108,6 +1069,51 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
         # Clean control characters and other JSON issues
         json_text = self._clean_json_text(json_text)
         return json_text
+    
+    def _extract_result_json_with_validation(self, text: str) -> tuple[str, bool]:
+        """
+        Extract JSON from sentinel tags with validation.
+        Returns (extracted_json, has_sentinel_tags)
+        """
+        start = text.find("<RESULT_JSON>")
+        end = text.find("</RESULT_JSON>")
+        
+        if start != -1 and end != -1:
+            json_text = text[start+13:end].strip()
+            return self._clean_json_text(json_text), True
+        else:
+            # No sentinel tags found, return the full text cleaned
+            return self._clean_json_text(text.strip()), False
+    
+    def _extract_json_with_regex_fallback(self, text: str) -> str:
+        """
+        Attempt to extract JSON using regex patterns as a fallback.
+        This is used when sentinel tags are missing.
+        """
+        import re
+        
+        # Try to find JSON-like structures in the text
+        # Look for patterns that start with { and end with }
+        json_patterns = [
+            r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',  # Simple nested braces
+            r'\{.*?\}',  # Any content between braces
+        ]
+        
+        for pattern in json_patterns:
+            matches = re.findall(pattern, text, re.DOTALL)
+            for match in matches:
+                # Try to clean and validate this potential JSON
+                cleaned = self._clean_json_text(match)
+                try:
+                    # Quick validation - if it can be parsed, it's probably valid
+                    import json
+                    json.loads(cleaned)
+                    return cleaned
+                except json.JSONDecodeError:
+                    continue
+        
+        # If no valid JSON found, return the cleaned original text
+        return self._clean_json_text(text.strip())
 
     def _clean_json_text(self, json_text: str) -> str:
         """Clean JSON text to remove control characters and other issues."""
@@ -1143,6 +1149,20 @@ IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, det
         
         # Remove any remaining problematic characters
         json_text = re.sub(r'[^\x20-\x7E\n\r\t{}[\]",:]+', '', json_text)
+        
+        # Fix malformed JSON with weird characters from AI
+        json_text = re.sub(r'!([^"]*?)!', r'"\1"', json_text)  # Fix !text! to "text"
+        json_text = re.sub(r'#([^"]*?)#', r'"\1"', json_text)  # Fix #text# to "text"
+        json_text = re.sub(r'!!', '"', json_text)  # Fix !! to "
+        json_text = re.sub(r'##', '"', json_text)  # Fix ## to "
+        
+        # Fix malformed schema_version
+        json_text = re.sub(r'"schema_version"!:\s*!v1"', '"schema_version": "v1"', json_text)
+        json_text = re.sub(r'"schema_version"!:\s*"!v1"', '"schema_version": "v1"', json_text)
+        
+        # Fix malformed keys and values
+        json_text = re.sub(r'"!([^"]*?)!":', r'"\1":', json_text)  # Fix "!key!": to "key":
+        json_text = re.sub(r':\s*!([^"]*?)!', r': "\1"', json_text)  # Fix : !value! to : "value"
         
         return json_text
 
@@ -1219,16 +1239,56 @@ RULES:
 - Example: if you have [EVENT:54113400422] and [CLIP:abc123], use them like ["[EVENT:54113400422]", "[CLIP:abc123]"]
 """
         raw = self.ai_client.generate(user, system, max_tokens=700)
+        
+        # First, check if the response contains sentinel tags
+        extracted_json, has_sentinel_tags = self._extract_result_json_with_validation(raw)
+        
         try:
-            js = json.loads(self._extract_result_json(raw))
+            js = json.loads(extracted_json)
+            return js
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing error in outline generation: {e}")
-            logger.error(f"Raw response: {raw[:500]}...")
-            # Try to extract and clean the JSON more aggressively
-            json_text = self._extract_result_json(raw)
-            json_text = self._clean_json_text(json_text)
-            js = json.loads(json_text)
-        return js
+            # Log the specific error with context about sentinel tags
+            sanitized_raw = self._sanitize_ai_response_for_logging(raw)
+            raw_sample = raw[:200] + "..." if len(raw) > 200 else raw
+            
+            if not has_sentinel_tags:
+                logger.error(f"JSON parsing error in outline generation: {e}")
+                logger.error(f"Missing <RESULT_JSON> sentinel tags in AI response")
+                logger.error(f"Raw response sample: {raw_sample}")
+                logger.error(f"Sanitized response: {sanitized_raw}")
+                
+                # Try regex-based extraction as fallback
+                try:
+                    fallback_json = self._extract_json_with_regex_fallback(raw)
+                    js = json.loads(fallback_json)
+                    logger.warning("Successfully extracted JSON using regex fallback after missing sentinel tags")
+                    return js
+                except json.JSONDecodeError as fallback_e:
+                    logger.error(f"Regex fallback also failed: {fallback_e}")
+                    raise ValueError(
+                        f"AI response missing <RESULT_JSON> sentinel tags and no valid JSON found. "
+                        f"Original error: {e}. Raw response sample: {raw_sample}"
+                    )
+            else:
+                # Sentinel tags were present but JSON is malformed
+                logger.error(f"JSON parsing error in outline generation: {e}")
+                logger.error(f"Sentinel tags present but JSON is malformed")
+                logger.error(f"Raw response sample: {raw_sample}")
+                logger.error(f"Sanitized response: {sanitized_raw}")
+                
+                # Try the existing aggressive cleaning approach
+                try:
+                    json_text = self._extract_result_json(raw)
+                    json_text = self._clean_json_text(json_text)
+                    js = json.loads(json_text)
+                    logger.warning("Successfully parsed JSON after aggressive cleaning")
+                    return js
+                except json.JSONDecodeError as clean_e:
+                    logger.error(f"Aggressive cleaning also failed: {clean_e}")
+                    raise ValueError(
+                        f"AI response contains <RESULT_JSON> tags but JSON is malformed. "
+                        f"Original error: {e}. Raw response sample: {raw_sample}"
+                    )
 
     def _generate_sections_group(self, date, outline, state, prs_rows, clips_rows, group_name, sections_in_group, pr_ids=None, clip_ids=None):
         """Generate a group of sections in a single call with enhanced prompts."""
@@ -1395,7 +1455,9 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
             js = json.loads(self._extract_result_json(raw))
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error in section group {group_name}: {e}")
-            logger.error(f"Raw response: {raw[:500]}...")
+            # Sanitize raw response for logging
+            sanitized_raw = self._sanitize_ai_response_for_logging(raw)
+            logger.error(f"Raw response (sanitized): {sanitized_raw}")
             # Try to extract and clean the JSON more aggressively
             json_text = self._extract_result_json(raw)
             json_text = self._clean_json_text(json_text)
@@ -1629,13 +1691,8 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
         content = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](\2)', content)
         
         # Fix malformed bullet points - add line breaks before bullets
-        content = re.sub(r': - ', ':\n\n- ', content)
-        content = re.sub(r'\. - ', '.\n\n- ', content)
-        content = re.sub(r'! - ', '!\n\n- ', content)
-        # Handle bullets with bold formatting
-        content = re.sub(r': - \*\*', ':\n\n- **', content)
-        content = re.sub(r'\. - \*\*', '.\n\n- **', content)
-        content = re.sub(r'! - \*\*', '!\n\n- **', content)
+        # Use a safer approach that preserves code blocks, inline code, and URLs
+        content = self._fix_bullet_points_safely(content)
         
         # Ensure blockquotes have proper spacing
         content = re.sub(r'\n>', '\n\n>', content)
@@ -1839,3 +1896,146 @@ Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
         
         logger.info(f"📈 Expansion for {weakest_section}: {expansion_word_count} words")
         return expansion_content
+
+    def _sanitize_ai_response_for_logging(self, ai_response: Union[str, Dict[str, Any]]) -> str:
+        """Sanitize AI response for logging to avoid leaking model output or PII."""
+        if isinstance(ai_response, dict):
+            # If it's a dict, extract key information without content
+            sanitized = {}
+            for key, value in ai_response.items():
+                if key in ["title", "description", "tags"]:
+                    # Keep metadata but truncate if too long
+                    if isinstance(value, str) and len(value) > 100:
+                        sanitized[key] = value[:100] + "..."
+                    else:
+                        sanitized[key] = value
+                elif key in ["content", "markdown_body", "response", "result"]:
+                    # Truncate content fields
+                    if isinstance(value, str):
+                        sanitized[key] = f"[TRUNCATED: {len(value)} chars]"
+                    else:
+                        sanitized[key] = f"[TRUNCATED: {len(str(value))} chars]"
+                else:
+                    sanitized[key] = value
+            return str(sanitized)
+        elif isinstance(ai_response, str):
+            # If it's a string, truncate and remove potential sensitive content
+            if len(ai_response) > 500:
+                truncated = ai_response[:500] + "..."
+            else:
+                truncated = ai_response
+            
+            # Remove potential API keys or tokens
+            import re
+            truncated = re.sub(r'[A-Za-z0-9]{20,}', '[REDACTED]', truncated)
+            truncated = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL_REDACTED]', truncated)
+            
+            return truncated
+        else:
+            return f"[UNKNOWN_TYPE: {type(ai_response)}]"
+    
+    def _fix_bullet_points_safely(self, content: str) -> str:
+        """
+        Fix malformed bullet points while preserving code blocks, inline code, and URLs.
+        
+        This method splits the content into code and non-code sections, applies bullet
+        fixing only to non-code sections, then reassembles the content.
+        """
+        import re
+        
+        # Split content into sections, preserving code blocks and inline code
+        sections = []
+        current_pos = 0
+        
+        # Find all fenced code blocks (```...```)
+        fenced_pattern = r'```[^`]*```'
+        for match in re.finditer(fenced_pattern, content, re.DOTALL):
+            # Add text before the code block
+            if match.start() > current_pos:
+                sections.append(('text', content[current_pos:match.start()]))
+            # Add the code block
+            sections.append(('fenced_code', match.group()))
+            current_pos = match.end()
+        
+        # Add remaining text
+        if current_pos < len(content):
+            sections.append(('text', content[current_pos:]))
+        
+        # Process each section
+        processed_sections = []
+        for section_type, section_content in sections:
+            if section_type == 'fenced_code':
+                # Preserve fenced code blocks unchanged
+                processed_sections.append(section_content)
+            else:
+                # Process text sections, but preserve inline code, URLs, and indented code blocks
+                processed_content = self._fix_bullet_points_in_text(section_content)
+                processed_sections.append(processed_content)
+        
+        return ''.join(processed_sections)
+    
+    def _fix_bullet_points_in_text(self, text: str) -> str:
+        """
+        Fix bullet points in text while preserving inline code, URLs, and indented code blocks.
+        """
+        import re
+        
+        # Split text into parts, preserving inline code, URLs, and indented code blocks
+        parts = []
+        current_pos = 0
+        
+        # Find inline code (`...`), URLs (http/https), and indented code blocks (4+ spaces at start of line)
+        patterns = [
+            (r'`[^`]*`', 'inline_code'),  # Inline code
+            (r'https?://[^\s]+', 'url'),  # URLs
+            (r'^    .*$', 'indented_code', re.MULTILINE),  # Indented code blocks (4+ spaces)
+        ]
+        
+        # Collect all matches
+        matches = []
+        for pattern, match_type, *flags in patterns:
+            pattern_flags = flags[0] if flags else 0
+            for match in re.finditer(pattern, text, pattern_flags):
+                matches.append((match.start(), match.end(), match_type, match.group()))
+        
+        # Sort matches by position
+        matches.sort(key=lambda x: x[0])
+        
+        # Process text between matches
+        for start, end, match_type, match_content in matches:
+            # Add text before the match
+            if start > current_pos:
+                text_before = text[current_pos:start]
+                processed_before = self._apply_bullet_fixes(text_before)
+                parts.append(processed_before)
+            
+            # Add the preserved match
+            parts.append(match_content)
+            current_pos = end
+        
+        # Add remaining text
+        if current_pos < len(text):
+            remaining_text = text[current_pos:]
+            processed_remaining = self._apply_bullet_fixes(remaining_text)
+            parts.append(processed_remaining)
+        
+        return ''.join(parts)
+    
+    def _apply_bullet_fixes(self, text: str) -> str:
+        """
+        Apply bullet point fixes to text that doesn't contain code or URLs.
+        """
+        import re
+        
+        # Fix malformed bullet points - add line breaks before bullets
+        # Only match at start of lines to avoid altering content
+        text = re.sub(r'^([^`\n]*?): - ', r'\1:\n\n- ', text, flags=re.MULTILINE)
+        text = re.sub(r'^([^`\n]*?)\. - ', r'\1.\n\n- ', text, flags=re.MULTILINE)
+        text = re.sub(r'^([^`\n]*?)! - ', r'\1!\n\n- ', text, flags=re.MULTILINE)
+        
+        # Handle bullets with bold formatting
+        text = re.sub(r'^([^`\n]*?): - \*\*', r'\1:\n\n- **', text, flags=re.MULTILINE)
+        text = re.sub(r'^([^`\n]*?)\. - \*\*', r'\1.\n\n- **', text, flags=re.MULTILINE)
+        text = re.sub(r'^([^`\n]*?)! - \*\*', r'\1!\n\n- **', text, flags=re.MULTILINE)
+        
+        return text

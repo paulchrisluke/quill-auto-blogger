@@ -7,7 +7,7 @@ import re
 import logging
 import os
 from typing import Dict, List, Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,53 @@ class BlogPostProcessor:
             logger.warning("TWITCH_EMBED_DOMAINS environment variable not set, using fallback")
             return "paulchrisluke.com,www.paulchrisluke.com"
         return domains
+    
+    def _validate_and_escape_domains(self, domains_str: str) -> str:
+        """
+        Validate and escape domains for safe use in Twitch embed iframe src.
+        
+        Args:
+            domains_str: Comma-separated list of domains
+            
+        Returns:
+            URL-encoded, comma-separated list of validated domains
+            
+        Raises:
+            ValueError: If any domain fails validation
+        """
+        if not domains_str:
+            raise ValueError("Empty domains string provided")
+        
+        # Split by comma and strip whitespace
+        domains = [domain.strip() for domain in domains_str.split(',')]
+        validated_domains = []
+        
+        # Domain validation regex: alphanumerics, dots, hyphens, and optional port
+        # Must start and end with alphanumeric, can have dots and hyphens in between
+        # Port must be 1-4 digits (1-65535)
+        # More strict: no consecutive dots, no leading/trailing hyphens
+        domain_pattern = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*(:[0-9]{1,4})?$')
+        
+        for domain in domains:
+            if not domain:
+                continue
+                
+            # Check if domain matches safe pattern
+            if not domain_pattern.match(domain):
+                raise ValueError(f"Invalid domain format: '{domain}'. Only alphanumerics, dots, hyphens, and optional ports are allowed.")
+            
+            # Additional validation: ensure it's not just dots or hyphens
+            if domain.replace('.', '').replace('-', '').replace(':', '') == '':
+                raise ValueError(f"Invalid domain: '{domain}' contains only special characters")
+            
+            # URL-encode the domain for safe use in URL parameters
+            encoded_domain = quote(domain, safe='')
+            validated_domains.append(encoded_domain)
+        
+        if not validated_domains:
+            raise ValueError("No valid domains found after validation")
+        
+        return ','.join(validated_domains)
     
     def process_blog_content(self, ai_content: str, digest: Dict[str, Any]) -> str:
         """
@@ -109,12 +156,22 @@ class BlogPostProcessor:
                 embed_clip_id = self._extract_clip_id_from_url(clip_url)
                 
                 if embed_clip_id:
-                    video_embed = (
-                        f'<iframe '
-                        f'src="https://clips.twitch.tv/embed?clip={embed_clip_id}&parent={self.twitch_embed_domains}" '
-                        f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
-                        f'</iframe>'
-                    )
+                    try:
+                        # Validate and escape domains for security
+                        safe_domains = self._validate_and_escape_domains(self.twitch_embed_domains)
+                        video_embed = (
+                            f'<iframe '
+                            f'src="https://clips.twitch.tv/embed?clip={embed_clip_id}&parent={safe_domains}" '
+                            f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
+                            f'</iframe>'
+                        )
+                    except ValueError as e:
+                        self.logger.error(f"Invalid Twitch embed domains: {e}")
+                        # Fallback to simple link if domain validation fails
+                        clip_link = f'[Clip: {clip_title}]({clip_url})'
+                        content = re.sub(clip_anchor_pattern, clip_link, content)
+                        self.logger.info(f"Processed clip anchor [CLIP:{clip_id}] to link (domain validation failed): {clip_title}")
+                        continue
                     
                     if re.search(clip_anchor_pattern, content):
                         # Replace anchor with video embed
@@ -148,7 +205,13 @@ class BlogPostProcessor:
                     else:
                         event_link = f'[Event {event_id}](https://github.com/paulchrisluke/pcl-labs/events/{event_id})'
                 elif event_type == 'PushEvent':
-                    event_link = f'[Push Event {event_id}](https://github.com/paulchrisluke/pcl-labs/commit/{event_id})'
+                    # Extract commit SHA from event details, with fallback to event_id
+                    commit_sha = event.get('details', {}).get('commit_sha')
+                    if commit_sha:
+                        event_link = f'[Push Event {event_id}](https://github.com/paulchrisluke/pcl-labs/commit/{commit_sha})'
+                    else:
+                        # Fallback to event_id if commit_sha is not available
+                        event_link = f'[Push Event {event_id}](https://github.com/paulchrisluke/pcl-labs/events/{event_id})'
                 else:
                     event_link = f'[Event {event_id}](https://github.com/paulchrisluke/pcl-labs/events/{event_id})'
                 
@@ -197,12 +260,19 @@ class BlogPostProcessor:
                     self.logger.warning(f"Skipping video embed for invalid clip URL: {clip_url}")
                     continue
                 
-                video_embed = (
-                    f'<iframe '
-                    f'src="https://clips.twitch.tv/embed?clip={clip_id}&parent={self.twitch_embed_domains}" '
-                    f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
-                    f'</iframe>'
-                )
+                try:
+                    # Validate and escape domains for security
+                    safe_domains = self._validate_and_escape_domains(self.twitch_embed_domains)
+                    video_embed = (
+                        f'<iframe '
+                        f'src="https://clips.twitch.tv/embed?clip={clip_id}&parent={safe_domains}" '
+                        f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
+                        f'</iframe>'
+                    )
+                except ValueError as e:
+                    self.logger.error(f"Invalid Twitch embed domains: {e}")
+                    # Skip this clip if domain validation fails
+                    continue
                 
                 if re.search(title_pattern, content):
                     # Add video embed after the title reference
