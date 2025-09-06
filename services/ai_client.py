@@ -41,6 +41,30 @@ MODEL_LIMITS = {
         "parameters": "8B",
         "cost_per_million_tokens": 0.15,
         "display_name": "Llama 3.1 8B Instruct"
+    },
+    "@cf/meta/llama-3.3-70b-instruct-fp8-fast": {
+        "context_window": 128000,  # 128k tokens
+        "max_output_tokens": 8192,  # 8k tokens - 2x the output limit!
+        "tiktoken_model": "cl100k_base",
+        "parameters": "70B",
+        "cost_per_million_tokens": 0.60,  # Higher cost for 70B model
+        "display_name": "Llama 3.3 70B Instruct (Fast)"
+    },
+    "@cf/meta/llama-3.1-70b-instruct": {
+        "context_window": 128000,  # 128k tokens
+        "max_output_tokens": 4096,  # 4k tokens - same as 8B but better quality
+        "tiktoken_model": "cl100k_base",
+        "parameters": "70B",
+        "cost_per_million_tokens": 0.60,  # Higher cost for 70B model
+        "display_name": "Llama 3.1 70B Instruct"
+    },
+    "@cf/meta/llama-4-scout-17b-16e-instruct": {
+        "context_window": 131000,  # 131k tokens - larger context window
+        "max_output_tokens": 4096,  # 4k tokens - same limit but better quality
+        "tiktoken_model": "cl100k_base",
+        "parameters": "17B",
+        "cost_per_million_tokens": 0.27,  # Lower cost than 70B model
+        "display_name": "Llama 4 Scout 17B Instruct"
     }
 }
 
@@ -62,7 +86,7 @@ class CloudflareAIClient:
         self.account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
         self.api_token = os.getenv("CLOUDFLARE_API_TOKEN")
         self.model = os.getenv("CLOUDFLARE_AI_MODEL", "openai/llama-3.1-8b-instruct")
-        self.timeout = int(os.getenv("AI_TIMEOUT_MS", "60000")) / 1000.0  # 60 seconds for longer content
+        self.timeout = int(os.getenv("AI_TIMEOUT_MS", "120000")) / 1000.0  # 120 seconds for 70B model
         self.seed = int(os.getenv("AI_SEED", "42"))
         self.default_max_tokens = int(os.getenv("AI_MAX_TOKENS", "800"))
         
@@ -160,7 +184,7 @@ class CloudflareAIClient:
             ],
             "stream": False,
             "max_tokens": max_tokens,
-            "temperature": 0.3,
+            "temperature": 0.15,  # Llama 4 Scout default
             "top_p": 0.9,
             "seed": self.seed,
         }
@@ -176,7 +200,16 @@ class CloudflareAIClient:
             # Extract token usage and log comprehensive details
             self._log_token_usage(data, system, prompt, response_time, request_timestamp)
             
-            return data["result"]["response"]
+            # Handle different response formats
+            if "result" in data and "response" in data["result"]:
+                # Old format
+                return data["result"]["response"]
+            elif "response" in data:
+                # New format with JSON schema
+                return data["response"]
+            else:
+                logger.error(f"Unexpected response format: {data}")
+                raise AIClientError("Unexpected response format from AI service")
         except requests.exceptions.Timeout:
             response_time = time.time() - start_time
             logger.error(f"AI request timed out after {self.timeout}s (actual: {response_time:.2f}s)")
@@ -206,14 +239,16 @@ class CloudflareAIClient:
         """Log comprehensive AI usage details including model, tokens, response time, and cost."""
         try:
             # Extract token usage from response (Cloudflare doesn't provide this)
-            usage = response_data.get("result", {}).get("usage", {})
+            usage = response_data.get("result", {}).get("usage", {}) or response_data.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
             
             # Cloudflare Workers AI doesn't return token usage, so we calculate it
             if input_tokens == 0 and output_tokens == 0:
                 input_tokens = self._count_tokens(system + "\n\n" + prompt)
-                response_text = response_data.get("result", {}).get("response", "")
+                # Handle both old and new response formats
+                response_text = (response_data.get("result", {}).get("response", "") or 
+                               response_data.get("response", ""))
                 output_tokens = self._count_tokens(response_text)
             
             # Get model information and pricing

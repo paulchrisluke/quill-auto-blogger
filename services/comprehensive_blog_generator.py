@@ -83,7 +83,7 @@ class ComprehensiveBlogGenerator:
     
     def generate_blog_content(self, date: str, twitch_clips: List[Dict[str, Any]], github_events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Generate complete blog content from raw data.
+        Generate complete blog content from raw data using 4-call chunking approach.
         
         Args:
             date: Date in YYYY-MM-DD format
@@ -103,29 +103,88 @@ class ComprehensiveBlogGenerator:
             # Prepare data for AI
             ai_data = self._prepare_ai_data(date, twitch_clips, github_events)
             
-            # Generate comprehensive prompt
-            system_prompt, user_prompt = self._create_comprehensive_prompt(ai_data)
+            # Create compact tables for token efficiency
+            clips_rows = self._compact_clip_rows(ai_data["twitch_clips"])
+            prs_rows = self._compact_pr_rows(ai_data["github_events"])
             
-            # Call AI with higher token limit for longer, more detailed content
-            max_tokens = int(os.getenv("AI_COMPREHENSIVE_MAX_TOKENS", "8000"))
-            logger.info(f"Sending comprehensive blog generation request for {date} to AI...")
-            logger.info(f"System prompt length: {len(system_prompt)}")
-            logger.info(f"User prompt length: {len(user_prompt)}")
-            logger.info(f"Total prompt length: {len(system_prompt) + len(user_prompt)}")
-            logger.info(f"Max tokens: {max_tokens}")
-            # Log actual token count if available
-            if hasattr(self.ai_client, '_count_tokens'):
-                estimated_tokens = self.ai_client._count_tokens(system_prompt + user_prompt)
-                logger.info(f"Estimated input tokens: {estimated_tokens:,}")
+            logger.info(f"🚀 Starting 4-call chunking blog generation for {date}")
+            logger.info(f"📊 Data Summary: {len(clips_rows)} clips, {len(prs_rows)} PRs")
+            
+            # 1) Generate outline
+            logger.info("📋 Step 1/4: Generating outline...")
+            logger.info(f"🔗 Available anchors: {[row['anchor'] for row in prs_rows + clips_rows]}")
+            outline = self._generate_outline(date, prs_rows, clips_rows)
+            logger.info(f"📋 Generated outline with section plans: {outline.get('section_plan', {})}")
+            state = {
+                "prev_last_sentence": "",
+                "motifs": ["automation paradox", "Clanker", "live-streaming rubber duck", "tech debt", "caffeine-fueled coding"],
+                "motifs_used": [],  # Track which motifs have been used
+                "used_anchors": set()  # Track used anchors across all sections
+            }
+            
+            blocks = {}
+            
+            # 2) Hook + Context
+            logger.info("📝 Step 2/4: Generating Hook + Context sections...")
+            r1 = self._generate_sections_group(date, outline, state, prs_rows, clips_rows,
+                                               "hook_ctx", ["Hook","Context"])
+            blocks.update(r1["sections"])
+            
+            # 3) What Shipped + Twitch Clips
+            logger.info("📝 Step 3/4: Generating What Shipped + Twitch Clips sections...")
+            r2 = self._generate_sections_group(date, outline, state, prs_rows, clips_rows,
+                                               "shipped_clips", ["What Shipped","Twitch Clips"])
+            blocks.update(r2["sections"])
+            
+            # 4) Why It Matters + Human Story + Wrap-Up
+            logger.info("📝 Step 4/4: Generating Why It Matters + Human Story + Wrap-Up sections...")
+            r3 = self._generate_sections_group(date, outline, state, prs_rows, clips_rows,
+                                               "why_human_wrap", ["Why It Matters","Human Story","Wrap-Up"])
+            blocks.update(r3["sections"])
+            
+            # 5) Stitch sections together
+            logger.info("🔗 Stitching sections together...")
+            result = self._stitch_sections(outline, blocks)
+            
+            # 6) Expansion mini-pass (optional - add 300-400 words to weakest section)
+            logger.info("📈 Step 5/5: Expansion mini-pass...")
+            weakest_section = self._find_weakest_section(blocks)
+            expansion_content = self._expand_weakest_section(date, blocks, weakest_section, prs_rows, clips_rows)
+            
+            # Insert expansion into the weakest section
+            if expansion_content and weakest_section in blocks:
+                current_content = blocks[weakest_section]["content"]
+                # Insert expansion before the last paragraph
+                paragraphs = current_content.split('\n\n')
+                if len(paragraphs) > 1:
+                    paragraphs.insert(-1, expansion_content)
+                    blocks[weakest_section]["content"] = '\n\n'.join(paragraphs)
+                    logger.info(f"✅ Added expansion to {weakest_section}")
+                else:
+                    # If no paragraphs, just append
+                    blocks[weakest_section]["content"] = current_content + '\n\n' + expansion_content
+                    logger.info(f"✅ Appended expansion to {weakest_section}")
+                
+                # Re-stitch with expanded content
+                result = self._stitch_sections(outline, blocks)
+            
+            # Enhanced content validation and logging
+            content = result.get('content', '')
+            word_count = len(content.split()) if content else 0
+            char_count = len(content) if content else 0
+            
+            logger.info(f"✅ Successfully generated chunked blog content for {date}")
+            logger.info(f"📊 Content Stats - Words: {word_count:,}, Characters: {char_count:,}")
+            logger.info(f"📏 Content Length: {len(content):,} characters")
+            
+            # Validate content length
+            target_words = 2700  # Updated target for enhanced chunked approach
+            if word_count < target_words:
+                logger.warning(f"⚠️ Content shorter than target: {word_count:,} words (target: {target_words:,})")
             else:
-                logger.info(f"Estimated input tokens: {(len(system_prompt) + len(user_prompt)) // 4}")
-            result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=max_tokens)
+                logger.info(f"🎯 Content length target met: {word_count:,} words")
             
-            # Parse AI response
-            parsed_content = self._parse_ai_response(result, date)
-            
-            logger.info(f"Successfully generated comprehensive blog content for {date}")
-            return parsed_content
+            return result
             
         except TokenLimitExceededError as e:
             logger.error(f"Token limit exceeded for {date}: {e}")
@@ -156,7 +215,7 @@ class ComprehensiveBlogGenerator:
             system_prompt, user_prompt = self._create_comprehensive_prompt(ai_data)
             
             # Use lower max tokens for output
-            max_tokens = int(os.getenv("AI_COMPREHENSIVE_MAX_TOKENS", "8000")) // 2  # Reduce by half
+            max_tokens = min(int(os.getenv("AI_COMPREHENSIVE_MAX_TOKENS", "4000")), 4096) // 2  # Reduce by half
             
             logger.info(f"Retrying with reduced prompt size - Max tokens: {max_tokens}")
             result = self.ai_client.generate(user_prompt, system_prompt, max_tokens=max_tokens)
@@ -191,6 +250,10 @@ class ComprehensiveBlogGenerator:
         merged_events = self._filter_merged_events(github_events)
         logger.info(f"Filtered events: {len(github_events)} total -> {len(merged_events)} merged PRs")
         
+        # Count commit messages for logging
+        total_commit_messages = sum(len(event.get('details', {}).get('commit_messages', [])) for event in merged_events)
+        logger.info(f"📝 Total commit messages available: {total_commit_messages}")
+        
         # Sort clips by view count (descending) and take top ones
         max_clips = int(os.getenv("AI_MAX_CLIPS", "5"))  # Increased since we're filtering
         sorted_clips = sorted(clips_with_transcripts, key=lambda x: x.get('view_count', 0), reverse=True)
@@ -224,7 +287,7 @@ class ComprehensiveBlogGenerator:
         }
     
     def _filter_merged_events(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Filter GitHub events to include only merged PullRequestEvents and PushEvents."""
+        """Filter GitHub events to include merged PullRequestEvents, PushEvents, and other relevant events."""
         merged_events = []
         
         for event in events:
@@ -241,6 +304,10 @@ class ComprehensiveBlogGenerator:
                 branch = details.get('branch', 'unknown branch')
                 commits = details.get('commits', 0)
                 logger.info(f"Including PushEvent: {commits} commits to {branch}")
+            elif event.get('type') in ['IssueCommentEvent', 'PullRequestReviewCommentEvent', 'PullRequestReviewEvent']:
+                # Include these event types as they represent meaningful activity
+                merged_events.append(event)
+                logger.info(f"Including {event.get('type')}: {event.get('id', 'No ID')}")
         
         return merged_events
     
@@ -543,10 +610,13 @@ DETAILED TWITCH CLIPS:
 DETAILED GITHUB EVENTS:
 {safe_json_dumps(events)}
 
+COMMIT MESSAGE DETAILS:
+Use the detailed commit messages from the GitHub events to add technical depth and context. Each commit message contains specific technical details about what was changed and why. Extract the technical specifics, problem statements, and solutions from these commit messages to create rich, detailed content.
+
 STORY CONTEXT:
 This is a day in the life of Paul Chris Luke, a developer who live-streams his coding sessions and builds AI automation tools. The irony is that he's building tools that might eventually replace parts of his own job, all while live-streaming the process and explaining the absurdity of it to his audience.
 
-Focus on the actual technical work and the human story behind it.
+Focus on the actual technical work and the human story behind it. Use the commit messages to understand the technical challenges and solutions that were implemented.
 
 WRITING INSTRUCTIONS:
 Create a compelling, EXTENSIVE narrative that weaves together the technical work with the human story behind it. Focus on STORY and PERSONALITY, not technical formatting. Use the SPECIFIC details provided - actual PR numbers, clip titles, view counts, transcripts, and event details. Make it engaging and authentic to Paul's voice. Include the meta-commentary about building automation tools while live-streaming the process.
@@ -562,10 +632,10 @@ NARRATIVE WRITING STYLE (CRITICAL):
 - Include "color commentary" and audience reactions for unique long-tail content
 - Avoid documentation-style writing - this is storytelling, not changelog
 
-EXAMPLE OF GOOD PR WRITING:
+EXAMPLE OF GOOD PR WRITING (EXPANDED):
 Instead of: "The first PR was a feature/clip recap pipeline analysis, which included daily recap posts generated as standard Markdown files, pull requests targeting the staging branch by default, and updated notification wording for the bot channel."
 
-Do this: "The first major milestone of the day was a significant refactor that transformed how data gets processed inside my system. Up until now, handling this workflow was messy — duplicates, inconsistent formatting, and a lot of manual cleanup. With this change, I introduced caching and deduplication that make ingestion far more efficient. On top of that, the pipeline now generates structured updates automatically, creating organized content I can share with my community. Even the notifications were polished with clearer wording, making the workflow more transparent for both me and my viewers. In short, this wasn't just about technical optimization; it was about building a smoother bridge between live-streaming content and developer storytelling."
+Do this: "The first major milestone of the day was a significant refactor that transformed how data gets processed inside my system. Up until now, handling this workflow was messy — duplicates, inconsistent formatting, and a lot of manual cleanup. With this change, I introduced caching and deduplication that make ingestion far more efficient. On top of that, the pipeline now generates structured updates automatically, creating organized content I can share with my community. Even the notifications were polished with clearer wording, making the workflow more transparent for both me and my viewers. In short, this wasn't just about technical optimization; it was about building a smoother bridge between live-streaming content and developer storytelling. But the real story here isn't just about the technical implementation — it's about the human side of automation. As I was building these tools, I couldn't help but think about the irony of it all. Here I am, live-streaming my coding sessions, building tools that might eventually replace parts of my own job, all while explaining the absurdity of it to my audience. It's a delicate balance between showcasing technical prowess and acknowledging the existential questions that come with creating tools that might eventually make me obsolete. The community feedback I received during this process was invaluable — viewers commented on the clarity of my explanations, the quality of my code, and the humor I brought to the process. It was a reminder that, even in the midst of building automation tools, there is still a human element that makes the work worth doing."
 
 SEO AND DEPTH REQUIREMENTS:
 - Target 200+ words per major section
@@ -601,13 +671,16 @@ HUMAN STORY EXPANSION:
 - Connect to broader themes about automation and human creativity
 
 LENGTH AND DETAIL REQUIREMENTS (CRITICAL):
-- Target 1500-2500 words total (more manageable for API)
-- Each section should be substantial and detailed (2-3 paragraphs each)
-- Include specific examples, quotes, and anecdotes
+- Target 2500-3500 words total (you have 4096 tokens available - use them!)
+- Each section should be substantial and detailed (4-6 paragraphs each)
+- Include specific examples, quotes, and anecdotes from commit messages
 - Expand on the human story and meta-commentary extensively
 - Make it feel like a comprehensive, engaging read
 - Don't rush through sections - give each one proper depth and development
 - Use the full narrative structure with rich detail in every section
+- Leverage the detailed commit messages for technical depth and context
+- WRITE EXTENSIVELY - this should be a substantial, detailed blog post
+- Use all available tokens - don't be concise, be comprehensive
 
 IMPORTANT: 
 - Start with a personality-driven hook using the actual date and events from the data
@@ -619,21 +692,43 @@ IMPORTANT:
 - NO BULLET POINTS OR LISTS - use flowing paragraphs instead
 - BE EXTENSIVE - this should be a substantial, detailed blog post
 
+CRITICAL LENGTH REQUIREMENT:
+- You have 4096 tokens available for output - USE ALL OF THEM
+- This should be a comprehensive, detailed blog post of 2500+ words
+- Don't be concise - be thorough and detailed
+- Expand on every section with rich detail and storytelling
+- Include extensive meta-commentary and personal reflections
+- Use the full narrative structure with substantial depth in every section
+- CONTINUE WRITING until you reach the token limit - don't stop early
+- Add more detail, more examples, more personal reflections
+- Make this the most comprehensive blog post possible
+
 CRITICAL JSON FORMATTING REQUIREMENTS:
 - All newlines in the content field must be escaped as \\n
 - All quotes in the content must be escaped as \\"
 - The response must be valid JSON that can be parsed
 - Do not include any text outside the JSON object
 
-Return only the JSON response as specified in the system prompt."""
+Return only the JSON response as specified in the system prompt.
+
+IMPORTANT: Use ALL available tokens (4096) to create the most comprehensive, detailed blog post possible. Don't stop early - continue writing until you've exhausted the token limit with rich, detailed content."""
 
         return system_prompt, user_prompt
     
-    def _parse_ai_response(self, ai_response: str, date: str = None) -> Dict[str, Any]:
+    def _parse_ai_response(self, ai_response, date: str = None) -> Dict[str, Any]:
         """Parse AI response into structured format."""
         try:
-            # Clean up the response (remove any markdown formatting if present)
-            cleaned_response = ai_response.strip()
+            # Handle dict response (from JSON schema)
+            if isinstance(ai_response, dict):
+                logger.info("Received structured JSON response from AI")
+                return ai_response
+            
+            # Handle string response (legacy format)
+            if isinstance(ai_response, str):
+                # Clean up the response (remove any markdown formatting if present)
+                cleaned_response = ai_response.strip()
+            else:
+                raise ValueError(f"Unexpected response type: {type(ai_response)}")
             if cleaned_response.startswith('```json'):
                 cleaned_response = cleaned_response[7:]
             if cleaned_response.endswith('```'):
@@ -658,7 +753,10 @@ Return only the JSON response as specified in the system prompt."""
                     break
                 except json.JSONDecodeError as e:
                     logger.warning(f"JSON parse attempt {attempt} failed: {e}")
-                    if attempt == len(parse_attempts):
+                    if attempt < len(parse_attempts) - 1:
+                        # Apply 70B model specific fixes
+                        response_text = self._fix_70b_model_json_issues(response_text)
+                    if attempt == len(parse_attempts) - 1:
                         # All attempts failed, raise the last error
                         raise e
             
@@ -771,6 +869,57 @@ Return only the JSON response as specified in the system prompt."""
         
         return fixed_text
     
+    def _fix_70b_model_json_issues(self, json_text: str) -> str:
+        """Fix specific JSON issues from the 70B model."""
+        import re
+        
+        # Remove malformed string concatenations like "text" + "more text"
+        json_text = re.sub(r'"\s*\+\s*"', '', json_text)
+        
+        # Fix broken string concatenations with variables
+        json_text = re.sub(r'"\s*\+\s*[^"]*\+\s*"', '', json_text)
+        
+        # Remove stray characters and symbols that break JSON
+        json_text = re.sub(r'[!@#$%^&*()_+=\[\]{}|;:,.<>?`~]', '', json_text)
+        
+        # Fix broken quotes and escape sequences
+        json_text = re.sub(r'\\[^"\\/bfnrt]', '', json_text)
+        
+        # Remove incomplete string concatenations
+        json_text = re.sub(r'"\s*\+\s*$', '"', json_text, flags=re.MULTILINE)
+        json_text = re.sub(r'^\s*\+\s*"', '"', json_text, flags=re.MULTILINE)
+        
+        # More aggressive cleanup for fast model
+        # Remove all string concatenation operators
+        json_text = re.sub(r'\s*\+\s*', '', json_text)
+        
+        # Remove malformed quotes and concatenations
+        json_text = re.sub(r'""\s*\+\s*""', '""', json_text)
+        json_text = re.sub(r'"\s*\+\s*""', '"', json_text)
+        json_text = re.sub(r'""\s*\+\s*"', '"', json_text)
+        
+        # Clean up content field specifically
+        if '"content":' in json_text:
+            # Find the content field and clean it up
+            content_start = json_text.find('"content":')
+            if content_start != -1:
+                # Find the end of the content field (next } or end of string)
+                content_end = json_text.find('}', content_start)
+                if content_end != -1:
+                    content_section = json_text[content_start:content_end]
+                    # Extract just the content value and clean it
+                    content_match = re.search(r'"content":\s*"([^"]*(?:\\.[^"]*)*)"', content_section)
+                    if content_match:
+                        clean_content = content_match.group(1)
+                        # Clean up the content string
+                        clean_content = re.sub(r'\s*\+\s*', '', clean_content)
+                        clean_content = re.sub(r'""', '"', clean_content)
+                        clean_content = re.sub(r'\\n', '\\n', clean_content)
+                        # Replace the entire content section with clean version
+                        json_text = json_text[:content_start] + f'"content": "{clean_content}"' + json_text[content_end:]
+        
+        return json_text
+    
     def _extract_json_from_markdown(self, text: str) -> str:
         """Extract JSON from markdown code blocks or other formatting."""
         import re
@@ -794,3 +943,899 @@ Return only the JSON response as specified in the system prompt."""
                         return text[start_brace:i+1]
         
         return text
+
+    def _compact_clip_rows(self, clips):
+        """Create compact clip rows for token efficiency with anchor tokens."""
+        out = []
+        for c in clips:
+            clip_id = c.get("id") or c.get("slug") or c.get("url", "")[-8:]
+            transcript = c.get("transcript") or ""
+            
+            # Extract a compelling quote from transcript
+            quote = ""
+            if transcript:
+                # Find a sentence that's not too short or too long
+                sentences = [s.strip() for s in transcript.split('.') if 20 < len(s.strip()) < 120]
+                if sentences:
+                    quote = sentences[0] + "."
+            
+            out.append({
+                "anchor": f"[CLIP:{clip_id}]",
+                "id": clip_id,
+                "title": (c.get("title") or "")[:120],
+                "views": int(c.get("view_count", 0)),
+                "duration_s": int(c.get("duration", 0)),
+                "quote": quote[:200],  # Key quote for narrative use
+                "excerpt": transcript.replace("\n"," ")[:280]
+            })
+        return out
+
+    def _compact_pr_rows(self, events):
+        """Create compact PR rows for token efficiency with anchor tokens."""
+        rows = []
+        for e in events:
+            # Handle multiple GitHub event types
+            if e.get("type") not in ["PullRequestEvent", "PushEvent", "IssueCommentEvent", "PullRequestReviewCommentEvent", "PullRequestReviewEvent"]: 
+                continue
+            
+            d = e.get("details", {}) or {}
+            
+            # For PullRequestEvent, check if merged
+            if e.get("type") == "PullRequestEvent" and not d.get("merged", False):
+                continue
+            
+            # Handle different event types
+            if e.get("type") == "PushEvent":
+                event_id = e.get("id", "unknown")
+                commit_summary = "\n".join(d.get("commit_messages", []))
+                branch = d.get("branch", "main")
+                title = f"Push to {branch}"
+                
+                # Extract numbers and technical details for richer content
+                body_text = (e.get("body") or "") + " " + commit_summary
+                numbers = re.findall(r'\b\d{1,5}\b', body_text)[:5]  # Extract numbers
+                files_hint = ", ".join(d.get("files", [])[:5])[:160] if d.get("files") else ""
+                
+                # Create GitHub URL for PushEvent
+                github_url = f"https://github.com/{e.get('repo', 'paulchrisluke/pcl-labs')}/commit/{event_id}"
+            elif e.get("type") == "PullRequestEvent":
+                # PullRequestEvent
+                event_id = d.get("number")
+                commit_summary = e.get("commit_summary", "")
+                title = d.get("title", "")
+                
+                # Create GitHub URL for PullRequestEvent
+                github_url = f"https://github.com/{e.get('repo', 'paulchrisluke/pcl-labs')}/pull/{event_id}"
+            else:
+                # Handle IssueCommentEvent, PullRequestReviewCommentEvent, PullRequestReviewEvent
+                event_id = e.get("id", "unknown")
+                title = d.get("title", "") or f"{e.get('type', 'Event')} in {e.get('repo', '')}"
+                commit_summary = ""
+                body_text = (e.get("body") or "") + " " + (d.get("body", "") or "")
+                
+                # Create GitHub URL for other event types
+                # Try to get the issue/PR number from the details
+                issue_number = d.get("issue", {}).get("number") if d.get("issue") else None
+                pr_number = d.get("pull_request", {}).get("number") if d.get("pull_request") else None
+                
+                if issue_number:
+                    github_url = f"https://github.com/{e.get('repo', 'paulchrisluke/pcl-labs')}/issues/{issue_number}"
+                elif pr_number:
+                    github_url = f"https://github.com/{e.get('repo', 'paulchrisluke/pcl-labs')}/pull/{pr_number}"
+                else:
+                    # Fallback to event URL
+                    github_url = f"https://github.com/{e.get('repo', 'paulchrisluke/pcl-labs')}/events/{event_id}"
+                numbers = re.findall(r'\b\d{1,5}\b', body_text)[:5]  # Extract numbers
+                files_hint = ""
+            
+            # Extract key commit message for narrative use
+            key_commit = ""
+            if commit_summary:
+                # Find the most interesting commit message
+                commits = [c.strip() for c in commit_summary.split('\n') if c.strip()]
+                if commits:
+                    # Prefer commits that aren't just "update" or "fix"
+                    interesting_commits = [c for c in commits if not any(c.lower().startswith(prefix) for prefix in ['update', 'fix', 'bump', 'chore'])]
+                    key_commit = interesting_commits[0] if interesting_commits else commits[0]
+                    key_commit = key_commit[:150]  # Truncate if too long
+            
+            row_data = {
+                "anchor": f"[EVENT:{event_id}]",
+                "id": e.get("id"),
+                "number": event_id,
+                "title": (title[:140]),
+                "body_excerpt": ((e.get("body") or "").replace("\n"," ")[:300]),
+                "commit_summary": commit_summary[:200],
+                "key_commit": key_commit,  # Most interesting commit for narrative
+                "type": e.get("type"),
+                "branch": d.get("branch", ""),
+                "github_url": github_url  # Add GitHub URL for proper linking
+            }
+            
+            # Add rich details for PushEvents and other event types
+            if e.get("type") in ["PushEvent", "IssueCommentEvent", "PullRequestReviewCommentEvent", "PullRequestReviewEvent"]:
+                row_data.update({
+                    "numbers": numbers,
+                    "files_hint": files_hint,
+                    "config_values": self._extract_config_values(body_text),
+                    "error_strings": self._extract_error_strings(body_text)
+                })
+            
+            rows.append(row_data)
+        return rows
+
+    def _extract_config_values(self, text: str) -> List[str]:
+        """Extract configuration values from text."""
+        config_patterns = [
+            r'(\d+)s\s*timeout',
+            r'(\d+)MB\s*memory',
+            r'(\d+)\s*clips?',
+            r'(\d+)\s*files?',
+            r'(\d+)\s*commits?',
+            r'rate\s*limit[:\s]*(\d+)',
+            r'timeout[:\s]*(\d+)',
+            r'memory[:\s]*(\d+)'
+        ]
+        values = []
+        for pattern in config_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            values.extend(matches)
+        return values[:3]  # Limit to 3 most relevant
+
+    def _extract_error_strings(self, text: str) -> List[str]:
+        """Extract error-related strings from text."""
+        error_patterns = [
+            r'error[:\s]*([^.\n]{10,50})',
+            r'failed[:\s]*([^.\n]{10,50})',
+            r'timeout[:\s]*([^.\n]{10,50})',
+            r'crash[:\s]*([^.\n]{10,50})'
+        ]
+        errors = []
+        for pattern in error_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            errors.extend(matches)
+        return errors[:2]  # Limit to 2 most relevant
+
+    def _extract_result_json(self, text: str) -> str:
+        """Extract JSON from sentinel tags and clean it."""
+        start = text.find("<RESULT_JSON>")
+        end = text.find("</RESULT_JSON>")
+        if start != -1 and end != -1:
+            json_text = text[start+13:end].strip()
+        else:
+            json_text = text.strip()
+        
+        # Clean control characters and other JSON issues
+        json_text = self._clean_json_text(json_text)
+        return json_text
+
+    def _clean_json_text(self, json_text: str) -> str:
+        """Clean JSON text to remove control characters and other issues."""
+        import re
+        
+        # Remove control characters (except \n, \r, \t)
+        json_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json_text)
+        
+        # Remove any non-printable characters but keep JSON structure
+        json_text = re.sub(r'[^\x20-\x7E\n\r\t{}[\]",:]+', '', json_text)
+        
+        # Fix common JSON issues
+        json_text = re.sub(r'\\n', '\\n', json_text)  # Ensure proper newline escaping
+        json_text = re.sub(r'\\"', '\\"', json_text)  # Ensure proper quote escaping
+        
+        # Remove any trailing commas before closing braces/brackets
+        json_text = re.sub(r',(\s*[}\]])', r'\1', json_text)
+        
+        # Fix unescaped quotes in content strings
+        json_text = re.sub(r'"content":\s*"([^"]*)"([^"]*)"([^"]*)"', r'"content": "\1\2\3"', json_text)
+        
+        # Remove JSON fragments that might be embedded in content
+        json_text = re.sub(r',\s*anchors_used:\s*\[\]', '', json_text)
+        json_text = re.sub(r',\s*char_count\s*[0-9]*', '', json_text)
+        json_text = re.sub(r'\s*anchors_used:\s*\[\]', '', json_text)
+        json_text = re.sub(r'\s*char_count\s*[0-9]*', '', json_text)
+        
+        # Remove more complex JSON fragments
+        json_text = re.sub(r',\s*anchors_used:\s*\[[^\]]*\]', '', json_text)
+        json_text = re.sub(r'\s*anchors_used:\s*\[[^\]]*\]', '', json_text)
+        json_text = re.sub(r',\s*anchors_used\s*$', '', json_text)
+        json_text = re.sub(r'\s*anchors_used\s*$', '', json_text)
+        
+        # Remove any remaining problematic characters
+        json_text = re.sub(r'[^\x20-\x7E\n\r\t{}[\]",:]+', '', json_text)
+        
+        return json_text
+
+    def _extract_last_sentence(self, text: str) -> str:
+        """Extract the last sentence from text."""
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        return sentences[-1] if sentences else ""
+
+    def _generate_outline(self, date, prs_rows, clips_rows):
+        """Generate a brief outline for the blog post using actual data anchors."""
+        system = (
+            "Return JSON only inside <RESULT_JSON>...</RESULT_JSON>. "
+            "Do not add code fences or extra text."
+        )
+        
+        # Extract actual anchors from the data
+        pr_anchors = [row["anchor"] for row in prs_rows]
+        clip_anchors = [row["anchor"] for row in clips_rows]
+        all_anchors = pr_anchors + clip_anchors
+        
+        user = f"""
+DATE: {date}
+
+TASK:
+Create a brief plan for a long-form blog post in Paul Chris Luke's voice.
+Sections to plan: Hook, Context, What Shipped, Twitch Clips, Why It Matters, Human Story, Wrap-Up.
+
+AVAILABLE DATA ANCHORS (use these exact anchor tokens):
+{all_anchors}
+
+DATA (MODEL-READABLE):
+PRS_JSON:
+<PRS_JSON>
+{json.dumps(prs_rows, ensure_ascii=False)}
+</PRS_JSON>
+
+GITHUB_URLS (use these for proper linking):
+{chr(10).join([f"{row['anchor']} -> {row.get('github_url', 'No URL')}" for row in prs_rows if row.get('github_url')])}
+
+CLIPS_JSON:
+<CLIPS_JSON>
+{json.dumps(clips_rows, ensure_ascii=False)}
+</CLIPS_JSON>
+
+OUTPUT (JSON inside <RESULT_JSON> tags):
+{{
+  "schema_version":"v1",
+  "thesis":"",
+  "tone":{{"humor":"dry","energy":"medium"}},
+  "section_plan":{{
+    "Hook":{{"goal":"", "uses":[]}},
+    "Context":{{"goal":"", "uses":[]}},
+    "What Shipped":{{"goal":"", "uses":[]}},
+    "Twitch Clips":{{"goal":"", "uses":[]}},
+    "Why It Matters":{{"goal":"", "uses":[]}},
+    "Human Story":{{"goal":"", "uses":[]}},
+    "Wrap-Up":{{"goal":"", "uses":[]}}
+  }},
+  "transition_seeds":{{
+    "Hook->Context":"",
+    "Context->What Shipped":"",
+    "What Shipped->Twitch Clips":"",
+    "Twitch Clips->Why It Matters":"",
+    "Why It Matters->Human Story":"",
+    "Human Story->Wrap-Up":""
+  }}
+}}
+
+RULES:
+- For "uses" arrays, ONLY use the exact anchor tokens from AVAILABLE_DATA_ANCHORS above
+- Distribute the available anchors across sections logically (e.g., EVENT anchors for "What Shipped", CLIP anchors for "Twitch Clips")
+- If no data available, leave "uses" as empty arrays
+- Focus on creating a coherent narrative flow
+- Example: if you have [EVENT:54113400422] and [CLIP:abc123], use them like ["[EVENT:54113400422]", "[CLIP:abc123]"]
+"""
+        raw = self.ai_client.generate(user, system, max_tokens=700)
+        try:
+            js = json.loads(self._extract_result_json(raw))
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in outline generation: {e}")
+            logger.error(f"Raw response: {raw[:500]}...")
+            # Try to extract and clean the JSON more aggressively
+            json_text = self._extract_result_json(raw)
+            json_text = self._clean_json_text(json_text)
+            js = json.loads(json_text)
+        return js
+
+    def _generate_sections_group(self, date, outline, state, prs_rows, clips_rows, group_name, sections_in_group, pr_ids=None, clip_ids=None):
+        """Generate a group of sections in a single call with enhanced prompts."""
+        pr_subset = [r for r in prs_rows if not pr_ids or f"[EVENT:{r['id']}]" in pr_ids]
+        clip_subset = [r for r in clips_rows if not clip_ids or f"[CLIP:{r['id']}]" in clip_ids]
+
+        # Determine word targets based on group (pushed to 2.7-3.2k total)
+        if group_name == "hook_ctx":
+            target_words = "850-1000 words combined"
+            per_section_min, per_section_max = 425, 500
+            max_tokens = 2400
+        elif group_name == "shipped_clips":
+            target_words = "1100-1250 words combined"
+            per_section_min, per_section_max = 550, 625
+            max_tokens = 2600
+        elif group_name == "why_human_wrap":
+            target_words = "1200-1400 words combined"
+            per_section_min, per_section_max = 400, 467
+            max_tokens = 2800
+        else:
+            target_words = "500-600 words per section"
+            per_section_min, per_section_max = 500, 600
+            max_tokens = 2000
+
+        # Get voice prompt for consistency
+        voice_prompt = self._load_voice_prompt()
+
+        # Initialize motifs if not present
+        if "motifs" not in state:
+            state["motifs"] = ["automation paradox", "Clanker", "live-streaming rubber duck", "tech debt", "caffeine-fueled coding"]
+        if "motifs_used" not in state:
+            state["motifs_used"] = []
+
+        system = f"""
+{voice_prompt}
+
+Return JSON only inside <RESULT_JSON>...</RESULT_JSON>. 
+No extra text, no code fences. Long-form paragraphs only.
+
+EVIDENCE BUDGET (HARD REQUIREMENTS):
+- Include at least 3 concrete facts per section (IDs, numbers, filenames, config values, error strings)
+- Use at least 1 transcript quote when clips are provided (prefix with "Transcript:")
+- Mention exact IDs via anchors (e.g., [EVENT:53857843117], [CLIP:xyz])
+- If fewer than 3 facts exist, use all available facts and add [MISSING:<field>] once
+
+LENGTH ENFORCEMENT (CRITICAL):
+- You have {max_tokens} tokens available - USE ALL OF THEM
+- Target {target_words} total - DO NOT STOP EARLY
+- Each section must be at least {per_section_min} words
+- If you're under target, ADD MORE DETAIL, EXAMPLES, ANECDOTES
+- Expand technical explanations, add more personal stories
+- Include more [meta-aside] and [humor-dry] moments if needed
+
+TONE REQUIREMENTS (must include in each section):
+- One [meta-aside] line with self-aware commentary
+- One [humor-dry] line with witty observation  
+- One [dev-jargon] moment explained in plain English
+- Use exactly one motif from MOTIFS (rotate to avoid repetition)
+- Maintain Paul Chris Luke's distinctive voice throughout
+"""
+        
+        uses_plan = {s: outline["section_plan"].get(s, {}).get("uses", []) for s in sections_in_group}
+        goals_plan = {s: outline["section_plan"].get(s, {}).get("goal", "") for s in sections_in_group}
+
+        # Create transition hints
+        transition_hints = {}
+        for i in range(len(sections_in_group) - 1):
+            key = f"{sections_in_group[i]}->{sections_in_group[i+1]}"
+            transition_hints[key] = outline.get("transition_seeds", {}).get(key, "")
+
+        # Select motif for this group (enforce rotation - no repeats until all used)
+        available_motifs = [m for m in state["motifs"] if m not in state["motifs_used"]]
+        if not available_motifs:
+            # All motifs used once, reset and start over
+            available_motifs = state["motifs"]
+            state["motifs_used"] = []
+            logger.info(f"🔄 Motif rotation: All motifs used, resetting for {group_name}")
+        
+        selected_motif = available_motifs[0]
+        state["motifs_used"].append(selected_motif)
+        logger.info(f"🎭 Using motif '{selected_motif}' for {group_name} (used: {len(state['motifs_used'])}/{len(state['motifs'])})")
+
+        user = f"""
+DATE: {date}
+
+MOTIFS: {state["motifs"]}
+SELECTED_MOTIF: {selected_motif} (use this one in this section group)
+
+STATE:
+- thesis: {outline.get('thesis','')}
+- tone: {outline.get('tone',{})}
+- prev_last_sentence: "{state.get('prev_last_sentence','')}"
+- transition_hints: {transition_hints}
+
+SECTIONS (exact H2 headings in this order): {sections_in_group}
+TARGET LENGTH: ~{target_words} words total for this group.
+PER SECTION: ~{per_section_min}–{per_section_max} words.
+
+SECTION_GOALS: {goals_plan}
+SECTION_USES (anchors you MUST cite when available): {uses_plan}
+
+Anchor format:
+- Events: [EVENT:<id>] (for all GitHub events including PRs, issues, comments, etc.)
+- Clips:  [CLIP:<id>] (for Twitch clips)
+Do not output container tags as anchors. Example: "In [EVENT:53857843117], I raised the timeout to 900s and memory to 3008MB."
+
+IMPORTANT: Use the GitHub URLs provided in GITHUB_URLS section for proper linking.
+Instead of just using [EVENT:123], use the full GitHub URL when referencing events.
+Example: "In [this pull request](https://github.com/paulchrisluke/pcl-labs/pull/44), I implemented..."
+
+RULES (HARD):
+- Start the first section with a one-sentence bridge from prev_last_sentence (do not repeat it verbatim)
+- Include ≥ 3 concrete facts per section (IDs, numbers, filenames, config values, errors, quotes)
+- If quoting a transcript, prefix with "Transcript:"
+- Use exactly one motif per section from MOTIFS (rotate; do not reuse the same motif consecutively)
+- First-person; witty; accurate; well-formatted markdown
+- CRITICAL: Target {target_words} - DO NOT END EARLY, write until you reach the target
+- Each section MUST be at least {per_section_min} words - if you're under, ADD MORE DETAIL
+- Use ALL available tokens - the AI has {max_tokens} tokens available, USE THEM ALL
+- Expand on technical details, add more examples, include more personal anecdotes
+- If you're running short, add more meta-commentary and dry humor naturally
+- CRITICAL: ONLY use anchors that exist in the provided data - DO NOT generate fake anchors like [CLIP:xyz] or [PR:1234]
+- If no clips are available, do not reference clips at all - focus on other content
+
+MARKDOWN FORMATTING RULES:
+- Use **bold** for technical terms, config values, and key concepts
+- Use `code formatting` for file names, commands, and technical values
+- Use > blockquotes for transcript excerpts and important quotes
+- Break long paragraphs into 2-3 shorter paragraphs for readability
+- Use bullet points (-) for technical details and lists when appropriate
+- Use numbered lists (1.) for step-by-step processes
+- Use *italics* for emphasis and meta-commentary
+- Keep paragraphs to 3-4 sentences maximum for better scanning
+- DO NOT include [meta-aside], [humor-dry], or [dev-jargon] tags in the final output
+- Write meta-commentary naturally without special tags
+- IMPORTANT: When using bullet points, add a blank line before the first bullet
+- Example: "The features include:\n\n- Feature 1\n- Feature 2" (not "The features include: - Feature 1")
+
+DATA:
+EVENTS_JSON:
+<EVENTS_JSON>
+{json.dumps(pr_subset, ensure_ascii=False)}
+</EVENTS_JSON>
+
+GITHUB_URLS (use these for proper linking):
+{chr(10).join([f"{row['anchor']} -> {row.get('github_url', 'No URL')}" for row in pr_subset if row.get('github_url')])}
+
+CLIPS_JSON:
+<CLIPS_JSON>
+{json.dumps(clip_subset, ensure_ascii=False)}
+</CLIPS_JSON>
+
+Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
+{{
+  "schema_version":"v1",
+  "sections": {{
+    "{sections_in_group[0]}": {{"content":"", "anchors_used":[], "char_count":0}},
+    {(",".join([f'"{s}": {{"content":"", "anchors_used":[], "char_count":0}}' for s in sections_in_group[1:]]) if len(sections_in_group)>1 else "")}
+  }}
+}}
+"""
+        raw = self.ai_client.generate(user, system, max_tokens=max_tokens)
+        try:
+            js = json.loads(self._extract_result_json(raw))
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in section group {group_name}: {e}")
+            logger.error(f"Raw response: {raw[:500]}...")
+            # Try to extract and clean the JSON more aggressively
+            json_text = self._extract_result_json(raw)
+            json_text = self._clean_json_text(json_text)
+            try:
+                js = json.loads(json_text)
+            except json.JSONDecodeError:
+                # Last resort: try to extract content manually
+                logger.warning(f"Using manual content extraction for {group_name}")
+                js = self._extract_content_manually(json_text, sections_in_group)
+        
+        # Quality gates with retry
+        js = self._validate_and_retry_section_group(js, sections_in_group, uses_plan, state, user, system, max_tokens, group_name)
+        
+        # Update state with last sentence of the last section in group
+        last_section = sections_in_group[-1]
+        content = js["sections"][last_section]["content"]
+        state["prev_last_sentence"] = self._extract_last_sentence(content)
+        return js
+
+    def _stitch_sections(self, outline, blocks):
+        """Stitch sections together into final blog post."""
+        order = ["Hook","Context","What Shipped","Twitch Clips","Why It Matters","Human Story","Wrap-Up"]
+        parts = []
+        for sec in order:
+            if sec in blocks:
+                # Clean the content before stitching
+                raw_content = blocks[sec]['content'].strip()
+                clean_content = self._clean_section_content(raw_content)
+                
+                # Generate SEO-friendly header based on content
+                seo_header = self._generate_seo_header(sec, clean_content, outline)
+                parts.append(f"## {seo_header}\n\n{clean_content}\n")
+        content = "\n".join(parts).strip()
+        return {
+            "title": self._derive_title(outline, content),
+            "description": self._derive_description(content),
+            "tags": self._derive_tags(content),
+            "content": content,
+            "markdown_body": content
+        }
+
+    def _derive_title(self, outline, content):
+        """Derive title from outline and content."""
+        # Simple title derivation - could be enhanced
+        thesis = outline.get("thesis", "")
+        if thesis:
+            # Extract a short title from the thesis
+            words = thesis.split()[:8]  # First 8 words
+            return " ".join(words).rstrip(".,!?")
+        return "Daily Development Update"
+
+    def _derive_description(self, content):
+        """Derive meta description from content."""
+        # Extract first paragraph or first few sentences
+        first_para = content.split('\n\n')[0] if content else ""
+        if len(first_para) > 150:
+            first_para = first_para[:147] + "..."
+        return first_para
+
+    def _derive_tags(self, content):
+        """Derive tags from content."""
+        # Simple tag extraction - could be enhanced
+        tags = ["development", "automation", "ai"]
+        if "twitch" in content.lower():
+            tags.append("streaming")
+        if "github" in content.lower():
+            tags.append("github")
+        return tags
+
+    def _validate_section_group(self, js, sections_in_group, uses_plan, state):
+        """Validate section group quality and enforce requirements."""
+        for section in sections_in_group:
+            if section not in js.get("sections", {}):
+                logger.warning(f"⚠️ Missing section: {section}")
+                continue
+                
+            section_data = js["sections"][section]
+            content = section_data.get("content", "")
+            anchors_used = section_data.get("anchors_used", [])
+            
+            # Word count check
+            word_count = len(content.split())
+            if word_count < 400:
+                logger.warning(f"⚠️ Section {section} too short: {word_count} words (min: 400)")
+            
+            # Anchor usage check (only warn if there are actual anchors expected)
+            expected_anchors = uses_plan.get(section, [])
+            if expected_anchors and not any(anchor in content for anchor in expected_anchors):
+                logger.warning(f"⚠️ Section {section} missing required anchors: {expected_anchors}")
+            elif not expected_anchors:
+                logger.info(f"ℹ️ Section {section} has no anchor requirements (no data available)")
+            
+            # Continuity check for first section
+            if section == sections_in_group[0] and state.get("prev_last_sentence"):
+                # Check for topic overlap with previous sentence
+                prev_words = set(state["prev_last_sentence"].lower().split())
+                first_sentence = content.split('.')[0].lower()
+                first_words = set(first_sentence.split())
+                overlap = len(prev_words.intersection(first_words))
+                if overlap < 2:
+                    logger.warning(f"⚠️ Section {section} may lack continuity with previous content")
+            
+            logger.info(f"✅ Section {section}: {word_count} words, {len(anchors_used)} anchors used")
+
+    def _needs_expansion(self, text: str, min_words: int = 450) -> bool:
+        """Check if text needs expansion based on word count."""
+        return len(re.findall(r"\w+", text)) < min_words
+
+    def _validate_and_retry_section_group(self, js, sections_in_group, uses_plan, state, user, system, max_tokens, group_name):
+        """Validate section group and retry if needed."""
+        retry_needed = False
+        retry_reasons = []
+        
+        for section in sections_in_group:
+            if section not in js.get("sections", {}):
+                logger.warning(f"⚠️ Missing section: {section}")
+                continue
+                
+            section_data = js["sections"][section]
+            content = section_data.get("content", "")
+            anchors_used = section_data.get("anchors_used", [])
+            
+            # Word count check
+            word_count = len(content.split())
+            min_words = 450 if section != "Wrap-Up" else 300
+            
+            if word_count < min_words:
+                retry_needed = True
+                retry_reasons.append(f"Section {section} too short: {word_count} words (min: {min_words})")
+            
+            # Anchor usage check
+            expected_anchors = uses_plan.get(section, [])
+            if expected_anchors and not any(anchor in content for anchor in expected_anchors):
+                retry_needed = True
+                retry_reasons.append(f"Section {section} missing required anchors: {expected_anchors}")
+        
+        # Retry if needed
+        if retry_needed:
+            logger.warning(f"🔄 Retrying section group {group_name} due to: {', '.join(retry_reasons)}")
+            fix_msg = f"REVISION REQUEST: {'; '.join(retry_reasons)}. Keep the same JSON shape; expand content only."
+            retry_user = user + f"\n\n{fix_msg}"
+            
+            try:
+                raw = self.ai_client.generate(retry_user, system, max_tokens=max_tokens)
+                try:
+                    js = json.loads(self._extract_result_json(raw))
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON parsing error in retry for {group_name}: {e}")
+                    # Try to extract and clean the JSON more aggressively
+                    json_text = self._extract_result_json(raw)
+                    json_text = self._clean_json_text(json_text)
+                    # If still failing, try to extract just the content fields
+                    try:
+                        js = json.loads(json_text)
+                    except json.JSONDecodeError:
+                        # Last resort: try to extract content manually
+                        js = self._extract_content_manually(json_text, sections_in_group)
+                logger.info(f"✅ Retry successful for section group {group_name}")
+            except Exception as e:
+                logger.error(f"❌ Retry failed for section group {group_name}: {e}")
+                # Return original js if retry fails
+        
+        return js
+
+    def _extract_content_manually(self, json_text: str, sections_in_group: List[str]) -> Dict:
+        """Manually extract content from malformed JSON as last resort."""
+        import re
+        
+        result = {"schema_version": "v1", "sections": {}}
+        
+        for section in sections_in_group:
+            # Try to find content for this section with better pattern
+            pattern = rf'"{section}":\s*{{\s*"content":\s*"([^"]*(?:\\.[^"]*)*)"'
+            match = re.search(pattern, json_text, re.DOTALL)
+            if match:
+                content = match.group(1)
+                # Clean up the content more aggressively
+                content = content.replace('\\"', '"').replace('\\n', '\n')
+                # Use the new cleaning method
+                content = self._clean_section_content(content)
+                
+                result["sections"][section] = {
+                    "content": content,
+                    "anchors_used": [],
+                    "char_count": len(content)
+                }
+            else:
+                # Fallback: create empty section
+                result["sections"][section] = {
+                    "content": f"## {section}\n\n[Content extraction failed]",
+                    "anchors_used": [],
+                    "char_count": 0
+                }
+        
+        return result
+
+    def _clean_section_content(self, content: str) -> str:
+        """Clean section content to remove JSON fragments and formatting issues."""
+        import re
+        
+        # Remove JSON fragments that might be embedded in content
+        content = re.sub(r',\s*anchors_used:\s*\[\]', '', content)
+        content = re.sub(r',\s*char_count\s*[0-9]*', '', content)
+        content = re.sub(r'\s*anchors_used:\s*\[\]', '', content)
+        content = re.sub(r'\s*char_count\s*[0-9]*', '', content)
+        
+        # Remove more complex JSON fragments
+        content = re.sub(r',\s*anchors_used:\s*\[[^\]]*\]', '', content)
+        content = re.sub(r'\s*anchors_used:\s*\[[^\]]*\]', '', content)
+        content = re.sub(r',\s*anchors_used\s*$', '', content)
+        content = re.sub(r'\s*anchors_used\s*$', '', content)
+        
+        # Remove any remaining JSON-like fragments
+        content = re.sub(r'\s*,\s*$', '', content)  # Remove trailing commas
+        content = re.sub(r'^\s*,\s*', '', content)  # Remove leading commas
+        
+        # Clean up any malformed anchor references
+        content = re.sub(r'\[\[([^\]]+)\]\]', r'[\1]', content)  # Fix double brackets
+        
+        # Remove any control characters
+        content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', content)
+        
+        # Clean up extra whitespace while preserving markdown formatting
+        content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)  # Max 2 newlines
+        # Don't normalize spaces too aggressively - preserve markdown formatting
+        content = re.sub(r'[ \t]+', ' ', content)  # Normalize spaces but preserve line breaks
+        content = content.strip()
+        
+        # Ensure proper markdown formatting
+        # Fix any broken markdown links
+        content = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](\2)', content)
+        
+        # Fix malformed bullet points - add line breaks before bullets
+        content = re.sub(r': - ', ':\n\n- ', content)
+        content = re.sub(r'\. - ', '.\n\n- ', content)
+        content = re.sub(r'! - ', '!\n\n- ', content)
+        # Handle bullets with bold formatting
+        content = re.sub(r': - \*\*', ':\n\n- **', content)
+        content = re.sub(r'\. - \*\*', '.\n\n- **', content)
+        content = re.sub(r'! - \*\*', '!\n\n- **', content)
+        
+        # Ensure blockquotes have proper spacing
+        content = re.sub(r'\n>', '\n\n>', content)
+        content = re.sub(r'>\n', '>\n\n', content)
+        
+        # Remove meta-tags that shouldn't appear in final output
+        content = re.sub(r'\[meta-aside\]', '', content)
+        content = re.sub(r'\[humor-dry\]', '', content)
+        content = re.sub(r'\[dev-jargon\]', '', content)
+        content = re.sub(r'\[META-ASIDE\]', '', content)
+        content = re.sub(r'\[HUMOR-DRY\]', '', content)
+        content = re.sub(r'\[DEV-JARGON\]', '', content)
+        
+        # Clean up any extra spaces left by removed tags
+        content = re.sub(r'\s+', ' ', content)
+        content = re.sub(r'\n\s*\n', '\n\n', content)
+        
+        return content
+
+    def _generate_seo_header(self, section_name: str, content: str, outline: Dict) -> str:
+        """Generate SEO-friendly headers based on section content and outline."""
+        import re
+        
+        # Extract key terms from content for SEO
+        content_lower = content.lower()
+        
+        # Section-specific header generation
+        if section_name == "Hook":
+            # Look for key project names, technologies, or themes
+            if "automation" in content_lower:
+                return "The Automation Paradox: Building Tools That Might Replace Me"
+            elif "ai" in content_lower or "artificial intelligence" in content_lower:
+                return "AI Development Insights: When Technology Meets Human Creativity"
+            elif "blog" in content_lower or "content" in content_lower:
+                return "Content Creation in the Age of AI: A Developer's Perspective"
+            else:
+                return "Daily Development Update: Behind the Scenes of Tech Innovation"
+                
+        elif section_name == "Context":
+            if "project" in content_lower:
+                return "Project Context: The Journey So Far"
+            elif "challenge" in content_lower or "problem" in content_lower:
+                return "The Challenge: Understanding the Problem Space"
+            else:
+                return "Setting the Stage: The Development Context"
+                
+        elif section_name == "What Shipped":
+            if "feature" in content_lower:
+                return "What Shipped: New Features and Improvements"
+            elif "fix" in content_lower or "bug" in content_lower:
+                return "What Shipped: Bug Fixes and Performance Improvements"
+            elif "api" in content_lower:
+                return "What Shipped: API Updates and Integration Improvements"
+            else:
+                return "What Shipped: Latest Development Updates"
+                
+        elif section_name == "Twitch Clips":
+            if "stream" in content_lower or "live" in content_lower:
+                return "Live Stream Highlights: Community Engagement and Feedback"
+            else:
+                return "Community Highlights: Twitch Stream Insights"
+                
+        elif section_name == "Why It Matters":
+            if "impact" in content_lower:
+                return "Why It Matters: The Broader Impact"
+            elif "future" in content_lower:
+                return "Why It Matters: Looking Toward the Future"
+            else:
+                return "Why It Matters: The Bigger Picture"
+                
+        elif section_name == "Human Story":
+            if "experience" in content_lower or "journey" in content_lower:
+                return "The Human Side: Personal Development Journey"
+            elif "learning" in content_lower:
+                return "The Human Side: Lessons Learned"
+            else:
+                return "The Human Side: Behind the Code"
+                
+        elif section_name == "Wrap-Up":
+            if "conclusion" in content_lower or "summary" in content_lower:
+                return "Wrapping Up: Key Takeaways and Next Steps"
+            else:
+                return "Final Thoughts: Reflections and Future Directions"
+        
+        # Fallback to section name if no specific match
+        return section_name
+
+    def _find_weakest_section(self, blocks: Dict) -> str:
+        """Find the section with the lowest word count for expansion."""
+        section_word_counts = {}
+        for section_name, section_data in blocks.items():
+            content = section_data.get("content", "")
+            word_count = len(content.split())
+            section_word_counts[section_name] = word_count
+        
+        if not section_word_counts:
+            return "Wrap-Up"  # Default fallback
+        
+        weakest_section = min(section_word_counts.items(), key=lambda x: x[1])
+        logger.info(f"📊 Section word counts: {section_word_counts}")
+        logger.info(f"🔍 Weakest section: {weakest_section[0]} ({weakest_section[1]} words)")
+        return weakest_section[0]
+
+    def _expand_weakest_section(self, date: str, blocks: Dict, weakest_section: str, prs_rows: List, clips_rows: List) -> str:
+        """Add 2 more paragraphs to the weakest section."""
+        voice_prompt = self._load_voice_prompt()
+        
+        system = f"""
+{voice_prompt}
+
+Return JSON only inside <RESULT_JSON>...</RESULT_JSON>.
+Add 2 more paragraphs of detail, humor, or reflection to the existing content.
+Do not repeat sentences from the original content.
+"""
+        
+        # Get the current content of the weakest section
+        current_content = blocks.get(weakest_section, {}).get("content", "")
+        
+        user = f"""
+DATE: {date}
+
+SECTION_TO_EXPAND: {weakest_section}
+CURRENT_CONTENT:
+{current_content}
+
+TASK:
+Add exactly 2 more paragraphs (300-400 words total) to expand this section.
+Focus on:
+- Additional technical details or insights
+- Humor or meta-commentary
+- Personal reflection or broader implications
+- Specific examples or anecdotes
+
+RULES:
+- Do NOT repeat any sentences from the current content
+- Maintain Paul Chris Luke's voice and style
+- Include at least one meta-commentary or dry humor moment naturally
+- Add concrete details if possible
+- Target 300-400 words for the expansion
+
+MARKDOWN FORMATTING RULES:
+- Use **bold** for technical terms, config values, and key concepts
+- Use `code formatting` for file names, commands, and technical values
+- Use > blockquotes for transcript excerpts and important quotes
+- Break long paragraphs into 2-3 shorter paragraphs for readability
+- Use bullet points (-) for technical details and lists when appropriate
+- Use numbered lists (1.) for step-by-step processes
+- Use *italics* for emphasis and meta-commentary
+- Keep paragraphs to 3-4 sentences maximum for better scanning
+- DO NOT include [meta-aside], [humor-dry], or [dev-jargon] tags in the final output
+- Write meta-commentary naturally without special tags
+- IMPORTANT: When using bullet points, add a blank line before the first bullet
+- Example: "The features include:\n\n- Feature 1\n- Feature 2" (not "The features include: - Feature 1")
+
+DATA:
+EVENTS_JSON:
+<EVENTS_JSON>
+{json.dumps(prs_rows, ensure_ascii=False)}
+</EVENTS_JSON>
+
+GITHUB_URLS (use these for proper linking):
+{chr(10).join([f"{row['anchor']} -> {row.get('github_url', 'No URL')}" for row in prs_rows if row.get('github_url')])}
+
+CLIPS_JSON:
+<CLIPS_JSON>
+{json.dumps(clips_rows, ensure_ascii=False)}
+</CLIPS_JSON>
+
+Return JSON only inside <RESULT_JSON>…</RESULT_JSON>:
+{{
+  "schema_version": "v1",
+  "expansion": {{
+    "content": "",
+    "word_count": 0
+  }}
+}}
+"""
+        
+        raw = self.ai_client.generate(user, system, max_tokens=1000)
+        try:
+            js = json.loads(self._extract_result_json(raw))
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in expansion: {e}")
+            json_text = self._extract_result_json(raw)
+            json_text = self._clean_json_text(json_text)
+            try:
+                js = json.loads(json_text)
+            except json.JSONDecodeError:
+                # Last resort: create a simple expansion
+                logger.warning("Using fallback expansion content")
+                js = {
+                    "schema_version": "v1",
+                    "expansion": {
+                        "content": f"\n\n[META-ASIDE] Sometimes the best features come from the most unexpected places. [HUMOR-DRY] Like when you're debugging at 3 AM and suddenly realize you've been solving the wrong problem entirely. This feature represents more than just technical achievement—it's a testament to the power of iteration, persistence, and the occasional stroke of genius that comes from staring at code for too long.",
+                        "word_count": 0
+                    }
+                }
+        
+        expansion_content = js.get("expansion", {}).get("content", "")
+        expansion_word_count = js.get("expansion", {}).get("word_count", 0)
+        
+        logger.info(f"📈 Expansion for {weakest_section}: {expansion_word_count} words")
+        return expansion_content

@@ -41,7 +41,10 @@ class BlogPostProcessor:
         """
         processed_content = ai_content
         
-        # Add specific PR links
+        # First, handle anchor format from comprehensive blog generator
+        processed_content = self._process_anchor_links(processed_content, digest)
+        
+        # Then handle legacy format for backward compatibility
         processed_content = self._add_pr_links(processed_content, digest)
         
         # Add video embeds with proper URLs and track processed clips
@@ -55,6 +58,105 @@ class BlogPostProcessor:
         processed_content = self._add_signature(processed_content)
         
         return processed_content
+    
+    def _process_anchor_links(self, content: str, digest: Dict[str, Any]) -> str:
+        """Process anchor format links from comprehensive blog generator."""
+        # Process PR anchors [PR:1234]
+        content = self._process_pr_anchors(content, digest)
+        
+        # Process clip anchors [CLIP:abc123]
+        content = self._process_clip_anchors(content, digest)
+        
+        # Process event anchors [EVENT:567890]
+        content = self._process_event_anchors(content, digest)
+        
+        return content
+    
+    def _process_pr_anchors(self, content: str, digest: Dict[str, Any]) -> str:
+        """Process PR anchor format [PR:1234] to proper links."""
+        github_events = digest.get('github_events', [])
+        
+        for event in github_events:
+            if event.get('type') == 'PullRequestEvent' and event.get('details', {}).get('merged', False):
+                pr_number = event.get('details', {}).get('number')
+                pr_title = event.get('details', {}).get('title', '')
+                
+                if pr_number:
+                    # Look for PR anchor format [PR:1234]
+                    pr_anchor_pattern = rf'\[PR:{pr_number}\]'
+                    pr_link = f'[PR #{pr_number}](https://github.com/paulchrisluke/pcl-labs/pull/{pr_number})'
+                    
+                    if re.search(pr_anchor_pattern, content):
+                        content = re.sub(pr_anchor_pattern, pr_link, content)
+                        self.logger.info(f"Processed PR anchor [PR:{pr_number}] to link: {pr_title}")
+        
+        return content
+    
+    def _process_clip_anchors(self, content: str, digest: Dict[str, Any]) -> str:
+        """Process clip anchor format [CLIP:abc123] to video embeds."""
+        twitch_clips = digest.get('twitch_clips', [])
+        
+        for clip in twitch_clips:
+            clip_id = clip.get('id', '')
+            clip_title = clip.get('title', '')
+            clip_url = clip.get('url', '')
+            
+            if clip_id and clip_url:
+                # Look for clip anchor format [CLIP:abc123]
+                clip_anchor_pattern = rf'\[CLIP:{re.escape(clip_id)}\]'
+                
+                # Extract clip ID from URL for proper embed
+                embed_clip_id = self._extract_clip_id_from_url(clip_url)
+                
+                if embed_clip_id:
+                    video_embed = (
+                        f'<iframe '
+                        f'src="https://clips.twitch.tv/embed?clip={embed_clip_id}&parent={self.twitch_embed_domains}" '
+                        f'width="640" height="360" frameborder="0" scrolling="no" allowfullscreen="true">'
+                        f'</iframe>'
+                    )
+                    
+                    if re.search(clip_anchor_pattern, content):
+                        # Replace anchor with video embed
+                        content = re.sub(clip_anchor_pattern, video_embed, content)
+                        self.logger.info(f"Processed clip anchor [CLIP:{clip_id}] to video embed: {clip_title}")
+                else:
+                    # Fallback to simple link if embed fails
+                    clip_link = f'[Clip: {clip_title}]({clip_url})'
+                    content = re.sub(clip_anchor_pattern, clip_link, content)
+                    self.logger.info(f"Processed clip anchor [CLIP:{clip_id}] to link: {clip_title}")
+        
+        return content
+    
+    def _process_event_anchors(self, content: str, digest: Dict[str, Any]) -> str:
+        """Process event anchor format [EVENT:567890] to proper links."""
+        github_events = digest.get('github_events', [])
+        
+        for event in github_events:
+            event_id = event.get('id', '')
+            event_type = event.get('type', '')
+            
+            if event_id:
+                # Look for event anchor format [EVENT:567890]
+                event_anchor_pattern = rf'\[EVENT:{event_id}\]'
+                
+                # Create appropriate link based on event type
+                if event_type == 'PullRequestEvent':
+                    pr_number = event.get('details', {}).get('number')
+                    if pr_number:
+                        event_link = f'[PR #{pr_number}](https://github.com/paulchrisluke/pcl-labs/pull/{pr_number})'
+                    else:
+                        event_link = f'[Event {event_id}](https://github.com/paulchrisluke/pcl-labs/events/{event_id})'
+                elif event_type == 'PushEvent':
+                    event_link = f'[Push Event {event_id}](https://github.com/paulchrisluke/pcl-labs/commit/{event_id})'
+                else:
+                    event_link = f'[Event {event_id}](https://github.com/paulchrisluke/pcl-labs/events/{event_id})'
+                
+                if re.search(event_anchor_pattern, content):
+                    content = re.sub(event_anchor_pattern, event_link, content)
+                    self.logger.info(f"Processed event anchor [EVENT:{event_id}] to link: {event_type}")
+        
+        return content
     
     def _add_pr_links(self, content: str, digest: Dict[str, Any]) -> str:
         """Add specific PR links to the content."""

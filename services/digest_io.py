@@ -185,6 +185,17 @@ class DigestIO:
                 digest.get('github_events', [])
             )
             
+            # Post-process the AI content with BlogPostProcessor to add links and embeds
+            from .blog_post_processor import BlogPostProcessor
+            processor = BlogPostProcessor()
+            # Use original events for BlogPostProcessor to have access to all events for anchor conversion
+            processor_digest = digest.copy()
+            processed_content = processor.process_blog_content(ai_content.get("content", ""), processor_digest)
+            
+            # Update AI content with processed content
+            ai_content["content"] = processed_content
+            ai_content["markdown_body"] = processed_content
+            
             # Merge AI content with original digest data
             enriched_digest = digest.copy()
             enriched_digest.update(ai_content)
@@ -193,6 +204,10 @@ class DigestIO:
             prepared_data = generator._prepare_ai_data(target_date, digest.get('twitch_clips', []), digest.get('github_events', []))
             enriched_digest['twitch_clips'] = prepared_data['twitch_clips']
             enriched_digest['github_events'] = prepared_data['github_events']
+            
+            # Keep original events for BlogPostProcessor to convert anchors to links
+            enriched_digest['original_github_events'] = digest.get('github_events', [])
+            enriched_digest['original_twitch_clips'] = digest.get('twitch_clips', [])
             
             # Ensure the meta kind is correct for enriched digest
             enriched_digest["meta"] = {
